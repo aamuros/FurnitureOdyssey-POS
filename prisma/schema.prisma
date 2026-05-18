@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  INACTIVE
+}
+
+enum PermissionModule {
+  CUSTOMERS
+  INQUIRIES
+  QUOTATIONS
+  ORDERS
+  PAYMENTS
+  DELIVERIES
+  DOCUMENTS
+  SALES_HISTORY
+  USERS
+  SETTINGS
+}
+
+enum PermissionAction {
+  VIEW
+  CREATE
+  UPDATE
+  DELETE
+  ASSIGN
+  EXPORT
+  APPROVE
+}
+
+enum ActivityAction {
+  USER_INVITED
+  USER_UPDATED
+  ROLE_CHANGED
+  PERMISSIONS_CHANGED
+  USER_ACTIVATED
+  USER_DEACTIVATED
+  LOGIN_BLOCKED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  INQUIRY_CREATED
+  INQUIRY_UPDATED
+  INQUIRY_ASSIGNED
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum CustomerContactType {
+  PHONE
+  VIBER
+  FACEBOOK_PROFILE
+  FACEBOOK_PAGE
+  EMAIL
+  OTHER
+}
+
+enum InquirySource {
+  FACEBOOK_MARKETPLACE
+  FACEBOOK_PAGE
+  MESSENGER
+  VIBER
+  WALK_IN
+  PHONE
+  REFERRAL
+  OTHER
+}
+
+enum InquiryStatus {
+  NEW
+  IN_PROGRESS
+  WAITING_FOR_CUSTOMER
+  QUOTED
+  CONVERTED_TO_ORDER
+  CLOSED
+  LOST
+}
+
+enum InquiryPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+model UserProfile {
+  id              String           @id @default(uuid()) @db.Uuid
+  authUserId      String           @unique @db.Uuid
+  email           String           @unique
+  displayName     String
+  role            UserRole         @default(STAFF)
+  status          UserStatus       @default(PENDING)
+  phone           String?
+  invitedById     String?          @db.Uuid
+  invitedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  invitedBy       UserProfile?     @relation("UserInvites", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitedUsers    UserProfile[]    @relation("UserInvites")
+  permissions     UserPermission[]
+  activityLogs    ActivityLog[]    @relation("ActorActivity")
+  targetLogs      ActivityLog[]    @relation("TargetActivity")
+  createdCustomers Customer[]       @relation("CustomerCreator")
+  assignedCustomers Customer[]      @relation("CustomerAssignee")
+  createdInquiries Inquiry[]        @relation("InquiryCreator")
+  assignedInquiries Inquiry[]       @relation("InquiryAssignee")
+
+  @@index([role])
+  @@index([status])
+}
+
+model UserPermission {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  module    PermissionModule
+  action    PermissionAction
+  allowed   Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  user      UserProfile      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, action])
+  @@index([module, action])
+}
+
+model ActivityLog {
+  id            String         @id @default(uuid()) @db.Uuid
+  action        ActivityAction
+  actorId       String?        @db.Uuid
+  targetUserId  String?        @db.Uuid
+  summary       String
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  actor         UserProfile?   @relation("ActorActivity", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser    UserProfile?   @relation("TargetActivity", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([targetUserId])
+}
+
+model Customer {
+  id                String            @id @default(uuid()) @db.Uuid
+  customerType      CustomerType
+  displayName       String
+  firstName         String?
+  lastName          String?
+  companyName       String?
+  contactPersonName String?
+  notes             String?
+  createdById       String?           @db.Uuid
+  assignedStaffId   String?           @db.Uuid
+  archivedAt        DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  createdBy         UserProfile?      @relation("CustomerCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  assignedStaff     UserProfile?      @relation("CustomerAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  contacts          CustomerContact[]
+  addresses         CustomerAddress[]
+  inquiries         Inquiry[]
+
+  @@index([customerType])
+  @@index([displayName])
+  @@index([companyName])
+  @@index([assignedStaffId])
+  @@index([createdAt])
+  @@index([archivedAt])
+}
+
+model CustomerContact {
+  id         String              @id @default(uuid()) @db.Uuid
+  customerId String              @db.Uuid
+  type       CustomerContactType
+  label      String?
+  value      String
+  isPrimary  Boolean             @default(false)
+  notes      String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([type])
+  @@index([value])
+}
+
+model CustomerAddress {
+  id            String    @id @default(uuid()) @db.Uuid
+  customerId    String    @db.Uuid
+  label         String?
+  recipientName String?
+  phone         String?
+  addressLine   String
+  city          String?
+  province      String?
+  postalCode    String?
+  notes         String?
+  isDefault     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Inquiry {
+  id                 String          @id @default(uuid()) @db.Uuid
+  customerId         String          @db.Uuid
+  source             InquirySource
+  sourceReference    String?
+  status             InquiryStatus   @default(NEW)
+  priority           InquiryPriority @default(NORMAL)
+  subject            String
+  messageSummary     String?
+  requestedItems     String?
+  budgetRange        String?
+  targetDeliveryDate DateTime?
+  deliveryLocation   String?
+  assignedStaffId    String?         @db.Uuid
+  createdById        String?         @db.Uuid
+  followUpAt         DateTime?
+  lastContactedAt    DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedStaff      UserProfile?    @relation("InquiryAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  createdBy          UserProfile?    @relation("InquiryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([source])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedStaffId])
+  @@index([createdAt])
+  @@index([followUpAt])
+}
