@@ -39,6 +39,9 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Snapshot customer, contact, address, item, image, price, discount, and note data into the order.
 - Create manual orders without requiring a quotation or inventory availability.
 - Recalculate order subtotal, discounts, total, paid amount, balance, payment status, delivery status, and overall order status.
+- Orders workspace now serves as a day-to-day order control center with server-side search, filters, unfinished sales mode, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
+- Orders search covers order number, customer/company/contact values, item names/product codes, inquiry source references, and permission-safe payment or delivery provider references.
+- Payment totals, payment history, delivery schedules, delivery details, and document export actions are conditionally shown according to the existing payment, delivery, and document permissions.
 
 ### Payments
 

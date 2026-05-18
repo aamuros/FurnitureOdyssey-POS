@@ -24,6 +24,17 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  deliveryStatusLabel,
+  documentStatusLabel,
+  documentTypeLabel,
+  orderStatusLabel,
+  paymentDueTimingLabel,
+  paymentStatusLabel,
+  paymentTypeLabel,
+  readableLabel,
+  statusTone
+} from "@/lib/orders/status-labels";
 
 type CustomerOption = {
   id: string;
@@ -57,12 +68,20 @@ type OrderItemRow = {
   unitPrice: string;
   lineTotal: string;
   deliveredQuantity: number;
+  discountAmount: string;
+  customerNotes: string | null;
+  internalNotes: string | null;
 };
 
 type OrderRow = {
   id: string;
   displayId: string;
   customerName: string;
+  companyName: string | null;
+  contactPersonName: string | null;
+  contactSnapshot: string | null;
+  deliveryAddressSnapshot: string | null;
+  assignedStaff: string | null;
   sourceType: string;
   status: string;
   paymentStatus: string;
@@ -75,7 +94,20 @@ type OrderRow = {
   paidAmountValue: number;
   balanceAmount: string;
   balanceAmountValue: number;
+  subtotalAmount: string;
+  itemDiscountTotal: string;
+  orderDiscountAmount: string;
+  customerNotes: string | null;
+  internalNotes: string | null;
+  relatedQuotationId: string | null;
+  relatedQuotationStatus: string | null;
+  relatedInquiryId: string | null;
+  relatedInquiryLabel: string | null;
+  createdAt: string;
   updatedAt: string;
+  lastPaymentDate: string | null;
+  nextDeliveryDate: string | null;
+  nextDeliveryProvider: string | null;
   items: OrderItemRow[];
   payments: Array<{
     id: string;
@@ -92,6 +124,7 @@ type OrderRow = {
     id: string;
     status: string;
     scheduledDate: string | null;
+    scheduledDateLabel: string | null;
     scheduledTimeWindow: string | null;
     deliveryProviderType: string | null;
     deliveryProviderName: string | null;
@@ -101,6 +134,7 @@ type OrderRow = {
     addressLine: string | null;
     receiptGenerated: boolean;
     itemCount: number;
+    assignedStaff: string | null;
     items: Array<{
       id: string;
       itemName: string;
@@ -119,6 +153,14 @@ type OrderRow = {
 };
 
 type OrderWorkspaceProps = {
+  canCreateOrders: boolean;
+  canUpdateOrders: boolean;
+  canViewPayments: boolean;
+  canCreatePayments: boolean;
+  canViewDeliveries: boolean;
+  canCreateDeliveries: boolean;
+  canCreateDocuments: boolean;
+  canExportDocuments: boolean;
   customers: CustomerOption[];
   products: ProductOption[];
   approvedQuotations: ApprovedQuotationOption[];
@@ -192,43 +234,6 @@ function toActionItems(items: ItemDraft[]) {
   }));
 }
 
-function statusTone(status: string) {
-  if (["PAID", "DELIVERED", "COMPLETED", "CONFIRMED", "RECORDED", "GENERATED"].includes(status)) {
-    return "success" as const;
-  }
-
-  if (
-    [
-      "PARTIALLY_PAID",
-      "DOWNPAYMENT_PAID",
-      "BALANCE_DUE_ON_DELIVERY",
-      "SCHEDULED",
-      "SCHEDULED_FOR_DELIVERY",
-      "PARTIALLY_DELIVERED"
-    ].includes(status)
-  ) {
-    return "warning" as const;
-  }
-
-  if (["CANCELLED", "VOIDED", "FAILED"].includes(status)) {
-    return "danger" as const;
-  }
-
-  return "neutral" as const;
-}
-
-function paymentTypeLabel(value: string) {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function documentTypeLabel(value: string) {
-  return paymentTypeLabel(value);
-}
-
 function providerLabel(type: string | null, name: string | null) {
   if (name) {
     return name;
@@ -238,7 +243,7 @@ function providerLabel(type: string | null, name: string | null) {
     return "No provider";
   }
 
-  return paymentTypeLabel(type);
+  return readableLabel(type);
 }
 
 function PaymentForm({ order }: { order: OrderRow }) {
@@ -420,68 +425,118 @@ function DeliveryForm({ order }: { order: OrderRow }) {
   );
 }
 
-function DocumentForm({ order }: { order: OrderRow }) {
+function RestrictedPanel({ title }: { title: string }) {
+  return (
+    <div className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground">
+      You do not have permission to view {title.toLowerCase()}.
+    </div>
+  );
+}
+
+function EmptyPanel({ message }: { message: string }) {
+  return <div className="rounded-md bg-background p-3 text-sm text-muted-foreground">{message}</div>;
+}
+
+function DocumentForm({
+  order,
+  canCreateDocuments,
+  canExportDocuments
+}: {
+  order: OrderRow;
+  canCreateDocuments: boolean;
+  canExportDocuments: boolean;
+}) {
   const [state, action, pending] = useActionState(createOrderDocumentAction, initialState);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
-          <Download className="h-4 w-4" />
-          Order invoice PDF
-        </a>
-        <a href={`/api/documents/final-order-summary/${order.id}`} className={pdfLinkClass}>
-          <Download className="h-4 w-4" />
-          Final order summary PDF
-        </a>
-      </div>
-      <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
-        <input type="hidden" name="orderId" value={order.id} />
-        <Select name="documentType" required defaultValue="ORDER_CONFIRMATION" aria-label="Document type">
-          <option value="ORDER_CONFIRMATION">Order confirmation</option>
-          <option value="INVOICE">Invoice</option>
-          <option value="PAYMENT_RECEIPT">Payment receipt</option>
-          <option value="OFFICIAL_RECEIPT">Official receipt</option>
-          <option value="ACKNOWLEDGEMENT_RECEIPT">Acknowledgement receipt</option>
-          <option value="DELIVERY_RECEIPT">Delivery receipt</option>
-          <option value="OTHER">Other</option>
-        </Select>
-        <Select name="paymentId" defaultValue="" aria-label="Related payment">
-          <option value="">No related payment</option>
-          {order.payments.map((payment) => (
-            <option key={payment.id} value={payment.id}>
-              {payment.paymentDate} · {payment.amount}
-            </option>
-          ))}
-        </Select>
-        <Select name="deliveryId" defaultValue="" aria-label="Related delivery">
-          <option value="">No related delivery</option>
-          {order.deliveries.map((delivery) => (
-            <option key={delivery.id} value={delivery.id}>
-              {delivery.scheduledDate ?? "No date"} ·{" "}
-              {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}
-            </option>
-          ))}
-        </Select>
-        <Input name="title" required placeholder="Document title, e.g. Order invoice PDF" />
-        <Input name="cloudinaryPublicId" placeholder="Cloudinary public ID" />
-        <Input name="secureUrl" placeholder="Cloudinary secure URL" />
-        <Button disabled={pending}>
-          <FilePlus2 className="h-4 w-4" />
-          Save document
-        </Button>
-        <Textarea name="notes" placeholder="Document notes" className="md:col-span-5" />
-        {state.message ? (
-          <p className={state.ok ? "text-sm text-emerald-700 md:col-span-5" : "text-sm text-danger md:col-span-5"}>
-            {state.message}
-          </p>
-        ) : null}
-      </form>
+      {canExportDocuments ? (
+        <div className="flex flex-wrap gap-2">
+          <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
+            <Download className="h-4 w-4" />
+            Invoice PDF
+          </a>
+          <a href={`/api/documents/final-order-summary/${order.id}`} className={pdfLinkClass}>
+            <Download className="h-4 w-4" />
+            Final summary PDF
+          </a>
+          {order.payments.length > 0
+            ? order.payments.map((payment) => (
+                <a key={payment.id} href={`/api/documents/payment-receipt/${payment.id}`} className={pdfLinkClass}>
+                  <Download className="h-4 w-4" />
+                  Receipt {payment.paymentDate}
+                </a>
+              ))
+            : null}
+          {order.deliveries.length > 0
+            ? order.deliveries.map((delivery) => (
+                <a key={delivery.id} href={`/api/documents/delivery-receipt/${delivery.id}`} className={pdfLinkClass}>
+                  <Download className="h-4 w-4" />
+                  Delivery receipt {delivery.scheduledDateLabel ?? delivery.id.slice(0, 8)}
+                </a>
+              ))
+            : null}
+        </div>
+      ) : (
+        <RestrictedPanel title="document exports" />
+      )}
+      {canCreateDocuments ? (
+        <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
+          <input type="hidden" name="orderId" value={order.id} />
+          <Select name="documentType" required defaultValue="ORDER_CONFIRMATION" aria-label="Document type">
+            <option value="ORDER_CONFIRMATION">Order confirmation</option>
+            <option value="INVOICE">Invoice</option>
+            <option value="PAYMENT_RECEIPT">Payment receipt</option>
+            <option value="OFFICIAL_RECEIPT">Official receipt</option>
+            <option value="ACKNOWLEDGEMENT_RECEIPT">Acknowledgement receipt</option>
+            <option value="DELIVERY_RECEIPT">Delivery receipt</option>
+            <option value="OTHER">Other</option>
+          </Select>
+          <Select name="paymentId" defaultValue="" aria-label="Related payment">
+            <option value="">No related payment</option>
+            {order.payments.map((payment) => (
+              <option key={payment.id} value={payment.id}>
+                {payment.paymentDate} · {payment.amount}
+              </option>
+            ))}
+          </Select>
+          <Select name="deliveryId" defaultValue="" aria-label="Related delivery">
+            <option value="">No related delivery</option>
+            {order.deliveries.map((delivery) => (
+              <option key={delivery.id} value={delivery.id}>
+                {delivery.scheduledDateLabel ?? "No date"} ·{" "}
+                {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}
+              </option>
+            ))}
+          </Select>
+          <Input name="title" required placeholder="Document title, e.g. Order invoice PDF" />
+          <Input name="cloudinaryPublicId" placeholder="Cloudinary public ID" />
+          <Input name="secureUrl" placeholder="Cloudinary secure URL" />
+          <Button disabled={pending}>
+            <FilePlus2 className="h-4 w-4" />
+            Save document
+          </Button>
+          <Textarea name="notes" placeholder="Document notes" className="md:col-span-5" />
+          {state.message ? (
+            <p className={state.ok ? "text-sm text-emerald-700 md:col-span-5" : "text-sm text-danger md:col-span-5"}>
+              {state.message}
+            </p>
+          ) : null}
+        </form>
+      ) : null}
     </div>
   );
 }
 
 export function OrderWorkspace({
+  canCreateOrders,
+  canUpdateOrders,
+  canViewPayments,
+  canCreatePayments,
+  canViewDeliveries,
+  canCreateDeliveries,
+  canCreateDocuments,
+  canExportDocuments,
   customers,
   products,
   approvedQuotations,
@@ -561,36 +616,39 @@ export function OrderWorkspace({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="text-sm font-semibold">Convert approved quotation</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Approved quotations become confirmed internal orders with copied snapshots.
-          </p>
-        </div>
-        <form action={convertAction} className="grid gap-3 p-5 md:grid-cols-[1fr_auto]">
-          <Select name="quotationId" required defaultValue="">
-            <option value="" disabled>
-              Choose approved quotation
-            </option>
-            {approvedQuotations.map((quotation) => (
-              <option key={quotation.id} value={quotation.id}>
-                {quotation.customerName} - {quotation.totalAmount} - {quotation.itemCount} item(s)
-              </option>
-            ))}
-          </Select>
-          <Button disabled={convertPending || approvedQuotations.length === 0}>
-            <CalendarClock className="h-4 w-4" />
-            Convert
-          </Button>
-          {convertState.message ? (
-            <p className={convertState.ok ? "text-sm text-emerald-700 md:col-span-2" : "text-sm text-danger md:col-span-2"}>
-              {convertState.message}
+      {canCreateOrders ? (
+        <section className="rounded-lg border border-border bg-panel">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-sm font-semibold">Convert approved quotation</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Approved quotations become confirmed internal orders with copied snapshots.
             </p>
-          ) : null}
-        </form>
-      </section>
+          </div>
+          <form action={convertAction} className="grid gap-3 p-5 md:grid-cols-[1fr_auto]">
+            <Select name="quotationId" required defaultValue="">
+              <option value="" disabled>
+                Choose approved quotation
+              </option>
+              {approvedQuotations.map((quotation) => (
+                <option key={quotation.id} value={quotation.id}>
+                  {quotation.customerName} - {quotation.totalAmount} - {quotation.itemCount} item(s)
+                </option>
+              ))}
+            </Select>
+            <Button disabled={convertPending || approvedQuotations.length === 0}>
+              <CalendarClock className="h-4 w-4" />
+              Convert
+            </Button>
+            {convertState.message ? (
+              <p className={convertState.ok ? "text-sm text-emerald-700 md:col-span-2" : "text-sm text-danger md:col-span-2"}>
+                {convertState.message}
+              </p>
+            ) : null}
+          </form>
+        </section>
+      ) : null}
 
+      {canCreateOrders ? (
       <form action={manualAction} className="grid gap-6 xl:grid-cols-[1fr_320px]">
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
         <section className="rounded-lg border border-border bg-panel">
@@ -729,6 +787,7 @@ export function OrderWorkspace({
           </div>
         </aside>
       </form>
+      ) : null}
 
       <section className="space-y-4">
         {orders.map((order) => (
@@ -739,13 +798,19 @@ export function OrderWorkspace({
                   {order.displayId} · {order.customerName}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {order.sourceType} · Updated {order.updatedAt}
+                  {readableLabel(order.sourceType)} · Created {order.createdAt} · Updated {order.updatedAt}
                 </p>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {order.companyName ? <span>Company: {order.companyName}</span> : null}
+                  {order.contactPersonName ? <span>Contact person: {order.contactPersonName}</span> : null}
+                  {order.contactSnapshot ? <span>{order.contactSnapshot}</span> : null}
+                  {order.assignedStaff ? <span>Staff: {order.assignedStaff}</span> : null}
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <StatusPill tone={statusTone(order.status)}>{order.status}</StatusPill>
-                <StatusPill tone={statusTone(order.paymentStatus)}>{order.paymentStatus}</StatusPill>
-                <StatusPill tone={statusTone(order.deliveryStatus)}>{order.deliveryStatus}</StatusPill>
+                <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
+                <StatusPill tone={statusTone(order.paymentStatus)}>{paymentStatusLabel(order.paymentStatus)}</StatusPill>
+                <StatusPill tone={statusTone(order.deliveryStatus)}>{deliveryStatusLabel(order.deliveryStatus)}</StatusPill>
               </div>
             </div>
             <div className="grid gap-5 p-5 xl:grid-cols-[1fr_360px]">
@@ -756,10 +821,11 @@ export function OrderWorkspace({
                       <tr>
                         <th className="py-2 font-medium">Item</th>
                         <th className="py-2 font-medium">Qty</th>
-                        <th className="py-2 font-medium">Scheduled</th>
-                        <th className="py-2 font-medium">Delivered</th>
-                        <th className="py-2 font-medium">Unit</th>
-                        <th className="py-2 font-medium">Line total</th>
+                        {canViewDeliveries ? <th className="py-2 font-medium">Scheduled</th> : null}
+                        {canViewDeliveries ? <th className="py-2 font-medium">Delivered</th> : null}
+                        {canViewPayments ? <th className="py-2 font-medium">Unit</th> : null}
+                        {canViewPayments ? <th className="py-2 font-medium">Discount</th> : null}
+                        {canViewPayments ? <th className="py-2 font-medium">Line total</th> : null}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -767,10 +833,15 @@ export function OrderWorkspace({
                         <tr key={item.id}>
                           <td className="py-2 font-medium">{item.itemName}</td>
                           <td className="py-2 text-muted-foreground">{item.quantity}</td>
-                          <td className="py-2 text-muted-foreground">{item.plannedQuantity}</td>
-                          <td className="py-2 text-muted-foreground">{item.deliveredQuantity}</td>
-                          <td className="py-2 text-muted-foreground">{item.unitPrice}</td>
-                          <td className="py-2 font-medium">{item.lineTotal}</td>
+                          {canViewDeliveries ? (
+                            <td className="py-2 text-muted-foreground">{item.plannedQuantity}</td>
+                          ) : null}
+                          {canViewDeliveries ? (
+                            <td className="py-2 text-muted-foreground">{item.deliveredQuantity}</td>
+                          ) : null}
+                          {canViewPayments ? <td className="py-2 text-muted-foreground">{item.unitPrice}</td> : null}
+                          {canViewPayments ? <td className="py-2 text-muted-foreground">{item.discountAmount}</td> : null}
+                          {canViewPayments ? <td className="py-2 font-medium">{item.lineTotal}</td> : null}
                         </tr>
                       ))}
                     </tbody>
@@ -779,93 +850,154 @@ export function OrderWorkspace({
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">Payment tab</h3>
-                  <PaymentDueTimingForm order={order} />
-                  <PaymentForm order={order} />
-                  <div className="grid gap-2 text-sm md:grid-cols-2">
-                    {order.payments.map((payment) => (
-                      <div key={payment.id} className="rounded-md bg-background p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium">{payment.amount}</span>
-                          <StatusPill tone={statusTone(payment.status)}>{payment.status}</StatusPill>
+                  {canViewPayments ? (
+                    <>
+                      <div className="grid gap-2 text-sm md:grid-cols-4">
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Order total</p>
+                          <p className="mt-1 font-semibold">{order.totalAmount}</p>
                         </div>
-                        <p className="mt-1 text-muted-foreground">
-                          {payment.paymentDate} · {paymentTypeLabel(payment.paymentType)}
-                          {payment.method ? ` · ${payment.method}` : ""}
-                          {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ""}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {payment.payerName ? `Payer: ${payment.payerName} · ` : ""}
-                          Receipt: {payment.receiptGenerated ? "Generated" : "Not generated"}
-                        </p>
-                        <a
-                          href={`/api/documents/payment-receipt/${payment.id}`}
-                          className={`${pdfLinkClass} mt-3`}
-                        >
-                          <Download className="h-4 w-4" />
-                          Payment receipt PDF
-                        </a>
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Paid</p>
+                          <p className="mt-1 font-semibold">{order.paidAmount}</p>
+                        </div>
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Balance</p>
+                          <p className="mt-1 font-semibold">{order.balanceAmount}</p>
+                        </div>
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Last payment</p>
+                          <p className="mt-1 font-semibold">{order.lastPaymentDate ?? "None"}</p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                      {canUpdateOrders ? <PaymentDueTimingForm order={order} /> : null}
+                      {canCreatePayments ? <PaymentForm order={order} /> : null}
+                      <div className="grid gap-2 text-sm md:grid-cols-2">
+                        {order.payments.map((payment) => (
+                          <div key={payment.id} className="rounded-md bg-background p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-medium">{payment.amount}</span>
+                              <StatusPill tone={statusTone(payment.status)}>{paymentStatusLabel(payment.status)}</StatusPill>
+                            </div>
+                            <p className="mt-1 text-muted-foreground">
+                              {payment.paymentDate} · {paymentTypeLabel(payment.paymentType)}
+                              {payment.method ? ` · ${readableLabel(payment.method)}` : ""}
+                              {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ""}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {payment.payerName ? `Payer: ${payment.payerName} · ` : ""}
+                              Receipt: {payment.receiptGenerated ? "Generated" : "Not generated"}
+                            </p>
+                            {canExportDocuments ? (
+                              <a
+                                href={`/api/documents/payment-receipt/${payment.id}`}
+                                className={`${pdfLinkClass} mt-3`}
+                              >
+                                <Download className="h-4 w-4" />
+                                Payment receipt PDF
+                              </a>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      {order.payments.length === 0 ? <EmptyPanel message="No payment records yet." /> : null}
+                    </>
+                  ) : (
+                    <RestrictedPanel title="payment data" />
+                  )}
                 </div>
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">Delivery tab</h3>
-                  <DeliveryForm order={order} />
-                  <div className="grid gap-2 text-sm md:grid-cols-2">
-                    {order.deliveries.map((delivery) => (
-                      <div key={delivery.id} className="rounded-md bg-background p-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-medium">{delivery.scheduledDate ?? "No date"}</span>
-                          <StatusPill tone={statusTone(delivery.status)}>{delivery.status}</StatusPill>
+                  {canViewDeliveries ? (
+                    <>
+                      <div className="grid gap-2 text-sm md:grid-cols-3">
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Delivery status</p>
+                          <p className="mt-1 font-semibold">{deliveryStatusLabel(order.deliveryStatus)}</p>
                         </div>
-                        <p className="mt-1 text-muted-foreground">{delivery.itemCount} item line(s)</p>
-                        <p className="mt-1 text-muted-foreground">
-                          {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}
-                          {delivery.scheduledTimeWindow ? ` · ${delivery.scheduledTimeWindow}` : ""}
-                          {delivery.deliveryProviderReference ? ` · ${delivery.deliveryProviderReference}` : ""}
-                        </p>
-                        {delivery.addressLine || delivery.recipientName || delivery.recipientPhone ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {[delivery.recipientName, delivery.recipientPhone, delivery.addressLine]
-                              .filter(Boolean)
-                              .join(" · ")}
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Next scheduled</p>
+                          <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None"}</p>
+                        </div>
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Provider</p>
+                          <p className="mt-1 font-semibold">
+                            {order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : "None"}
                           </p>
-                        ) : null}
-                        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                          {delivery.items.map((item) => (
-                            <div key={item.id} className="flex justify-between gap-3">
-                              <span>{item.itemName}</span>
-                              <span>
-                                {item.quantityDelivered}/{item.quantityPlanned}
-                              </span>
-                            </div>
-                          ))}
                         </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Receipt: {delivery.receiptGenerated ? "Generated" : "Not generated"}
-                        </p>
-                        <a
-                          href={`/api/documents/delivery-receipt/${delivery.id}`}
-                          className={`${pdfLinkClass} mt-3`}
-                        >
-                          <Download className="h-4 w-4" />
-                          Delivery receipt PDF
-                        </a>
                       </div>
-                    ))}
-                  </div>
+                      {canCreateDeliveries ? <DeliveryForm order={order} /> : null}
+                      <div className="grid gap-2 text-sm md:grid-cols-2">
+                        {order.deliveries.map((delivery) => (
+                          <div key={delivery.id} className="rounded-md bg-background p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-medium">{delivery.scheduledDateLabel ?? "No date"}</span>
+                              <StatusPill tone={statusTone(delivery.status)}>{deliveryStatusLabel(delivery.status)}</StatusPill>
+                            </div>
+                            <p className="mt-1 text-muted-foreground">{delivery.itemCount} item line(s)</p>
+                            <p className="mt-1 text-muted-foreground">
+                              {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}
+                              {delivery.scheduledTimeWindow ? ` · ${delivery.scheduledTimeWindow}` : ""}
+                              {delivery.deliveryProviderReference ? ` · ${delivery.deliveryProviderReference}` : ""}
+                            </p>
+                            {delivery.assignedStaff ? (
+                              <p className="mt-1 text-xs text-muted-foreground">Assigned: {delivery.assignedStaff}</p>
+                            ) : null}
+                            {delivery.addressLine || delivery.recipientName || delivery.recipientPhone ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {[delivery.recipientName, delivery.recipientPhone, delivery.addressLine]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            ) : null}
+                            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                              {delivery.items.map((item) => (
+                                <div key={item.id} className="flex justify-between gap-3">
+                                  <span>{item.itemName}</span>
+                                  <span>
+                                    {item.quantityDelivered}/{item.quantityPlanned}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Receipt: {delivery.receiptGenerated ? "Generated" : "Not generated"}
+                            </p>
+                            {canExportDocuments ? (
+                              <a
+                                href={`/api/documents/delivery-receipt/${delivery.id}`}
+                                className={`${pdfLinkClass} mt-3`}
+                              >
+                                <Download className="h-4 w-4" />
+                                Delivery receipt PDF
+                              </a>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      {order.deliveries.length === 0 ? <EmptyPanel message="No delivery records yet." /> : null}
+                    </>
+                  ) : (
+                    <RestrictedPanel title="delivery data" />
+                  )}
                 </div>
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">Documents tab</h3>
-                  <DocumentForm order={order} />
+                  <DocumentForm
+                    order={order}
+                    canCreateDocuments={canCreateDocuments}
+                    canExportDocuments={canExportDocuments}
+                  />
                   <div className="grid gap-2 text-sm md:grid-cols-2">
                     {order.documents.map((document) => (
                       <div key={document.id} className="rounded-md bg-background p-3">
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-medium">{document.title}</span>
-                          <StatusPill tone={statusTone(document.status)}>{document.status}</StatusPill>
+                          <StatusPill tone={statusTone(document.status)}>
+                            {documentStatusLabel(document.status)}
+                          </StatusPill>
                         </div>
                         <p className="mt-1 text-muted-foreground">
                           {documentTypeLabel(document.documentType)}
@@ -873,22 +1005,107 @@ export function OrderWorkspace({
                       </div>
                     ))}
                   </div>
+                  {order.documents.length === 0 ? <EmptyPanel message="No saved document metadata yet." /> : null}
                 </div>
               </div>
 
               <aside className="space-y-3 rounded-md bg-background p-4 text-sm">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Customer snapshot</p>
+                  <p className="mt-1 font-semibold">{order.customerName}</p>
+                  {order.companyName ? <p className="text-muted-foreground">{order.companyName}</p> : null}
+                  {order.contactSnapshot ? <p className="text-muted-foreground">{order.contactSnapshot}</p> : null}
+                </div>
+                <div className="border-t border-border pt-3">
+                  <p className="text-xs uppercase text-muted-foreground">Delivery address</p>
+                  <p className="mt-1">{order.deliveryAddressSnapshot ?? "No delivery address snapshot"}</p>
+                </div>
+                <div className="grid gap-2 border-t border-border pt-3">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Order</span>
+                    <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Payment</span>
+                    <StatusPill tone={statusTone(order.paymentStatus)}>{paymentStatusLabel(order.paymentStatus)}</StatusPill>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Delivery</span>
+                    <StatusPill tone={statusTone(order.deliveryStatus)}>{deliveryStatusLabel(order.deliveryStatus)}</StatusPill>
+                  </div>
+                </div>
                 <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium">{canViewPayments ? order.subtotalAmount : "Restricted"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Item discounts</span>
+                  <span className="font-medium">{canViewPayments ? order.itemDiscountTotal : "Restricted"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Order discount</span>
+                  <span className="font-medium">{canViewPayments ? order.orderDiscountAmount : "Restricted"}</span>
+                </div>
+                <div className="flex justify-between gap-4 border-t border-border pt-3">
                   <span className="text-muted-foreground">Total</span>
-                  <span className="font-medium">{order.totalAmount}</span>
+                  <span className="font-medium">{canViewPayments ? order.totalAmount : "Restricted"}</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Paid</span>
-                  <span className="font-medium">{order.paidAmount}</span>
+                  <span className="font-medium">{canViewPayments ? order.paidAmount : "Restricted"}</span>
                 </div>
                 <div className="flex justify-between gap-4 border-t border-border pt-3 text-base">
                   <span className="font-semibold">Balance</span>
-                  <span className="font-semibold">{order.balanceAmount}</span>
+                  <span className="font-semibold">{canViewPayments ? order.balanceAmount : "Restricted"}</span>
                 </div>
+                {canViewPayments ? (
+                  <div className="border-t border-border pt-3">
+                    <p className="text-muted-foreground">
+                      Due timing: {paymentDueTimingLabel(order.paymentDueTiming)}
+                      {order.paymentDueDate ? ` · ${order.paymentDueDate}` : ""}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">Last payment: {order.lastPaymentDate ?? "None"}</p>
+                  </div>
+                ) : null}
+                {canViewDeliveries ? (
+                  <div className="border-t border-border pt-3">
+                    <p className="text-muted-foreground">Next delivery: {order.nextDeliveryDate ?? "None"}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Provider: {order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : "None"}
+                    </p>
+                  </div>
+                ) : null}
+                {order.relatedQuotationId || order.relatedInquiryId ? (
+                  <div className="border-t border-border pt-3">
+                    {order.relatedQuotationId ? (
+                      <p className="text-muted-foreground">
+                        Quotation: {order.relatedQuotationId.slice(0, 8)}
+                        {order.relatedQuotationStatus ? ` · ${readableLabel(order.relatedQuotationStatus)}` : ""}
+                      </p>
+                    ) : null}
+                    {order.relatedInquiryId ? (
+                      <p className="mt-1 text-muted-foreground">
+                        Inquiry: {order.relatedInquiryLabel ?? order.relatedInquiryId.slice(0, 8)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {order.customerNotes || order.internalNotes ? (
+                  <div className="space-y-2 border-t border-border pt-3">
+                    {order.customerNotes ? (
+                      <div>
+                        <p className="text-xs uppercase text-muted-foreground">Customer notes</p>
+                        <p className="mt-1">{order.customerNotes}</p>
+                      </div>
+                    ) : null}
+                    {order.internalNotes ? (
+                      <div>
+                        <p className="text-xs uppercase text-muted-foreground">Internal notes</p>
+                        <p className="mt-1">{order.internalNotes}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </aside>
             </div>
           </article>
