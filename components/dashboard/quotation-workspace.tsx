@@ -694,7 +694,7 @@ export function QuotationWorkspace({
                         className={pdfLinkClass}
                       >
                         <Download className="h-4 w-4" />
-                        PDF
+                        Quotation PDF
                       </a>
                       {quotation.status === "DRAFT" ? (
                         <Button

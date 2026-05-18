@@ -1,5 +1,6 @@
-import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { generatedLabel } from "@/lib/pdf/data";
+import { fallbackText } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
 const styles = StyleSheet.create({
@@ -14,14 +15,29 @@ const styles = StyleSheet.create({
     borderBottom: "1px solid #d1d5db",
     paddingBottom: 12
   },
+  headerTop: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 18
+  },
   company: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 700
   },
+  companyDetails: {
+    marginTop: 3,
+    lineHeight: 1.35
+  },
   title: {
-    marginTop: 12,
-    fontSize: 20,
+    marginTop: 16,
+    fontSize: 22,
     fontWeight: 700
+  },
+  subtitle: {
+    marginTop: 3,
+    fontSize: 10,
+    color: "#4b5563"
   },
   muted: {
     color: "#6b7280"
@@ -70,8 +86,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6
   },
   itemName: {
-    width: "42%",
+    width: "34%",
     paddingRight: 8
+  },
+  itemImage: {
+    width: 42,
+    height: 42,
+    objectFit: "cover",
+    marginRight: 6,
+    border: "1px solid #e5e7eb"
+  },
+  itemBody: {
+    flexGrow: 1,
+    flexBasis: 0
   },
   qty: {
     width: "12%",
@@ -84,6 +111,31 @@ const styles = StyleSheet.create({
   notes: {
     marginTop: 4,
     lineHeight: 1.35
+  },
+  paymentBox: {
+    marginTop: 14,
+    border: "1px solid #d1d5db",
+    padding: 8
+  },
+  signatureGrid: {
+    display: "flex",
+    flexDirection: "row",
+    gap: 24,
+    marginTop: 24
+  },
+  signatureLine: {
+    flexGrow: 1,
+    borderTop: "1px solid #111827",
+    paddingTop: 4,
+    textAlign: "center"
+  },
+  footer: {
+    marginTop: 18,
+    borderTop: "1px solid #e5e7eb",
+    paddingTop: 8,
+    fontSize: 8,
+    color: "#6b7280",
+    lineHeight: 1.35
   }
 });
 
@@ -92,20 +144,29 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
     <Document title={data.title} author={data.company.displayName}>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.company}>{data.company.displayName}</Text>
-          {data.company.address ? <Text style={styles.muted}>{data.company.address}</Text> : null}
-          {data.company.contact ? <Text style={styles.muted}>{data.company.contact}</Text> : null}
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.company}>{data.company.displayName}</Text>
+              <View style={styles.companyDetails}>
+                <Text style={styles.muted}>{fallbackText(data.company.address)}</Text>
+                <Text style={styles.muted}>{fallbackText(data.company.contactNumber)}</Text>
+                <Text style={styles.muted}>{fallbackText(data.company.email)}</Text>
+                <Text style={styles.muted}>{fallbackText(data.company.facebookPage)}</Text>
+              </View>
+            </View>
+            <Text style={styles.muted}>{generatedLabel(data)}</Text>
+          </View>
           <Text style={styles.title}>{data.title}</Text>
-          <Text style={styles.muted}>{generatedLabel(data)}</Text>
+          {data.subtitle ? <Text style={styles.subtitle}>{data.subtitle}</Text> : null}
         </View>
 
         <View style={styles.grid}>
           <View style={styles.column}>
             <Text style={styles.sectionTitle}>Customer</Text>
-            <Text>{data.customer.displayName}</Text>
-            {data.customer.detail ? <Text style={styles.muted}>{data.customer.detail}</Text> : null}
-            {data.customer.contact ? <Text style={styles.muted}>{data.customer.contact}</Text> : null}
-            {data.customer.address ? <Text style={styles.muted}>{data.customer.address}</Text> : null}
+            <Text>{fallbackText(data.customer.displayName)}</Text>
+            <Text style={styles.muted}>{fallbackText(data.customer.detail)}</Text>
+            <Text style={styles.muted}>{fallbackText(data.customer.contact)}</Text>
+            <Text style={styles.muted}>{fallbackText(data.customer.address)}</Text>
           </View>
           <View style={styles.column}>
             <Text style={styles.sectionTitle}>Document Summary</Text>
@@ -129,6 +190,13 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           </View>
         ) : null}
 
+        {data.totals?.length ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Totals</Text>
+            <SummaryRows rows={data.totals} />
+          </View>
+        ) : null}
+
         {data.payments?.length ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Payments</Text>
@@ -147,6 +215,30 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Notes</Text>
             <Text style={styles.notes}>{data.notes}</Text>
+          </View>
+        ) : null}
+
+        {data.paymentInstructions || data.company.bankDetails ? (
+          <View style={styles.paymentBox}>
+            <Text style={styles.sectionTitle}>Payment Instructions</Text>
+            <Text style={styles.notes}>{fallbackText(data.paymentInstructions ?? data.company.paymentInstructions)}</Text>
+            <Text style={styles.notes}>{fallbackText(data.company.bankDetails)}</Text>
+          </View>
+        ) : null}
+
+        {data.signatureRequired ? (
+          <View style={styles.signatureGrid}>
+            <Text style={styles.signatureLine}>Received by / Signature</Text>
+            <Text style={styles.signatureLine}>Date received</Text>
+          </View>
+        ) : null}
+
+        {data.footerNote || data.company.footer ? (
+          <View style={styles.footer}>
+            <Text>{data.footerNote ?? data.company.footer}</Text>
+            {data.assemblyTodo ? (
+              <Text>Assembly required is not yet modeled in the delivery workflow.</Text>
+            ) : null}
           </View>
         ) : null}
       </Page>
@@ -171,15 +263,26 @@ function ItemRow({ item }: { item: PdfItemRow }) {
   return (
     <View style={styles.tableRow}>
       <View style={styles.itemName}>
-        <Text>{[item.code, item.name].filter(Boolean).join(" · ")}</Text>
-        {item.description ? <Text style={styles.muted}>{item.description}</Text> : null}
-        {item.notes ? <Text style={styles.muted}>{item.notes}</Text> : null}
+        <View style={{ display: "flex", flexDirection: "row" }}>
+          {item.imageUrl ? (
+            // React-PDF Image does not expose an alt prop in its TypeScript API.
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image src={item.imageUrl} style={styles.itemImage} />
+          ) : null}
+          <View style={styles.itemBody}>
+            <Text>{[item.code, item.name].filter(Boolean).join(" - ")}</Text>
+            {item.description ? <Text style={styles.muted}>{item.description}</Text> : null}
+            {item.discountDetail ? <Text style={styles.muted}>{item.discountDetail}</Text> : null}
+            {item.notes ? <Text style={styles.muted}>{item.notes}</Text> : null}
+          </View>
+        </View>
       </View>
-      <Text style={styles.qty}>{item.quantity}</Text>
+      <Text style={styles.qty}>
+        {item.quantityDelivered ? `${item.quantity} planned\n${item.quantityDelivered} delivered` : item.quantity}
+      </Text>
       <Text style={styles.money}>{item.unitPrice ?? ""}</Text>
       <Text style={styles.money}>{item.discount ?? ""}</Text>
       <Text style={styles.money}>{item.total ?? ""}</Text>
     </View>
   );
 }
-

@@ -225,6 +225,10 @@ function paymentTypeLabel(value: string) {
     .join(" ");
 }
 
+function documentTypeLabel(value: string) {
+  return paymentTypeLabel(value);
+}
+
 function providerLabel(type: string | null, name: string | null) {
   if (name) {
     return name;
@@ -424,11 +428,11 @@ function DocumentForm({ order }: { order: OrderRow }) {
       <div className="flex flex-wrap gap-2">
         <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
           <Download className="h-4 w-4" />
-          Invoice PDF
+          Order invoice PDF
         </a>
         <a href={`/api/documents/final-order-summary/${order.id}`} className={pdfLinkClass}>
           <Download className="h-4 w-4" />
-          Final summary PDF
+          Final order summary PDF
         </a>
       </div>
       <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
@@ -459,7 +463,7 @@ function DocumentForm({ order }: { order: OrderRow }) {
             </option>
           ))}
         </Select>
-        <Input name="title" required placeholder="Document title" />
+        <Input name="title" required placeholder="Document title, e.g. Order invoice PDF" />
         <Input name="cloudinaryPublicId" placeholder="Cloudinary public ID" />
         <Input name="secureUrl" placeholder="Cloudinary secure URL" />
         <Button disabled={pending}>
@@ -798,7 +802,7 @@ export function OrderWorkspace({
                           className={`${pdfLinkClass} mt-3`}
                         >
                           <Download className="h-4 w-4" />
-                          Receipt PDF
+                          Payment receipt PDF
                         </a>
                       </div>
                     ))}
@@ -846,7 +850,7 @@ export function OrderWorkspace({
                           className={`${pdfLinkClass} mt-3`}
                         >
                           <Download className="h-4 w-4" />
-                          Delivery PDF
+                          Delivery receipt PDF
                         </a>
                       </div>
                     ))}
@@ -863,7 +867,9 @@ export function OrderWorkspace({
                           <span className="font-medium">{document.title}</span>
                           <StatusPill tone={statusTone(document.status)}>{document.status}</StatusPill>
                         </div>
-                        <p className="mt-1 text-muted-foreground">{document.documentType}</p>
+                        <p className="mt-1 text-muted-foreground">
+                          {documentTypeLabel(document.documentType)}
+                        </p>
                       </div>
                     ))}
                   </div>

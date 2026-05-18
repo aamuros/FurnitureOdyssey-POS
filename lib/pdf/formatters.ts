@@ -1,3 +1,19 @@
+export function fallbackText(value: string | null | undefined, fallback = "Not specified") {
+  return value?.trim() ? value : fallback;
+}
+
+export function titleCaseLabel(value: string | null | undefined, fallback = "Not specified") {
+  if (!value) {
+    return fallback;
+  }
+
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function formatMoney(value: number, currency = "PHP") {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
@@ -37,6 +53,20 @@ export function formatQuantity(value: number) {
   }).format(value);
 }
 
+export function formatDocumentNumber(prefix: string, value: string | null | undefined) {
+  const identifier = fallbackText(value, "Pending");
+
+  return `${prefix}-${identifier}`;
+}
+
+export function formatPaymentStatus(value: string | null | undefined) {
+  return titleCaseLabel(value);
+}
+
+export function formatDeliveryStatus(value: string | null | undefined) {
+  return titleCaseLabel(value);
+}
+
 export function safeFilename(value: string) {
   return value
     .trim()
@@ -45,4 +75,3 @@ export function safeFilename(value: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
 }
-

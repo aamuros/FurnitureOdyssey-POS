@@ -56,6 +56,8 @@ enum ActivityAction {
   INQUIRY_CREATED
   INQUIRY_UPDATED
   INQUIRY_ASSIGNED
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
   QUOTATION_CREATED
   QUOTATION_UPDATED
   QUOTATION_CONVERTED_TO_ORDER
@@ -402,28 +404,32 @@ model Inquiry {
 }
 
 model Product {
-  id             String          @id @default(uuid()) @db.Uuid
-  code           String?         @unique
-  name           String
-  category       String?
-  description    String?
-  specifications String?
-  referencePrice Decimal?        @db.Decimal(12, 2)
-  referenceCost  Decimal?        @db.Decimal(12, 2)
-  currency       String          @default("PHP")
-  status         ProductStatus   @default(ACTIVE)
-  internalNotes  String?
-  createdById    String?         @db.Uuid
-  updatedById    String?         @db.Uuid
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  createdBy      UserProfile?    @relation("ProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedBy      UserProfile?    @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
-  images         ProductImage[]
-  quotationItems QuotationItem[]
-  orderItems     OrderItem[]
+  id               String          @id @default(uuid()) @db.Uuid
+  code             String?         @unique
+  name             String
+  category         String?
+  description      String?
+  specifications   String?
+  referencePrice   Decimal?        @db.Decimal(12, 2)
+  referenceCost    Decimal?        @db.Decimal(12, 2)
+  currency         String          @default("PHP")
+  status           ProductStatus   @default(ACTIVE)
+  isWebsiteVisible Boolean         @default(false)
+  websiteSortOrder Int             @default(0)
+  internalNotes    String?
+  createdById      String?         @db.Uuid
+  updatedById      String?         @db.Uuid
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  createdBy        UserProfile?    @relation("ProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        UserProfile?    @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  images           ProductImage[]
+  quotationItems   QuotationItem[]
+  orderItems       OrderItem[]
 
   @@index([status])
+  @@index([isWebsiteVisible])
+  @@index([websiteSortOrder])
   @@index([name])
   @@index([code])
   @@index([category])

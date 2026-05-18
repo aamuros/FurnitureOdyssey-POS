@@ -3,6 +3,7 @@ import {
   ClipboardList,
   FileText,
   LayoutDashboard,
+  Package,
   PackageCheck,
   ReceiptText,
   Settings,
@@ -41,6 +42,12 @@ export const dashboardNavItems: DashboardNavItem[] = [
     href: "/inquiries",
     module: "INQUIRIES",
     icon: ClipboardList
+  },
+  {
+    title: "Products",
+    href: "/products",
+    module: "PRODUCTS",
+    icon: Package
   },
   {
     title: "Quotations",

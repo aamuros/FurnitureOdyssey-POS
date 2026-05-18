@@ -57,6 +57,8 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 ### Documents and PDFs
 
+- Centralized static Furniture Odyssey PDF/business profile placeholders in code config.
+- Shared PDF formatting helpers cover PHP currency, dates, quantities, fallback text, document numbers, and status labels.
 - Store order document metadata, including type, title, Cloudinary public ID, secure URL, status, generated date, and notes.
 - Generate downloadable PDFs with React-PDF for:
   - Quotation
@@ -64,6 +66,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
   - Payment receipt
   - Delivery receipt
   - Final order summary
+- PDF output includes Furniture Odyssey branding, customer-facing notes, payment instructions, item images when snapshot image data exists, safer missing-value fallbacks, and clearer receipt/delivery handoff sections.
 - Protect PDF download routes with document export permission and source module view permissions.
 
 ### Sales History and Basic Reports
@@ -80,7 +83,8 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
 - Settings page is a placeholder.
-- Final PDF visual design, company branding, legal numbering, and accounting wording are not finalized.
+- Legal numbering, finalized accounting wording, and production business details are not finalized.
+- Assembly-required delivery data is not modeled yet; delivery receipt PDFs show this as not specified until a future workflow adds the field.
 - Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application.
 
 ## Not Implemented in MVP
