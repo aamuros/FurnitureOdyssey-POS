@@ -22,6 +22,7 @@ enum UserStatus {
 enum PermissionModule {
   CUSTOMERS
   INQUIRIES
+  PRODUCTS
   QUOTATIONS
   ORDERS
   PAYMENTS
@@ -55,6 +56,16 @@ enum ActivityAction {
   INQUIRY_CREATED
   INQUIRY_UPDATED
   INQUIRY_ASSIGNED
+  QUOTATION_CREATED
+  QUOTATION_UPDATED
+  QUOTATION_CONVERTED_TO_ORDER
+  ORDER_CREATED
+  ORDER_UPDATED
+  PAYMENT_RECORDED
+  PAYMENT_VOIDED
+  DELIVERY_SCHEDULED
+  DELIVERY_UPDATED
+  DOCUMENT_CREATED
 }
 
 enum CustomerType {
@@ -98,27 +109,161 @@ enum InquiryPriority {
   HIGH
 }
 
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum QuotationItemType {
+  CATALOG_PRODUCT
+  CUSTOM_ITEM
+}
+
+enum DiscountType {
+  FIXED_AMOUNT
+  PERCENTAGE
+}
+
+enum OrderStatus {
+  DRAFT
+  CONFIRMED
+  PARTIALLY_PAID
+  PAID
+  SCHEDULED_FOR_DELIVERY
+  PARTIALLY_DELIVERED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderPaymentStatus {
+  UNPAID
+  DOWNPAYMENT_PAID
+  PARTIALLY_PAID
+  BALANCE_DUE_ON_DELIVERY
+  PAID
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentDueTiming {
+  BEFORE_DELIVERY
+  UPON_DELIVERY
+  AFTER_DELIVERY
+}
+
+enum OrderDeliveryStatus {
+  NOT_SCHEDULED
+  SCHEDULED
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderSourceType {
+  QUOTATION
+  MANUAL
+}
+
+enum PaymentStatus {
+  RECORDED
+  VOIDED
+  REFUNDED
+}
+
+enum PaymentType {
+  DOWNPAYMENT
+  PARTIAL_PAYMENT
+  FINAL_PAYMENT
+  DELIVERY_BALANCE_PAYMENT
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  GCASH
+  CHECK
+  CARD
+  OTHER
+}
+
+enum DeliveryStatus {
+  PLANNED
+  SCHEDULED
+  IN_TRANSIT
+  PARTIALLY_DELIVERED
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+enum DeliveryProviderType {
+  IN_HOUSE
+  CUSTOMER_PICKUP
+  THIRD_PARTY
+  OTHER
+}
+
+enum DocumentType {
+  QUOTATION_PDF
+  ORDER_CONFIRMATION
+  INVOICE
+  PAYMENT_RECEIPT
+  OFFICIAL_RECEIPT
+  ACKNOWLEDGEMENT_RECEIPT
+  DELIVERY_RECEIPT
+  OTHER
+}
+
+enum DocumentStatus {
+  DRAFT
+  GENERATED
+  VOIDED
+}
+
 model UserProfile {
-  id              String           @id @default(uuid()) @db.Uuid
-  authUserId      String           @unique @db.Uuid
-  email           String           @unique
-  displayName     String
-  role            UserRole         @default(STAFF)
-  status          UserStatus       @default(PENDING)
-  phone           String?
-  invitedById     String?          @db.Uuid
-  invitedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  invitedBy       UserProfile?     @relation("UserInvites", fields: [invitedById], references: [id], onDelete: SetNull)
-  invitedUsers    UserProfile[]    @relation("UserInvites")
-  permissions     UserPermission[]
-  activityLogs    ActivityLog[]    @relation("ActorActivity")
-  targetLogs      ActivityLog[]    @relation("TargetActivity")
-  createdCustomers Customer[]       @relation("CustomerCreator")
-  assignedCustomers Customer[]      @relation("CustomerAssignee")
-  createdInquiries Inquiry[]        @relation("InquiryCreator")
-  assignedInquiries Inquiry[]       @relation("InquiryAssignee")
+  id                 String           @id @default(uuid()) @db.Uuid
+  authUserId         String           @unique @db.Uuid
+  email              String           @unique
+  displayName        String
+  role               UserRole         @default(STAFF)
+  status             UserStatus       @default(PENDING)
+  phone              String?
+  invitedById        String?          @db.Uuid
+  invitedAt          DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  invitedBy          UserProfile?     @relation("UserInvites", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitedUsers       UserProfile[]    @relation("UserInvites")
+  permissions        UserPermission[]
+  activityLogs       ActivityLog[]    @relation("ActorActivity")
+  targetLogs         ActivityLog[]    @relation("TargetActivity")
+  createdCustomers   Customer[]       @relation("CustomerCreator")
+  assignedCustomers  Customer[]       @relation("CustomerAssignee")
+  createdInquiries   Inquiry[]        @relation("InquiryCreator")
+  assignedInquiries  Inquiry[]        @relation("InquiryAssignee")
+  createdProducts    Product[]        @relation("ProductCreator")
+  updatedProducts    Product[]        @relation("ProductUpdater")
+  createdQuotations  Quotation[]      @relation("QuotationCreator")
+  updatedQuotations  Quotation[]      @relation("QuotationUpdater")
+  createdOrders      Order[]          @relation("OrderCreator")
+  updatedOrders      Order[]          @relation("OrderUpdater")
+  receivedPayments   Payment[]        @relation("PaymentReceiver")
+  createdPayments    Payment[]        @relation("PaymentCreator")
+  updatedPayments    Payment[]        @relation("PaymentUpdater")
+  voidedPayments     Payment[]        @relation("PaymentVoider")
+  assignedDeliveries Delivery[]       @relation("DeliveryAssignee")
+  createdDeliveries  Delivery[]       @relation("DeliveryCreator")
+  updatedDeliveries  Delivery[]       @relation("DeliveryUpdater")
+  generatedDocuments OrderDocument[]  @relation("DocumentGenerator")
 
   @@index([role])
   @@index([status])
@@ -139,15 +284,15 @@ model UserPermission {
 }
 
 model ActivityLog {
-  id            String         @id @default(uuid()) @db.Uuid
-  action        ActivityAction
-  actorId       String?        @db.Uuid
-  targetUserId  String?        @db.Uuid
-  summary       String
-  metadata      Json?
-  createdAt     DateTime       @default(now())
-  actor         UserProfile?   @relation("ActorActivity", fields: [actorId], references: [id], onDelete: SetNull)
-  targetUser    UserProfile?   @relation("TargetActivity", fields: [targetUserId], references: [id], onDelete: SetNull)
+  id           String         @id @default(uuid()) @db.Uuid
+  action       ActivityAction
+  actorId      String?        @db.Uuid
+  targetUserId String?        @db.Uuid
+  summary      String
+  metadata     Json?
+  createdAt    DateTime       @default(now())
+  actor        UserProfile?   @relation("ActorActivity", fields: [actorId], references: [id], onDelete: SetNull)
+  targetUser   UserProfile?   @relation("TargetActivity", fields: [targetUserId], references: [id], onDelete: SetNull)
 
   @@index([action])
   @@index([createdAt])
@@ -173,6 +318,9 @@ model Customer {
   contacts          CustomerContact[]
   addresses         CustomerAddress[]
   inquiries         Inquiry[]
+  quotations        Quotation[]
+  orders            Order[]
+  payments          Payment[]
 
   @@index([customerType])
   @@index([displayName])
@@ -200,8 +348,8 @@ model CustomerContact {
 }
 
 model CustomerAddress {
-  id            String    @id @default(uuid()) @db.Uuid
-  customerId    String    @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
+  customerId    String   @db.Uuid
   label         String?
   recipientName String?
   phone         String?
@@ -210,10 +358,10 @@ model CustomerAddress {
   province      String?
   postalCode    String?
   notes         String?
-  isDefault     Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
 }
@@ -241,6 +389,8 @@ model Inquiry {
   customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   assignedStaff      UserProfile?    @relation("InquiryAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
   createdBy          UserProfile?    @relation("InquiryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  quotations         Quotation[]
+  orders             Order[]
 
   @@index([customerId])
   @@index([source])
@@ -249,4 +399,398 @@ model Inquiry {
   @@index([assignedStaffId])
   @@index([createdAt])
   @@index([followUpAt])
+}
+
+model Product {
+  id             String          @id @default(uuid()) @db.Uuid
+  code           String?         @unique
+  name           String
+  category       String?
+  description    String?
+  specifications String?
+  referencePrice Decimal?        @db.Decimal(12, 2)
+  referenceCost  Decimal?        @db.Decimal(12, 2)
+  currency       String          @default("PHP")
+  status         ProductStatus   @default(ACTIVE)
+  internalNotes  String?
+  createdById    String?         @db.Uuid
+  updatedById    String?         @db.Uuid
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  createdBy      UserProfile?    @relation("ProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy      UserProfile?    @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  images         ProductImage[]
+  quotationItems QuotationItem[]
+  orderItems     OrderItem[]
+
+  @@index([status])
+  @@index([name])
+  @@index([code])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model ProductImage {
+  id                 String               @id @default(uuid()) @db.Uuid
+  productId          String               @db.Uuid
+  cloudinaryPublicId String
+  secureUrl          String
+  resourceType       String               @default("image")
+  format             String?
+  width              Int?
+  height             Int?
+  bytes              Int?
+  altText            String?
+  sortOrder          Int                  @default(0)
+  isPrimary          Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  product            Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quotationImages    QuotationItemImage[]
+  orderImages        OrderItemImage[]
+
+  @@index([productId])
+  @@index([isPrimary])
+}
+
+model Quotation {
+  id                      String          @id @default(uuid()) @db.Uuid
+  customerId              String          @db.Uuid
+  inquiryId               String?         @db.Uuid
+  status                  QuotationStatus @default(DRAFT)
+  currency                String          @default("PHP")
+  subtotalAmount          Decimal         @default(0) @db.Decimal(12, 2)
+  itemDiscountTotal       Decimal         @default(0) @db.Decimal(12, 2)
+  quotationDiscountType   DiscountType?
+  quotationDiscountValue  Decimal?        @db.Decimal(12, 2)
+  quotationDiscountAmount Decimal         @default(0) @db.Decimal(12, 2)
+  totalAmount             Decimal         @default(0) @db.Decimal(12, 2)
+  customerNotes           String?
+  internalNotes           String?
+  createdById             String?         @db.Uuid
+  updatedById             String?         @db.Uuid
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  customer                Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  inquiry                 Inquiry?        @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
+  createdBy               UserProfile?    @relation("QuotationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy               UserProfile?    @relation("QuotationUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  items                   QuotationItem[]
+  order                   Order?
+  documents               OrderDocument[]
+
+  @@index([customerId])
+  @@index([inquiryId])
+  @@index([status])
+  @@index([createdById])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model QuotationItem {
+  id                  String               @id @default(uuid()) @db.Uuid
+  quotationId         String               @db.Uuid
+  productId           String?              @db.Uuid
+  itemType            QuotationItemType
+  sortOrder           Int                  @default(0)
+  snapshotProductCode String?
+  itemName            String
+  description         String?
+  specifications      String?
+  quantity            Decimal              @db.Decimal(12, 2)
+  unitPrice           Decimal              @db.Decimal(12, 2)
+  discountType        DiscountType?
+  discountValue       Decimal?             @db.Decimal(12, 2)
+  discountAmount      Decimal              @default(0) @db.Decimal(12, 2)
+  lineSubtotal        Decimal              @default(0) @db.Decimal(12, 2)
+  lineTotal           Decimal              @default(0) @db.Decimal(12, 2)
+  customerNotes       String?
+  internalNotes       String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  quotation           Quotation            @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product             Product?             @relation(fields: [productId], references: [id], onDelete: SetNull)
+  images              QuotationItemImage[]
+  orderItems          OrderItem[]
+
+  @@index([quotationId])
+  @@index([productId])
+  @@index([itemType])
+  @@index([sortOrder])
+}
+
+model QuotationItemImage {
+  id                   String           @id @default(uuid()) @db.Uuid
+  quotationItemId      String           @db.Uuid
+  sourceProductImageId String?          @db.Uuid
+  cloudinaryPublicId   String
+  secureUrl            String
+  resourceType         String           @default("image")
+  format               String?
+  width                Int?
+  height               Int?
+  bytes                Int?
+  altText              String?
+  sortOrder            Int              @default(0)
+  isPrimary            Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  quotationItem        QuotationItem    @relation(fields: [quotationItemId], references: [id], onDelete: Cascade)
+  sourceProductImage   ProductImage?    @relation(fields: [sourceProductImageId], references: [id], onDelete: SetNull)
+  orderImages          OrderItemImage[]
+
+  @@index([quotationItemId])
+  @@index([sourceProductImageId])
+  @@index([isPrimary])
+}
+
+model Order {
+  id                          String              @id @default(uuid()) @db.Uuid
+  orderNumber                 String?             @unique
+  quotationId                 String?             @unique @db.Uuid
+  customerId                  String              @db.Uuid
+  inquiryId                   String?             @db.Uuid
+  status                      OrderStatus         @default(CONFIRMED)
+  paymentStatus               OrderPaymentStatus  @default(UNPAID)
+  paymentDueTiming            PaymentDueTiming?
+  paymentDueDate              DateTime?
+  deliveryStatus              OrderDeliveryStatus @default(NOT_SCHEDULED)
+  currency                    String              @default("PHP")
+  customerDisplayNameSnapshot String
+  customerTypeSnapshot        CustomerType
+  companyNameSnapshot         String?
+  contactPersonNameSnapshot   String?
+  primaryContactSnapshot      Json?
+  billingAddressSnapshot      Json?
+  deliveryAddressSnapshot     Json?
+  subtotalAmount              Decimal             @default(0) @db.Decimal(12, 2)
+  itemDiscountTotal           Decimal             @default(0) @db.Decimal(12, 2)
+  orderDiscountType           DiscountType?
+  orderDiscountValue          Decimal?            @db.Decimal(12, 2)
+  orderDiscountAmount         Decimal             @default(0) @db.Decimal(12, 2)
+  totalAmount                 Decimal             @default(0) @db.Decimal(12, 2)
+  paidAmount                  Decimal             @default(0) @db.Decimal(12, 2)
+  balanceAmount               Decimal             @default(0) @db.Decimal(12, 2)
+  lastPaymentAt               DateTime?
+  customerNotes               String?
+  internalNotes               String?
+  sourceType                  OrderSourceType
+  confirmedAt                 DateTime?
+  cancelledAt                 DateTime?
+  completedAt                 DateTime?
+  createdById                 String?             @db.Uuid
+  updatedById                 String?             @db.Uuid
+  createdAt                   DateTime            @default(now())
+  updatedAt                   DateTime            @updatedAt
+  quotation                   Quotation?          @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  customer                    Customer            @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  inquiry                     Inquiry?            @relation(fields: [inquiryId], references: [id], onDelete: SetNull)
+  createdBy                   UserProfile?        @relation("OrderCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                   UserProfile?        @relation("OrderUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  items                       OrderItem[]
+  payments                    Payment[]
+  deliveries                  Delivery[]
+  documents                   OrderDocument[]
+
+  @@index([customerId])
+  @@index([inquiryId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([paymentDueTiming])
+  @@index([paymentDueDate])
+  @@index([deliveryStatus])
+  @@index([sourceType])
+  @@index([createdById])
+  @@index([lastPaymentAt])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model OrderItem {
+  id                  String            @id @default(uuid()) @db.Uuid
+  orderId             String            @db.Uuid
+  quotationItemId     String?           @db.Uuid
+  productId           String?           @db.Uuid
+  itemType            QuotationItemType
+  sortOrder           Int               @default(0)
+  snapshotProductCode String?
+  itemName            String
+  description         String?
+  specifications      String?
+  quantity            Decimal           @db.Decimal(12, 2)
+  unitPrice           Decimal           @db.Decimal(12, 2)
+  discountType        DiscountType?
+  discountValue       Decimal?          @db.Decimal(12, 2)
+  discountAmount      Decimal           @default(0) @db.Decimal(12, 2)
+  lineSubtotal        Decimal           @default(0) @db.Decimal(12, 2)
+  lineTotal           Decimal           @default(0) @db.Decimal(12, 2)
+  customerNotes       String?
+  internalNotes       String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quotationItem       QuotationItem?    @relation(fields: [quotationItemId], references: [id], onDelete: SetNull)
+  product             Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  images              OrderItemImage[]
+  deliveryItems       DeliveryItem[]
+
+  @@index([orderId])
+  @@index([quotationItemId])
+  @@index([productId])
+  @@index([itemType])
+  @@index([sortOrder])
+}
+
+model OrderItemImage {
+  id                         String              @id @default(uuid()) @db.Uuid
+  orderItemId                String              @db.Uuid
+  sourceQuotationItemImageId String?             @db.Uuid
+  sourceProductImageId       String?             @db.Uuid
+  cloudinaryPublicId         String
+  secureUrl                  String
+  resourceType               String              @default("image")
+  format                     String?
+  width                      Int?
+  height                     Int?
+  bytes                      Int?
+  altText                    String?
+  sortOrder                  Int                 @default(0)
+  isPrimary                  Boolean             @default(false)
+  createdAt                  DateTime            @default(now())
+  updatedAt                  DateTime            @updatedAt
+  orderItem                  OrderItem           @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  sourceQuotationItemImage   QuotationItemImage? @relation(fields: [sourceQuotationItemImageId], references: [id], onDelete: SetNull)
+  sourceProductImage         ProductImage?       @relation(fields: [sourceProductImageId], references: [id], onDelete: SetNull)
+
+  @@index([orderItemId])
+  @@index([sourceQuotationItemImageId])
+  @@index([sourceProductImageId])
+  @@index([isPrimary])
+}
+
+model Payment {
+  id               String          @id @default(uuid()) @db.Uuid
+  orderId          String          @db.Uuid
+  customerId       String          @db.Uuid
+  paymentNumber    String?
+  paymentType      PaymentType     @default(PARTIAL_PAYMENT)
+  status           PaymentStatus   @default(RECORDED)
+  paymentDate      DateTime
+  amount           Decimal         @db.Decimal(12, 2)
+  method           PaymentMethod?
+  referenceNumber  String?
+  payerName        String?
+  customerNotes    String?
+  internalNotes    String?
+  receiptGenerated Boolean         @default(false)
+  receivedById     String?         @db.Uuid
+  createdById      String?         @db.Uuid
+  updatedById      String?         @db.Uuid
+  voidedAt         DateTime?
+  voidedById       String?         @db.Uuid
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer         Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  receivedBy       UserProfile?    @relation("PaymentReceiver", fields: [receivedById], references: [id], onDelete: SetNull)
+  createdBy        UserProfile?    @relation("PaymentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy        UserProfile?    @relation("PaymentUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  voidedBy         UserProfile?    @relation("PaymentVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+  documents        OrderDocument[]
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([paymentType])
+  @@index([status])
+  @@index([paymentDate])
+  @@index([method])
+  @@index([receivedById])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model Delivery {
+  id                        String                @id @default(uuid()) @db.Uuid
+  orderId                   String                @db.Uuid
+  status                    DeliveryStatus        @default(PLANNED)
+  scheduledDate             DateTime?
+  scheduledTimeWindow       String?
+  deliveryProviderType      DeliveryProviderType?
+  deliveryProviderName      String?
+  deliveryProviderReference String?
+  deliveryAddressSnapshot   Json?
+  recipientName             String?
+  recipientPhone            String?
+  deliveryNotes             String?
+  internalNotes             String?
+  assignedStaffId           String?               @db.Uuid
+  deliveredAt               DateTime?
+  cancelledAt               DateTime?
+  createdById               String?               @db.Uuid
+  updatedById               String?               @db.Uuid
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  order                     Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignedStaff             UserProfile?          @relation("DeliveryAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  createdBy                 UserProfile?          @relation("DeliveryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy                 UserProfile?          @relation("DeliveryUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  items                     DeliveryItem[]
+  documents                 OrderDocument[]
+
+  @@index([orderId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([deliveryProviderType])
+  @@index([assignedStaffId])
+  @@index([createdAt])
+}
+
+model DeliveryItem {
+  id                String    @id @default(uuid()) @db.Uuid
+  deliveryId        String    @db.Uuid
+  orderItemId       String    @db.Uuid
+  quantityPlanned   Decimal   @db.Decimal(12, 2)
+  quantityDelivered Decimal   @default(0) @db.Decimal(12, 2)
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  delivery          Delivery  @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  orderItem         OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId])
+  @@index([orderItemId])
+}
+
+model OrderDocument {
+  id                 String         @id @default(uuid()) @db.Uuid
+  orderId            String         @db.Uuid
+  quotationId        String?        @db.Uuid
+  paymentId          String?        @db.Uuid
+  deliveryId         String?        @db.Uuid
+  documentType       DocumentType
+  status             DocumentStatus @default(GENERATED)
+  title              String
+  cloudinaryPublicId String?
+  secureUrl          String?
+  resourceType       String?
+  format             String?
+  bytes              Int?
+  generatedAt        DateTime?
+  generatedById      String?        @db.Uuid
+  notes              String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  order              Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  quotation          Quotation?     @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  payment            Payment?       @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  delivery           Delivery?      @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  generatedBy        UserProfile?   @relation("DocumentGenerator", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([quotationId])
+  @@index([paymentId])
+  @@index([deliveryId])
+  @@index([documentType])
+  @@index([status])
+  @@index([createdAt])
 }

@@ -3,6 +3,7 @@ import type { PermissionAction, PermissionModule, UserProfile } from "@prisma/cl
 export type ModuleKey =
   | "CUSTOMERS"
   | "INQUIRIES"
+  | "PRODUCTS"
   | "QUOTATIONS"
   | "ORDERS"
   | "PAYMENTS"
@@ -24,6 +25,7 @@ export type ActionKey =
 export const permissionModules: Record<ModuleKey, string> = {
   CUSTOMERS: "Customers",
   INQUIRIES: "Inquiries",
+  PRODUCTS: "Products",
   QUOTATIONS: "Quotations",
   ORDERS: "Orders",
   PAYMENTS: "Payments",
@@ -37,6 +39,7 @@ export const permissionModules: Record<ModuleKey, string> = {
 export const moduleActions: Record<ModuleKey, ActionKey[]> = {
   CUSTOMERS: ["VIEW", "CREATE", "UPDATE"],
   INQUIRIES: ["VIEW", "CREATE", "UPDATE", "ASSIGN"],
+  PRODUCTS: ["VIEW", "CREATE", "UPDATE"],
   QUOTATIONS: ["VIEW", "CREATE", "UPDATE", "EXPORT", "APPROVE"],
   ORDERS: ["VIEW", "CREATE", "UPDATE"],
   PAYMENTS: ["VIEW", "CREATE", "UPDATE"],
@@ -50,6 +53,7 @@ export const moduleActions: Record<ModuleKey, ActionKey[]> = {
 export const staffDefaultPermissions: Partial<Record<ModuleKey, ActionKey[]>> = {
   CUSTOMERS: ["VIEW", "CREATE", "UPDATE"],
   INQUIRIES: ["VIEW", "CREATE", "UPDATE", "ASSIGN"],
+  PRODUCTS: ["VIEW"],
   QUOTATIONS: ["VIEW", "CREATE", "UPDATE", "EXPORT"],
   ORDERS: ["VIEW", "CREATE", "UPDATE"],
   PAYMENTS: ["VIEW", "CREATE", "UPDATE"],
