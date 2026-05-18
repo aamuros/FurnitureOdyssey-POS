@@ -66,12 +66,20 @@ This document maps the current codebase to the phase plans in `docs/`. It should
   - Final order summary
 - Protect PDF download routes with document export permission and source module view permissions.
 
+### Sales History and Basic Reports
+
+- Sales history route provides permission-gated operational reporting for saved orders.
+- Quotation history, order history, unfinished sales, payment history, outstanding balances, delivery schedules, and customer sales history are available as report views.
+- Report views support search, status filters, staff filters, and date range filters.
+- Payment and balance values are hidden from users without payment visibility.
+- Delivery schedule details are hidden from users without delivery visibility.
+- Customer sales history composes related records according to each module permission.
+
 ## Partially Implemented or Placeholder Areas
 
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
 - Settings page is a placeholder.
-- Sales history page is a placeholder.
 - Final PDF visual design, company branding, legal numbering, and accounting wording are not finalized.
 - Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application.
 
@@ -88,4 +96,3 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Keep phase documents as design references and update this status file when implementation catches up or scope changes.
 - Add route-level documentation when placeholder modules become full workspaces.
 - Update the README if setup, environment variables, or verification commands change.
-

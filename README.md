@@ -78,20 +78,29 @@ Historical records use snapshots for customer, product, item, price, discount, i
 
 ## Environment Variables
 
-Create a local `.env` file with:
+For local development, copy `.env.example` to `.env` and `.env.local`, then fill in the Supabase keys from `supabase status` after the local stack starts:
 
 ```bash
-DATABASE_URL="postgresql://..."
-DIRECT_URL="postgresql://..."
-NEXT_PUBLIC_SUPABASE_URL="https://..."
-NEXT_PUBLIC_SUPABASE_ANON_KEY="..."
-SUPABASE_SERVICE_ROLE_KEY="..."
-FIRST_ADMIN_AUTH_USER_ID="..."
+DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:55522/postgres?schema=public"
+DIRECT_URL="postgresql://postgres:postgres@127.0.0.1:55522/postgres?schema=public"
+NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:55521"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="your-local-or-hosted-supabase-publishable-key"
+SUPABASE_SERVICE_ROLE_KEY="your-local-or-hosted-server-only-secret-key"
+FIRST_ADMIN_AUTH_USER_ID=""
 FIRST_ADMIN_EMAIL="admin@example.com"
 FIRST_ADMIN_NAME="Furniture Odyssey Admin"
 ```
 
 `FIRST_ADMIN_*` values are only needed when running the seed script to create the first active Admin profile. The auth user must already exist in Supabase Auth.
+
+The committed Supabase local config uses a `555xx` port range to avoid conflicts with other local Supabase projects:
+
+| Service | URL |
+| --- | --- |
+| Supabase API | `http://127.0.0.1:55521` |
+| Supabase Studio | `http://127.0.0.1:55523` |
+| Mailpit | `http://127.0.0.1:55524` |
+| Postgres | `postgresql://postgres:postgres@127.0.0.1:55522/postgres` |
 
 ## Local Development
 
@@ -100,6 +109,15 @@ Install dependencies:
 ```bash
 npm install
 ```
+
+Start Supabase locally. Docker Desktop must be running first.
+
+```bash
+supabase start
+supabase status
+```
+
+Copy the `Project URL`, `Publishable`, and `Secret` values from `supabase status` into `.env` and `.env.local`.
 
 Generate the Prisma client:
 
@@ -113,7 +131,7 @@ Push the Prisma schema to the configured database:
 npm run prisma:push
 ```
 
-Seed the first Admin profile:
+Create a local Supabase Auth test user in Supabase Studio or through the Auth Admin API. Use that auth user's ID as `FIRST_ADMIN_AUTH_USER_ID`, then seed the first Admin profile:
 
 ```bash
 npm run seed
@@ -125,7 +143,13 @@ Start the development server:
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open the local URL printed by Next.js, usually `http://localhost:3000`. If that port is already in use, run:
+
+```bash
+PORT=3003 npm run dev
+```
+
+Then open `http://localhost:3003`.
 
 ## Verification Commands
 
@@ -147,5 +171,7 @@ Phase documents live in `docs/`:
 - `docs/downpayment-partial-payment-balance-tracking-phase.md`
 - `docs/delivery-scheduling-and-partial-delivery-handling-phase.md`
 - `docs/operational-pdf-generation-phase.md`
+- `docs/sales-history-unfinished-sales-basic-reports-phase.md`
+- `docs/mvp-stabilization-and-furniture-odyssey-pilot-testing-phase.md`
+- `docs/mvp-pilot-testing-execution-checklist.md`
 - `docs/implementation-status.md`
-
