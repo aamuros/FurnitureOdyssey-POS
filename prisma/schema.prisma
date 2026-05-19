@@ -325,6 +325,7 @@ model Customer {
   lastName          String?
   companyName       String?
   contactPersonName String?
+  source            InquirySource?
   notes             String?
   createdById       String?           @db.Uuid
   assignedStaffId   String?           @db.Uuid
@@ -343,6 +344,7 @@ model Customer {
   @@index([customerType])
   @@index([displayName])
   @@index([companyName])
+  @@index([source])
   @@index([assignedStaffId])
   @@index([createdAt])
   @@index([archivedAt])

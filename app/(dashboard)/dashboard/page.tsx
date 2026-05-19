@@ -28,7 +28,7 @@ export default async function DashboardPage({
     <>
       <PageHeader
         title="Internal dashboard"
-        description="Access foundation for customer records, sales documents, orders, payments, deliveries, and sales history."
+        description="Access buyer records, quotations, orders, payments, deliveries, documents, and sales history."
       />
       {params.error === "forbidden" ? (
         <div className="mb-5 flex items-center gap-3 rounded-xl border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">

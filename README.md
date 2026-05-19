@@ -2,13 +2,13 @@
 
 Internal sales operations dashboard for Furniture Odyssey.
 
-This application is focused on the manual sales workflow used by Admin and Staff: customer records, inquiries, quotations, negotiated orders, payments, deliveries, downloadable operational PDFs, permissions, and activity tracking. It is not a public ecommerce storefront, inventory-first system, chatbot, or customer portal.
+This application is focused on the manual sales workflow used by Admin and Staff: customer directory records, quotations, negotiated orders, payments, deliveries, downloadable operational PDFs, permissions, and activity tracking. It is not a public ecommerce storefront, inventory-first system, chatbot, or customer portal.
 
 ## Current Scope
 
-- Customer records for individual and company clients.
+- Customer directory records for individual buyers and company clients.
 - Customer contacts for phone, Viber, Facebook, email, and other manual channels.
-- Inquiry tracking from Facebook Marketplace, Facebook Page, Messenger, Viber, walk-in, phone, referral, and other sources.
+- Optional customer source context from Facebook Marketplace, Facebook Page, Messenger, Viber, walk-in, phone, referral, and other sources.
 - Manual-friendly quotation creation with catalog product references and custom items.
 - Negotiated pricing with item-level and quotation-level discounts.
 - Approved quotation conversion into an operational order.
@@ -47,8 +47,7 @@ This application is focused on the manual sales workflow used by Admin and Staff
 | --- | --- |
 | `/login` | Supabase email/password login |
 | `/dashboard` | Internal dashboard landing page |
-| `/customers` | Customer creation, search, contacts, and customer context |
-| `/inquiries` | Inquiry capture and follow-up context |
+| `/customers` | Customer directory, buyer records, search, contacts, source context, and customer history support |
 | `/quotations` | Draft quotations, custom items, discounts, and approval status updates |
 | `/orders` | Quotation conversion, manual orders, payments, deliveries, and document records |
 | `/payments` | Read-only payment history, customer balances, receipt links, and order balance tracking |
@@ -65,8 +64,8 @@ Payment and delivery creation still happens from the order workspace. The standa
 The Prisma schema models the operational records used by the MVP:
 
 - `UserProfile`, `UserPermission`, and `ActivityLog` for authenticated staff access, permissions, and audit history.
-- `Customer`, `CustomerContact`, and `CustomerAddress` for customer records and manual communication context.
-- `Inquiry` for inbound sales requests.
+- `Customer`, `CustomerContact`, and `CustomerAddress` for buyer records and manual communication context.
+- `Inquiry` remains for historical/backward-compatible inbound sales request links.
 - `Product` and `ProductImage` as optional internal catalog references, not fixed ecommerce SKUs.
 - `Quotation`, `QuotationItem`, and `QuotationItemImage` for negotiated quote preparation.
 - `Order`, `OrderItem`, and `OrderItemImage` for confirmed operational sales records.
@@ -202,7 +201,7 @@ npm run prisma:generate
 
 ### Baseline migration
 
-This repository includes a baseline migration at `prisma/migrations/202605190000_baseline/`. It represents the current MVP schema for the internal sales operations dashboard: customers, inquiries, quotations, negotiated orders, payments, deliveries, document metadata, permissions, settings, and activity logs.
+This repository includes a baseline migration at `prisma/migrations/202605190000_baseline/`. It represents the current MVP schema for the internal sales operations dashboard: customers, historical inquiries, quotations, negotiated orders, payments, deliveries, document metadata, permissions, settings, and activity logs.
 
 Use the baseline for new empty databases. For an existing prototype database that was previously managed with `prisma db push`, take a backup first, verify the schema matches `prisma/schema.prisma`, then mark the baseline as applied before running future migrations:
 

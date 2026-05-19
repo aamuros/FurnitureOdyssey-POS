@@ -344,6 +344,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
 
   const canCreateOrders = hasPermission(user, "ORDERS", "CREATE");
+  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
   const canViewPayments = hasPermission(user, "PAYMENTS", "VIEW");
   const canCreatePayments = hasPermission(user, "PAYMENTS", "CREATE");
@@ -685,7 +686,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canUpdateDeliveries={canUpdateDeliveries}
         canCreateDocuments={canCreateDocuments}
         canExportDocuments={canExportDocuments}
+        canCreateCustomers={canCreateCustomers}
         customers={customers}
+        staff={staff}
         products={products.map((product) => ({
           ...product,
           referencePrice: product.referencePrice ? Number(product.referencePrice) : null,

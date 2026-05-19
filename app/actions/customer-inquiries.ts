@@ -24,7 +24,16 @@ type ActionState = {
 function parseContacts(value: FormDataEntryValue | null) {
   try {
     const parsed = JSON.parse(String(value ?? "[]"));
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (contact) =>
+            contact &&
+            typeof contact === "object" &&
+            "value" in contact &&
+            typeof contact.value === "string" &&
+            contact.value.trim()
+        )
+      : [];
   } catch {
     return [];
   }
@@ -70,6 +79,7 @@ export async function createCustomerAction(
     lastName: formData.get("lastName"),
     companyName: formData.get("companyName"),
     contactPersonName: formData.get("contactPersonName"),
+    source: formData.get("source") || undefined,
     assignedStaffId: formData.get("assignedStaffId"),
     notes: formData.get("notes"),
     contacts: parseContacts(formData.get("contacts"))
@@ -91,6 +101,7 @@ export async function createCustomerAction(
         lastName: parsed.data.lastName,
         companyName: parsed.data.companyName,
         contactPersonName: parsed.data.contactPersonName,
+        source: parsed.data.source as InquirySource | undefined,
         assignedStaffId: parsed.data.assignedStaffId,
         notes: parsed.data.notes,
         createdById: actor.id,
@@ -109,7 +120,8 @@ export async function createCustomerAction(
         summary: `Created customer record for ${created.displayName}.`,
         metadata: {
           customerId: created.id,
-          customerType: created.customerType
+          customerType: created.customerType,
+          source: created.source ?? ""
         }
       }
     });
@@ -118,7 +130,8 @@ export async function createCustomerAction(
   });
 
   revalidatePath("/customers");
-  revalidatePath("/inquiries");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
   return {
     ok: true,
     message: `Customer saved: ${customer.displayName}.`
