@@ -28,7 +28,7 @@ export const companyProfile = {
   quotationPrefix: "QT",
   orderPrefix: "ORD",
   invoicePrefix: "INV",
-  paymentReceiptPrefix: "PR",
+  paymentReceiptPrefix: "PAY",
   deliveryReceiptPrefix: "DR",
   finalSummaryPrefix: "SUM"
 } as const;

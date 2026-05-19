@@ -495,6 +495,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         quotation: {
           select: {
             id: true,
+            quotationNumber: true,
             status: true
           }
         },
@@ -710,7 +711,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
 
           return {
             id: order.id,
-            displayId: order.orderNumber ?? order.id.slice(0, 8),
+            displayId: order.orderNumber ?? "Not assigned",
             customerName: order.customerDisplayNameSnapshot,
             companyName: order.companyNameSnapshot,
             contactPersonName: order.contactPersonNameSnapshot,
@@ -743,6 +744,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             customerNotes: order.customerNotes,
             internalNotes: order.internalNotes,
             relatedQuotationId: order.quotation?.id ?? null,
+            relatedQuotationNumber: order.quotation?.quotationNumber ?? null,
             relatedQuotationStatus: order.quotation?.status ?? null,
             relatedInquiryId: order.inquiry?.id ?? null,
             relatedInquiryLabel: order.inquiry
@@ -786,6 +788,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             })),
             payments: canViewPayments ? order.payments.map((payment) => ({
               id: payment.id,
+              paymentNumber: payment.paymentNumber,
               paymentDate: formatDate(payment.paymentDate) ?? "",
               amount: formatMoney(payment.amount),
               paymentType: payment.paymentType,
@@ -797,6 +800,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             })) : [],
             deliveries: canViewDeliveries ? order.deliveries.map((delivery) => ({
               id: delivery.id,
+              deliveryNumber: delivery.deliveryNumber,
               status: delivery.status,
               scheduledDate: delivery.scheduledDate ? formatInputDate(delivery.scheduledDate) : null,
               scheduledDateLabel: formatDate(delivery.scheduledDate),

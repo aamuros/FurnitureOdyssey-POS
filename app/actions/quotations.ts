@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { DiscountType, QuotationItemType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
+import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
 import { createQuotationSchema } from "@/lib/validation/quotations";
 
@@ -127,8 +128,10 @@ export async function createQuotationAction(
   }
 
   const quotation = await prisma.$transaction(async (tx) => {
+    const quotationNumber = await generateQuotationNumber(tx);
     const created = await tx.quotation.create({
       data: {
+        quotationNumber,
         customerId: parsed.data.customerId,
         inquiryId: parsed.data.inquiryId,
         status: "DRAFT",
@@ -211,6 +214,7 @@ export async function createQuotationAction(
         summary: `Created draft quotation for ${customer.displayName}.`,
         metadata: {
           quotationId: created.id,
+          quotationNumber: created.quotationNumber,
           customerId: customer.id,
           inquiryId: parsed.data.inquiryId ?? "",
           totalAmount: totals.totalAmount,
@@ -231,7 +235,7 @@ export async function createQuotationAction(
 
   return {
     ok: true,
-    message: `Draft quotation saved for ${customer.displayName}: PHP ${Number(quotation.totalAmount).toLocaleString("en-PH", {
+    message: `Draft quotation saved for ${customer.displayName}: ${quotation.quotationNumber ?? quotation.id}. PHP ${Number(quotation.totalAmount).toLocaleString("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     })}.`

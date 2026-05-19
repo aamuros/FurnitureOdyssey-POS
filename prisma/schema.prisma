@@ -223,6 +223,7 @@ enum DocumentType {
   OFFICIAL_RECEIPT
   ACKNOWLEDGEMENT_RECEIPT
   DELIVERY_RECEIPT
+  FINAL_ORDER_SUMMARY
   OTHER
 }
 
@@ -476,6 +477,7 @@ model ProductImage {
 
 model Quotation {
   id                      String          @id @default(uuid()) @db.Uuid
+  quotationNumber         String?         @unique
   customerId              String          @db.Uuid
   inquiryId               String?         @db.Uuid
   status                  QuotationStatus @default(DRAFT)
@@ -712,7 +714,7 @@ model Payment {
   id               String          @id @default(uuid()) @db.Uuid
   orderId          String          @db.Uuid
   customerId       String          @db.Uuid
-  paymentNumber    String?
+  paymentNumber    String?         @unique
   paymentType      PaymentType     @default(PARTIAL_PAYMENT)
   status           PaymentStatus   @default(RECORDED)
   paymentDate      DateTime
@@ -752,6 +754,7 @@ model Payment {
 model Delivery {
   id                        String                @id @default(uuid()) @db.Uuid
   orderId                   String                @db.Uuid
+  deliveryNumber            String?               @unique
   status                    DeliveryStatus        @default(PLANNED)
   scheduledDate             DateTime?
   scheduledTimeWindow       String?
@@ -808,6 +811,7 @@ model OrderDocument {
   paymentId          String?        @db.Uuid
   deliveryId         String?        @db.Uuid
   documentType       DocumentType
+  documentNumber     String?        @unique
   status             DocumentStatus @default(GENERATED)
   title              String
   cloudinaryPublicId String?
@@ -833,4 +837,15 @@ model OrderDocument {
   @@index([documentType])
   @@index([status])
   @@index([createdAt])
+}
+
+model DocumentCounter {
+  id        String   @id @default(cuid())
+  type      String
+  year      Int
+  nextValue Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type, year])
 }

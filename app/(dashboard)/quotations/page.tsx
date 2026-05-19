@@ -95,6 +95,7 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
         status: status ? (status as never) : undefined,
         OR: query
           ? [
+              { quotationNumber: { contains: query, mode: "insensitive" } },
               {
                 customer: {
                   OR: [
@@ -184,6 +185,7 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
         })}
         quotations={quotations.map((quotation) => ({
           id: quotation.id,
+          quotationNumber: quotation.quotationNumber,
           customerName: quotation.customer.displayName,
           status: quotation.status,
           needsAssembly: quotation.needsAssembly,

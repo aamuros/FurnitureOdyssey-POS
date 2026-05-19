@@ -69,6 +69,9 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Admin-managed Settings now store company profile, payment/MOP instructions, document footer notes, and conservative document display prefixes in PostgreSQL.
 - Shared PDF formatting helpers cover PHP currency, dates, quantities, fallback text, document numbers, and status labels.
 - Store order document metadata, including type, title, Cloudinary public ID, secure URL, status, generated date, and notes.
+- Internal operational numbering is implemented for quotations, orders, invoices, payment receipts, delivery receipts, and final order summaries. Numbers use the configured document prefixes with `YYYY-######` sequences, for example `QT-2026-000001`, `ORD-2026-000001`, `INV-2026-000001`, `PAY-2026-000001`, `DR-2026-000001`, and `SUM-2026-000001`.
+- Operational numbers are display/reference numbers only, not legal or BIR-compliance-grade invoice controls. UUIDs remain the internal database identifiers.
+- Invoice, delivery receipt, and final summary PDF downloads generate a document number once, store it on `OrderDocument`, and reuse the same number on later downloads.
 - Generate downloadable PDFs with React-PDF for:
   - Quotation
   - Invoice

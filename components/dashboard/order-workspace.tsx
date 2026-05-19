@@ -112,6 +112,7 @@ type OrderRow = {
   customerNotes: string | null;
   internalNotes: string | null;
   relatedQuotationId: string | null;
+  relatedQuotationNumber: string | null;
   relatedQuotationStatus: string | null;
   relatedInquiryId: string | null;
   relatedInquiryLabel: string | null;
@@ -123,6 +124,7 @@ type OrderRow = {
   items: OrderItemRow[];
   payments: Array<{
     id: string;
+    paymentNumber: string | null;
     paymentDate: string;
     amount: string;
     paymentType: string;
@@ -134,6 +136,7 @@ type OrderRow = {
   }>;
   deliveries: Array<{
     id: string;
+    deliveryNumber: string | null;
     status: string;
     scheduledDate: string | null;
     scheduledDateLabel: string | null;
@@ -478,7 +481,7 @@ function DocumentForm({
             ? order.payments.map((payment) => (
                 <a key={payment.id} href={`/api/documents/payment-receipt/${payment.id}`} className={pdfLinkClass}>
                   <Download className="h-4 w-4" />
-                  Receipt {payment.paymentDate}
+                  Receipt {payment.paymentNumber ?? payment.paymentDate}
                 </a>
               ))
             : null}
@@ -486,7 +489,7 @@ function DocumentForm({
             ? order.deliveries.map((delivery) => (
                 <a key={delivery.id} href={`/api/documents/delivery-receipt/${delivery.id}`} className={pdfLinkClass}>
                   <Download className="h-4 w-4" />
-                  Delivery receipt {delivery.scheduledDateLabel ?? delivery.id.slice(0, 8)}
+                  Delivery receipt {delivery.deliveryNumber ?? delivery.scheduledDateLabel ?? "Not assigned"}
                 </a>
               ))
             : null}
@@ -504,6 +507,7 @@ function DocumentForm({
             <option value="OFFICIAL_RECEIPT">Official receipt</option>
             <option value="ACKNOWLEDGEMENT_RECEIPT">Acknowledgement receipt</option>
             <option value="DELIVERY_RECEIPT">Delivery receipt</option>
+            <option value="FINAL_ORDER_SUMMARY">Final order summary</option>
             <option value="OTHER">Other</option>
           </Select>
           <Select name="paymentId" defaultValue="" aria-label="Related payment">
@@ -1022,9 +1026,10 @@ export function OrderWorkspace({
                         {order.deliveries.map((delivery) => (
                           <div key={delivery.id} className="rounded-md bg-background p-3">
                             <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium">{delivery.scheduledDateLabel ?? "No date"}</span>
+                              <span className="font-medium">{delivery.deliveryNumber ?? "Not assigned"}</span>
                               <StatusPill tone={statusTone(delivery.status)}>{deliveryStatusLabel(delivery.status)}</StatusPill>
                             </div>
+                            <p className="mt-1 text-muted-foreground">{delivery.scheduledDateLabel ?? "No date"}</p>
                             <p className="mt-1 text-muted-foreground">{delivery.itemCount} item line(s)</p>
                             <p className="mt-1 text-muted-foreground">
                               {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}
@@ -1203,7 +1208,7 @@ export function OrderWorkspace({
                   <div className="border-t border-border pt-3">
                     {order.relatedQuotationId ? (
                       <p className="text-muted-foreground">
-                        Quotation: {order.relatedQuotationId.slice(0, 8)}
+                        Quotation: {order.relatedQuotationNumber ?? "Not assigned"}
                         {order.relatedQuotationStatus ? ` · ${readableLabel(order.relatedQuotationStatus)}` : ""}
                       </p>
                     ) : null}

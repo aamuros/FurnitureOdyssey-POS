@@ -13,6 +13,13 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import {
+  generateDeliveryReceiptNumber,
+  generateFinalSummaryNumber,
+  generateInvoiceNumber,
+  generateOrderNumber,
+  generatePaymentNumber
+} from "@/lib/numbering";
+import {
   calculateOrderItem,
   calculateOrderTotals,
   orderStatusFromProgress,
@@ -303,6 +310,7 @@ export async function convertQuotationToOrderAction(
   }
 
   const order = await prisma.$transaction(async (tx) => {
+    const orderNumber = await generateOrderNumber(tx);
     const calculatedItems = quotation.items.map((item) =>
       calculateOrderItem({
         quotationItemId: item.id,
@@ -328,6 +336,7 @@ export async function convertQuotationToOrderAction(
 
     const created = await tx.order.create({
       data: {
+        orderNumber,
         quotationId: quotation.id,
         customerId: quotation.customerId,
         inquiryId: quotation.inquiryId,
@@ -443,6 +452,7 @@ export async function convertQuotationToOrderAction(
           summary: `Created order for ${quotation.customer.displayName}.`,
           metadata: {
             orderId: created.id,
+            orderNumber: created.orderNumber,
             quotationId: quotation.id,
             totalAmount: Number(quotation.totalAmount),
             totalCostAmount,
@@ -463,7 +473,7 @@ export async function convertQuotationToOrderAction(
 
   return {
     ok: true,
-    message: `Order created from approved quotation for ${quotation.customer.displayName}: ${order.id}.`
+    message: `Order created from approved quotation for ${quotation.customer.displayName}: ${order.orderNumber ?? order.id}.`
   };
 }
 
@@ -562,8 +572,10 @@ export async function createManualOrderAction(
   }
 
   const order = await prisma.$transaction(async (tx) => {
+    const orderNumber = await generateOrderNumber(tx);
     const created = await tx.order.create({
       data: {
+        orderNumber,
         customerId: customer.id,
         status: "CONFIRMED",
         paymentStatus: "UNPAID",
@@ -654,6 +666,7 @@ export async function createManualOrderAction(
         summary: `Created manual order for ${customer.displayName}.`,
         metadata: {
           orderId: created.id,
+          orderNumber: created.orderNumber,
           customerId: customer.id,
           totalAmount: totals.totalAmount,
           totalCostAmount: totals.totalCostAmount,
@@ -674,7 +687,7 @@ export async function createManualOrderAction(
 
   return {
     ok: true,
-    message: `Manual order saved for ${customer.displayName}: ${order.id}.`
+    message: `Manual order saved for ${customer.displayName}: ${order.orderNumber ?? order.id}.`
   };
 }
 
@@ -731,10 +744,12 @@ export async function createPaymentAction(
         throw new ActionError("Payment amount exceeds the remaining balance.");
       }
 
-      await tx.payment.create({
+      const paymentNumber = await generatePaymentNumber(tx);
+      const payment = await tx.payment.create({
         data: {
           orderId: order.id,
           customerId: order.customerId,
+          paymentNumber,
           paymentType: parsed.data.paymentType,
           paymentDate: parsed.data.paymentDate,
           amount: parsed.data.amount,
@@ -758,6 +773,9 @@ export async function createPaymentAction(
           summary: `Recorded payment for order ${order.id}.`,
           metadata: {
             orderId: order.id,
+            orderNumber: order.orderNumber,
+            paymentId: payment.id,
+            paymentNumber: payment.paymentNumber,
             amount: parsed.data.amount,
             paymentType: parsed.data.paymentType,
             method: parsed.data.method
@@ -945,9 +963,11 @@ export async function createDeliveryAction(
           }
         : (order.deliveryAddressSnapshot ?? undefined);
 
-      await tx.delivery.create({
+      const deliveryNumber = await generateDeliveryReceiptNumber(tx);
+      const delivery = await tx.delivery.create({
         data: {
           orderId: order.id,
+          deliveryNumber,
           status: parsed.data.status as DeliveryStatus,
           scheduledDate: parsed.data.scheduledDate,
           scheduledTimeWindow: parsed.data.scheduledTimeWindow,
@@ -984,6 +1004,9 @@ export async function createDeliveryAction(
           summary: `Scheduled delivery for order ${order.id}.`,
           metadata: {
             orderId: order.id,
+            orderNumber: order.orderNumber,
+            deliveryId: delivery.id,
+            deliveryNumber: delivery.deliveryNumber,
             status: parsed.data.status,
             deliveryProviderType: parsed.data.deliveryProviderType,
             deliveryProviderName: parsed.data.deliveryProviderName,
@@ -1086,6 +1109,60 @@ export async function createOrderDocumentAction(
         }
       }
 
+      let documentNumber: string | null = null;
+
+      if (parsed.data.documentType === "PAYMENT_RECEIPT" && parsed.data.paymentId) {
+        const payment = await tx.payment.findUnique({
+          where: {
+            id: parsed.data.paymentId
+          },
+          select: {
+            id: true,
+            paymentNumber: true
+          }
+        });
+
+        documentNumber = payment?.paymentNumber ?? (await generatePaymentNumber(tx));
+
+        if (payment && !payment.paymentNumber) {
+          await tx.payment.update({
+            where: {
+              id: payment.id
+            },
+            data: {
+              paymentNumber: documentNumber
+            }
+          });
+        }
+      } else if (parsed.data.documentType === "DELIVERY_RECEIPT" && parsed.data.deliveryId) {
+        const delivery = await tx.delivery.findUnique({
+          where: {
+            id: parsed.data.deliveryId
+          },
+          select: {
+            id: true,
+            deliveryNumber: true
+          }
+        });
+
+        documentNumber = delivery?.deliveryNumber ?? (await generateDeliveryReceiptNumber(tx));
+
+        if (delivery && !delivery.deliveryNumber) {
+          await tx.delivery.update({
+            where: {
+              id: delivery.id
+            },
+            data: {
+              deliveryNumber: documentNumber
+            }
+          });
+        }
+      } else if (parsed.data.documentType === "INVOICE") {
+        documentNumber = await generateInvoiceNumber(tx);
+      } else if (parsed.data.documentType === "FINAL_ORDER_SUMMARY") {
+        documentNumber = await generateFinalSummaryNumber(tx);
+      }
+
       const document = await tx.orderDocument.create({
         data: {
           orderId: order.id,
@@ -1093,6 +1170,7 @@ export async function createOrderDocumentAction(
           paymentId: parsed.data.paymentId,
           deliveryId: parsed.data.deliveryId,
           documentType: parsed.data.documentType as DocumentType,
+          documentNumber,
           title: parsed.data.title,
           cloudinaryPublicId: parsed.data.cloudinaryPublicId,
           secureUrl: parsed.data.secureUrl,

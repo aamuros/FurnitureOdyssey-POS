@@ -183,6 +183,7 @@ export const createOrderDocumentSchema = z
       "OFFICIAL_RECEIPT",
       "ACKNOWLEDGEMENT_RECEIPT",
       "DELIVERY_RECEIPT",
+      "FINAL_ORDER_SUMMARY",
       "OTHER"
     ]),
     title: z.string().trim().min(1, "Document title is required."),

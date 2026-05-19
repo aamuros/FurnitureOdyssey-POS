@@ -322,6 +322,7 @@ function quotationSearchWhere(query: string | undefined): Prisma.QuotationWhereI
   }
 
   return [
+    { quotationNumber: { contains: query, mode: "insensitive" } },
     {
       customer: {
         OR: [
@@ -997,7 +998,7 @@ async function getQuotationReport({
 
             return (
               <tr key={quotation.id}>
-                <TableCell className="font-medium">{quotation.id.slice(0, 8)}</TableCell>
+                <TableCell className="font-medium">{quotation.quotationNumber ?? "Not assigned"}</TableCell>
                 <TableCell>
                   <div className="font-medium text-foreground">{customer.primary}</div>
                   <div className="text-xs">{customer.secondary}</div>
@@ -1015,7 +1016,7 @@ async function getQuotationReport({
                 <TableCell>
                   {order ? (
                     <Link href="/orders" className="text-primary hover:underline">
-                      {order.orderNumber ?? order.id.slice(0, 8)}
+                      {order.orderNumber ?? "Not assigned"}
                     </Link>
                   ) : (
                     "Not converted"
@@ -1065,6 +1066,7 @@ async function getPaymentReport({
       paymentDate: createdDateRange,
       OR: query
         ? [
+            { paymentNumber: { contains: query, mode: "insensitive" } },
             { referenceNumber: { contains: query, mode: "insensitive" } },
             { payerName: { contains: query, mode: "insensitive" } },
             {
@@ -1133,6 +1135,7 @@ async function getPaymentReport({
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
             <TableHead>Payment date</TableHead>
+            <TableHead>Receipt no.</TableHead>
             <TableHead>Customer</TableHead>
             <TableHead>Order</TableHead>
             <TableHead>Type</TableHead>
@@ -1153,13 +1156,14 @@ async function getPaymentReport({
             return (
               <tr key={payment.id}>
                 <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                <TableCell className="font-medium">{payment.paymentNumber ?? "Not assigned"}</TableCell>
                 <TableCell>
                   <div className="font-medium text-foreground">{customer.primary}</div>
                   <div className="text-xs">{customer.secondary}</div>
                 </TableCell>
                 <TableCell>
                   <Link href="/orders" className="font-medium text-primary hover:underline">
-                    {payment.order.orderNumber ?? payment.order.id.slice(0, 8)}
+                    {payment.order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
                 <TableCell>{labelFromEnum(payment.paymentType)}</TableCell>
@@ -1218,6 +1222,7 @@ async function getDeliveryReport({
       scheduledDate: createdDateRange,
       OR: query
         ? [
+            { deliveryNumber: { contains: query, mode: "insensitive" } },
             { deliveryProviderName: { contains: query, mode: "insensitive" } },
             { deliveryProviderReference: { contains: query, mode: "insensitive" } },
             { recipientName: { contains: query, mode: "insensitive" } },
@@ -1282,6 +1287,7 @@ async function getDeliveryReport({
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
             <TableHead>Scheduled date</TableHead>
+            <TableHead>DR no.</TableHead>
             <TableHead>Time window</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Customer</TableHead>
@@ -1304,6 +1310,7 @@ async function getDeliveryReport({
             return (
               <tr key={delivery.id}>
                 <TableCell>{formatDate(delivery.scheduledDate)}</TableCell>
+                <TableCell className="font-medium">{delivery.deliveryNumber ?? "Not assigned"}</TableCell>
                 <TableCell>{delivery.scheduledTimeWindow ?? "No time window"}</TableCell>
                 <TableCell>
                   <StatusPill tone={statusTone(delivery.status)}>{labelFromEnum(delivery.status)}</StatusPill>
@@ -1314,7 +1321,7 @@ async function getDeliveryReport({
                 </TableCell>
                 <TableCell>
                   <Link href="/orders" className="text-primary hover:underline">
-                    {delivery.order.orderNumber ?? delivery.order.id.slice(0, 8)}
+                    {delivery.order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
                 <TableCell>{delivery.recipientName ?? "Not set"}</TableCell>
@@ -1443,9 +1450,10 @@ function orderListInclude(permissions: Permissions) {
       }
     },
     quotation: permissions.canViewQuotations
-      ? {
+        ? {
           select: {
-            id: true
+            id: true,
+            quotationNumber: true
           }
         }
       : false,
@@ -1554,7 +1562,7 @@ function OrderTable({
               <tr key={order.id}>
                 <TableCell>
                   <Link href="/orders" className="font-medium text-primary hover:underline">
-                    {order.orderNumber ?? order.id.slice(0, 8)}
+                    {order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
                 <TableCell>
@@ -1593,7 +1601,7 @@ function OrderTable({
                 <TableCell>{formatDate(order.updatedAt)}</TableCell>
                 {mode === "orders" ? (
                   <TableCell>
-                    <div>Quotation {quotation ? quotation.id.slice(0, 8) : "None"}</div>
+                    <div>Quotation {quotation ? (quotation.quotationNumber ?? "Not assigned") : "None"}</div>
                     <div className="text-xs">Inquiry {inquiry?.sourceReference ?? inquiry?.id?.slice(0, 8) ?? "None"}</div>
                     {salesDetails.map((detail) => (
                       <div key={detail} className="text-xs text-muted-foreground">
@@ -1692,6 +1700,7 @@ async function getCustomerReport({
             take: 3,
             select: {
               id: true,
+              quotationNumber: true,
               status: true,
               totalAmount: true,
               createdAt: true,
@@ -1728,6 +1737,7 @@ async function getCustomerReport({
             take: 3,
             select: {
               id: true,
+              paymentNumber: true,
               paymentDate: true,
               paymentType: true,
               amount: true,
@@ -1759,6 +1769,7 @@ async function getCustomerReport({
         take: 90,
         select: {
           id: true,
+          deliveryNumber: true,
           status: true,
           scheduledDate: true,
           order: {
@@ -1843,7 +1854,7 @@ async function getCustomerReport({
                   {quotations.map((quotation) => (
                     <CompactRow
                       key={quotation.id}
-                      title={quotation.id.slice(0, 8)}
+                      title={quotation.quotationNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(quotation.status)} · ${formatMoney(quotation.totalAmount)}`}
                     />
                   ))}
@@ -1853,7 +1864,7 @@ async function getCustomerReport({
                   {orders.map((order) => (
                     <CompactRow
                       key={order.id}
-                      title={order.orderNumber ?? order.id.slice(0, 8)}
+                      title={order.orderNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(order.status)} · ${labelFromEnum(order.deliveryStatus)}${
                         permissions.canViewPayments ? ` · Profit ${formatMoney(order.grossProfitAmount)}` : ""
                       }`}
@@ -1865,7 +1876,7 @@ async function getCustomerReport({
                   {payments.map((payment) => (
                     <CompactRow
                       key={payment.id}
-                      title={formatDate(payment.paymentDate)}
+                      title={payment.paymentNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(payment.paymentType)} · ${formatMoney(payment.amount)}`}
                     />
                   ))}
@@ -1875,7 +1886,7 @@ async function getCustomerReport({
                   {deliveries.map((delivery) => (
                     <CompactRow
                       key={delivery.id}
-                      title={formatDate(delivery.scheduledDate)}
+                      title={delivery.deliveryNumber ?? "Not assigned"}
                       meta={`${delivery.order.orderNumber ?? "Order"} · ${labelFromEnum(delivery.status)}`}
                     />
                   ))}

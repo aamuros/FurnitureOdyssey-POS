@@ -116,6 +116,7 @@ export default async function DeliveriesPage() {
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
+                <th className="px-5 py-3 font-medium">DR no.</th>
                 <th className="px-5 py-3 font-medium">Schedule</th>
                 <th className="px-5 py-3 font-medium">Order</th>
                 <th className="px-5 py-3 font-medium">Customer</th>
@@ -132,6 +133,7 @@ export default async function DeliveriesPage() {
 
                 return (
                   <tr key={delivery.id}>
+                    <td className="px-5 py-3 font-medium">{delivery.deliveryNumber ?? "Not assigned"}</td>
                     <td className="px-5 py-3">
                       <div className="font-medium">{formatDate(delivery.scheduledDate)}</div>
                       <div className="text-xs text-muted-foreground">
@@ -139,7 +141,7 @@ export default async function DeliveriesPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">
-                      {delivery.order.orderNumber ?? delivery.order.id.slice(0, 8)}
+                      {delivery.order.orderNumber ?? "Not assigned"}
                     </td>
                     <td className="px-5 py-3 font-medium">
                       {delivery.order.customerDisplayNameSnapshot}

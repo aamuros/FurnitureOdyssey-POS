@@ -55,6 +55,7 @@ type ProductOption = {
 
 type QuotationRow = {
   id: string;
+  quotationNumber: string | null;
   customerName: string;
   status: string;
   needsAssembly: boolean;
@@ -692,6 +693,7 @@ export function QuotationWorkspace({
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
+                <th className="px-5 py-3 font-medium">Quotation</th>
                 <th className="px-5 py-3 font-medium">Customer</th>
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Items</th>
@@ -706,6 +708,7 @@ export function QuotationWorkspace({
             <tbody className="divide-y divide-border">
               {quotations.map((quotation) => (
                 <tr key={quotation.id}>
+                  <td className="px-5 py-3 font-medium">{quotation.quotationNumber ?? "Not assigned"}</td>
                   <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
                   <td className="px-5 py-3">
                     <StatusPill tone={statusTone(quotation.status)}>{quotation.status}</StatusPill>

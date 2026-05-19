@@ -152,6 +152,7 @@ export default async function PaymentsPage() {
               <thead className="border-b border-border text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">Receipt no.</th>
                   <th className="px-5 py-3 font-medium">Customer</th>
                   <th className="px-5 py-3 font-medium">Order</th>
                   <th className="px-5 py-3 font-medium">Type</th>
@@ -170,6 +171,7 @@ export default async function PaymentsPage() {
                   return (
                     <tr key={payment.id}>
                       <td className="px-5 py-3 text-muted-foreground">{formatDate(payment.paymentDate)}</td>
+                      <td className="px-5 py-3 font-medium">{payment.paymentNumber ?? "Not assigned"}</td>
                       <td className="px-5 py-3">
                         <div className="font-medium">{payment.customer.displayName}</div>
                         <div className="text-xs text-muted-foreground">
@@ -178,7 +180,7 @@ export default async function PaymentsPage() {
                       </td>
                       <td className="px-5 py-3">
                         <Link href="/orders" className="font-medium text-primary hover:underline">
-                          {payment.order.orderNumber ?? payment.order.id.slice(0, 8)}
+                          {payment.order.orderNumber ?? "Not assigned"}
                         </Link>
                       </td>
                       <td className="px-5 py-3 text-muted-foreground">
@@ -248,7 +250,7 @@ export default async function PaymentsPage() {
                       {customer.orders.slice(0, 3).map((order) => (
                         <div key={order.id} className="flex items-center justify-between gap-3">
                           <span className="text-muted-foreground">
-                            {order.orderNumber ?? order.id.slice(0, 8)}
+                            {order.orderNumber ?? "Not assigned"}
                           </span>
                           <StatusPill tone={statusTone(order.paymentStatus)}>
                             {order.paymentStatus}

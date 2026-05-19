@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import {
+  ensureOrderDocumentNumber,
+  generateDeliveryReceiptNumber,
+  generatePaymentNumber,
+  generateQuotationNumber
+} from "@/lib/numbering";
+import {
   fallbackText,
   formatDate,
   formatDateTime,
@@ -13,7 +19,6 @@ import {
   titleCaseLabel
 } from "@/lib/pdf/formatters";
 import {
-  documentPrefixForKind,
   footerForKind,
   getAppSettings
 } from "@/lib/settings/get-settings";
@@ -39,8 +44,8 @@ function companyForPdf(settings: AppSettingsInput) {
   };
 }
 
-function orderDisplayNumber(settings: AppSettingsInput, order: { id: string; orderNumber: string | null }) {
-  return order.orderNumber ?? formatDocumentNumber(documentPrefixForKind(settings, "order"), order.id.slice(0, 8));
+function orderDisplayNumber(_settings: AppSettingsInput, order: { id: string; orderNumber: string | null }) {
+  return order.orderNumber ?? "Not assigned";
 }
 
 function jsonText(value: unknown, keys: string[]) {
@@ -150,6 +155,29 @@ function salesWorkflowRows(value: {
 }
 
 export async function getQuotationPdfData(quotationId: string): Promise<OperationalPdfData> {
+  await prisma.$transaction(async (tx) => {
+    const quotation = await tx.quotation.findUnique({
+      where: {
+        id: quotationId
+      },
+      select: {
+        id: true,
+        quotationNumber: true
+      }
+    });
+
+    if (quotation && !quotation.quotationNumber) {
+      await tx.quotation.update({
+        where: {
+          id: quotation.id
+        },
+        data: {
+          quotationNumber: await generateQuotationNumber(tx)
+        }
+      });
+    }
+  });
+
   const quotation = await prisma.quotation.findUnique({
     where: {
       id: quotationId
@@ -200,7 +228,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
     kind: "quotation",
     title: "Quotation",
     subtitle: "Furniture quotation for review and approval",
-    filename: generatedFilename("quotation", quotation.id.slice(0, 8)),
+    filename: generatedFilename("quotation", quotation.quotationNumber ?? "not-assigned"),
     generatedAt: new Date(),
     company,
     customer: {
@@ -212,7 +240,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
     summary: [
       {
         label: "Quotation number",
-        value: formatDocumentNumber(documentPrefixForKind(settings, "quotation"), quotation.id.slice(0, 8))
+        value: quotation.quotationNumber ?? "Not assigned"
       },
       { label: "Quotation date", value: formatDate(quotation.createdAt) },
       { label: "Expiration date", value: "Not set" },
@@ -292,12 +320,21 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
 
   const settings = await getAppSettings();
   const company = companyForPdf(settings);
+  const invoiceNumber = await prisma.$transaction((tx) =>
+    ensureOrderDocumentNumber(tx, {
+      orderId: order.id,
+      quotationId: order.quotationId,
+      documentType: "INVOICE",
+      numberType: "invoice",
+      title: "Order Invoice"
+    })
+  );
 
   return {
     kind: "invoice",
     title: "Order Invoice",
     subtitle: "Sales order payment summary",
-    filename: generatedFilename("invoice", orderDisplayNumber(settings, order)),
+    filename: generatedFilename("invoice", invoiceNumber),
     generatedAt: new Date(),
     company,
     customer: {
@@ -318,10 +355,7 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
     summary: [
       {
         label: "Invoice number",
-        value: formatDocumentNumber(
-          documentPrefixForKind(settings, "invoice"),
-          order.orderNumber ?? order.id.slice(0, 8)
-        )
+        value: invoiceNumber
       },
       ...orderSummary(order, settings)
     ],
@@ -345,6 +379,29 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
 }
 
 export async function getPaymentReceiptPdfData(paymentId: string): Promise<OperationalPdfData> {
+  await prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.findUnique({
+      where: {
+        id: paymentId
+      },
+      select: {
+        id: true,
+        paymentNumber: true
+      }
+    });
+
+    if (payment && !payment.paymentNumber) {
+      await tx.payment.update({
+        where: {
+          id: payment.id
+        },
+        data: {
+          paymentNumber: await generatePaymentNumber(tx)
+        }
+      });
+    }
+  });
+
   const payment = await prisma.payment.findUnique({
     where: {
       id: paymentId
@@ -375,6 +432,30 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
 
   const settings = await getAppSettings();
   const company = companyForPdf(settings);
+  const receiptNumber = await prisma.$transaction(async (tx) => {
+    const documentNumber = await ensureOrderDocumentNumber(tx, {
+      orderId: payment.orderId,
+      quotationId: payment.order.quotationId,
+      paymentId: payment.id,
+      documentType: "PAYMENT_RECEIPT",
+      numberType: "payment",
+      title: "Payment Receipt",
+      existingNumber: payment.paymentNumber
+    });
+
+    if (!payment.receiptGenerated) {
+      await tx.payment.update({
+        where: {
+          id: payment.id
+        },
+        data: {
+          receiptGenerated: true
+        }
+      });
+    }
+
+    return documentNumber;
+  });
 
   let paidBefore = 0;
 
@@ -395,7 +476,7 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
     subtitle: "Acknowledgement of recorded payment",
     filename: generatedFilename(
       "payment-receipt",
-      payment.paymentNumber ?? payment.id.slice(0, 8)
+      receiptNumber
     ),
     generatedAt: new Date(),
     company,
@@ -418,10 +499,7 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
       { label: "Order", value: orderDisplayNumber(settings, payment.order) },
       {
         label: "Receipt number",
-        value: formatDocumentNumber(
-          documentPrefixForKind(settings, "payment-receipt"),
-          payment.paymentNumber ?? payment.id.slice(0, 8)
-        )
+        value: receiptNumber
       },
       { label: "Payment type", value: titleCaseLabel(payment.paymentType) },
       { label: "Payment date", value: formatDate(payment.paymentDate) },
@@ -442,6 +520,29 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
 }
 
 export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<OperationalPdfData> {
+  await prisma.$transaction(async (tx) => {
+    const delivery = await tx.delivery.findUnique({
+      where: {
+        id: deliveryId
+      },
+      select: {
+        id: true,
+        deliveryNumber: true
+      }
+    });
+
+    if (delivery && !delivery.deliveryNumber) {
+      await tx.delivery.update({
+        where: {
+          id: delivery.id
+        },
+        data: {
+          deliveryNumber: await generateDeliveryReceiptNumber(tx)
+        }
+      });
+    }
+  });
+
   const delivery = await prisma.delivery.findUnique({
     where: {
       id: deliveryId
@@ -471,12 +572,23 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
 
   const settings = await getAppSettings();
   const company = companyForPdf(settings);
+  const deliveryReceiptNumber = await prisma.$transaction((tx) =>
+    ensureOrderDocumentNumber(tx, {
+      orderId: delivery.orderId,
+      quotationId: delivery.order.quotationId,
+      deliveryId: delivery.id,
+      documentType: "DELIVERY_RECEIPT",
+      numberType: "deliveryReceipt",
+      title: "Delivery Receipt",
+      existingNumber: delivery.deliveryNumber
+    })
+  );
 
   return {
     kind: "delivery-receipt",
     title: "Delivery Receipt",
     subtitle: "Delivery handoff document",
-    filename: generatedFilename("delivery-receipt", delivery.id.slice(0, 8)),
+    filename: generatedFilename("delivery-receipt", deliveryReceiptNumber),
     generatedAt: new Date(),
     company,
     customer: {
@@ -499,10 +611,7 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
       { label: "Order", value: orderDisplayNumber(settings, delivery.order) },
       {
         label: "Delivery receipt number",
-        value: formatDocumentNumber(
-          documentPrefixForKind(settings, "delivery-receipt"),
-          delivery.id.slice(0, 8)
-        )
+        value: deliveryReceiptNumber
       },
       { label: "Status", value: formatDeliveryStatus(delivery.status) },
       { label: "Scheduled date", value: formatDate(delivery.scheduledDate) },
@@ -568,12 +677,21 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
 
   const settings = await getAppSettings();
   const company = companyForPdf(settings);
+  const summaryNumber = await prisma.$transaction((tx) =>
+    ensureOrderDocumentNumber(tx, {
+      orderId: order.id,
+      quotationId: order.quotationId,
+      documentType: "FINAL_ORDER_SUMMARY",
+      numberType: "finalSummary",
+      title: "Final Order Summary"
+    })
+  );
 
   return {
     kind: "final-order-summary",
     title: "Final Order Summary",
     subtitle: "Order, payment, and delivery record",
-    filename: generatedFilename("final-order-summary", orderDisplayNumber(settings, order)),
+    filename: generatedFilename("final-order-summary", summaryNumber),
     generatedAt: new Date(),
     company,
     customer: {
@@ -595,10 +713,7 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
     summary: [
       {
         label: "Final summary number",
-        value: formatDocumentNumber(
-          documentPrefixForKind(settings, "final-order-summary"),
-          order.orderNumber ?? order.id.slice(0, 8)
-        )
+        value: summaryNumber
       },
       ...orderSummary(order, settings)
     ],
