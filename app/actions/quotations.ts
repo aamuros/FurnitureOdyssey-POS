@@ -361,3 +361,89 @@ export async function updateQuotationStatusAction(
     message: `Quotation marked ${status}.`
   };
 }
+
+export async function deleteQuotationAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("QUOTATIONS", "UPDATE");
+  const quotationId = String(formData.get("quotationId") ?? "");
+
+  if (!quotationId) {
+    return {
+      ok: false,
+      message: "Choose a quotation to delete."
+    };
+  }
+
+  const quotation = await prisma.quotation.findUnique({
+    where: {
+      id: quotationId
+    },
+    include: {
+      customer: {
+        select: {
+          displayName: true
+        }
+      },
+      order: {
+        select: {
+          id: true,
+          orderNumber: true
+        }
+      }
+    }
+  });
+
+  if (!quotation) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  if (quotation.order) {
+    return {
+      ok: false,
+      message: "This quotation already has an order and cannot be deleted."
+    };
+  }
+
+  if (quotation.status !== "DRAFT") {
+    return {
+      ok: false,
+      message: "Only draft quotations without orders can be deleted."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.quotation.delete({
+      where: {
+        id: quotation.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "QUOTATION_UPDATED",
+        actorId: actor.id,
+        summary: `Deleted draft quotation ${quotation.quotationNumber ?? quotation.id} for ${quotation.customer.displayName}.`,
+        metadata: {
+          quotationId: quotation.id,
+          quotationNumber: quotation.quotationNumber,
+          customerId: quotation.customerId,
+          inquiryId: quotation.inquiryId ?? "",
+          status: quotation.status,
+          sourceAction: "quotation_delete"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/quotations");
+
+  return {
+    ok: true,
+    message: "Quotation deleted."
+  };
+}

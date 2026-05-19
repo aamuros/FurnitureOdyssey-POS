@@ -3,9 +3,11 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Download,
+  Eye,
   FileText,
   ImagePlus,
   PackageSearch,
@@ -20,7 +22,11 @@ import {
   X
 } from "lucide-react";
 import { createCustomerAction } from "@/app/actions/customer-inquiries";
-import { createQuotationAction, updateQuotationStatusAction } from "@/app/actions/quotations";
+import {
+  createQuotationAction,
+  deleteQuotationAction,
+  updateQuotationStatusAction
+} from "@/app/actions/quotations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -66,6 +72,7 @@ type QuotationRow = {
   totalAmount: string;
   createdBy: string | null;
   updatedAt: string;
+  canDelete: boolean;
 };
 
 type QuotationBuilderProps = {
@@ -1181,6 +1188,17 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
     updateQuotationStatusAction,
     initialState
   );
+  const [deleteState, deleteAction, deletePending] = useActionState(
+    deleteQuotationAction,
+    initialState
+  );
+  const [quotationToDelete, setQuotationToDelete] = useState<QuotationRow | null>(null);
+
+  useEffect(() => {
+    if (deleteState.ok) {
+      setQuotationToDelete(null);
+    }
+  }, [deleteState.ok]);
 
   return (
     <section className="studio-card">
@@ -1214,6 +1232,11 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
             {statusState.message}
           </p>
         ) : null}
+        {deleteState.message ? (
+          <p className={deleteState.ok ? "mt-2 text-sm text-success" : "mt-2 text-sm text-danger"}>
+            {deleteState.message}
+          </p>
+        ) : null}
       </div>
       <div className="overflow-x-auto">
         <table className="studio-table w-full min-w-[860px] text-left text-sm">
@@ -1244,39 +1267,64 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
                 <td className="px-5 py-3 text-muted-foreground">{quotation.createdBy ?? "Unknown"}</td>
                 <td className="px-5 py-3 text-muted-foreground">{quotation.updatedAt}</td>
                 <td className="px-5 py-3">
-                  <form action={statusAction} className="flex flex-wrap gap-2">
-                    <input type="hidden" name="quotationId" value={quotation.id} />
-                    <a href={`/api/documents/quotation/${quotation.id}`} className={pdfLinkClass}>
-                      <Download className="h-4 w-4" />
-                      PDF
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={`/api/documents/quotation/${quotation.id}?disposition=inline`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={pdfLinkClass}
+                    >
+                      <Eye className="h-4 w-4" />
+                      Preview PDF
                     </a>
-                    {quotation.status === "DRAFT" ? (
+                    <a
+                      href={`/api/documents/quotation/${quotation.id}?disposition=attachment`}
+                      className={pdfLinkClass}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download PDF
+                    </a>
+                    <form action={statusAction} className="flex flex-wrap gap-2">
+                      <input type="hidden" name="quotationId" value={quotation.id} />
+                      {quotation.status === "DRAFT" ? (
+                        <Button
+                          type="submit"
+                          name="status"
+                          value="SENT"
+                          variant="secondary"
+                          disabled={statusPending}
+                          className="min-h-9 px-2"
+                        >
+                          <Send className="h-4 w-4" />
+                          Sent
+                        </Button>
+                      ) : null}
+                      {quotation.status !== "ACCEPTED" ? (
+                        <Button
+                          type="submit"
+                          name="status"
+                          value="ACCEPTED"
+                          variant="secondary"
+                          disabled={statusPending}
+                          className="min-h-9 px-2"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Accept
+                        </Button>
+                      ) : null}
+                    </form>
+                    {quotation.canDelete ? (
                       <Button
-                        type="submit"
-                        name="status"
-                        value="SENT"
-                        variant="secondary"
-                        disabled={statusPending}
+                        type="button"
+                        variant="danger"
+                        onClick={() => setQuotationToDelete(quotation)}
                         className="min-h-9 px-2"
                       >
-                        <Send className="h-4 w-4" />
-                        Sent
+                        <Trash2 className="h-4 w-4" />
+                        Delete
                       </Button>
                     ) : null}
-                    {quotation.status !== "ACCEPTED" ? (
-                      <Button
-                        type="submit"
-                        name="status"
-                        value="ACCEPTED"
-                        variant="secondary"
-                        disabled={statusPending}
-                        className="min-h-9 px-2"
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        Accept
-                      </Button>
-                    ) : null}
-                  </form>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -1293,6 +1341,43 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
           </tbody>
         </table>
       </div>
+      {quotationToDelete ? (
+        <div className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6">
+          <div className="mx-auto mt-20 max-w-md rounded-xl border border-border bg-panel shadow-xl">
+            <div className="border-b border-border px-5 py-4">
+              <p className="studio-kicker">Delete quotation</p>
+              <h2 className="text-base font-semibold">Delete this quotation?</h2>
+            </div>
+            <div className="space-y-3 p-5 text-sm">
+              <div className="flex gap-3 rounded-lg border border-danger/30 bg-danger/10 p-3 text-danger">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>This will remove the saved quotation and its items. This cannot be undone.</p>
+              </div>
+              <div className="rounded-lg border border-border bg-background p-3">
+                <p className="font-semibold">
+                  {quotationToDelete.quotationNumber ?? "Not assigned"}
+                </p>
+                <p className="text-muted-foreground">{quotationToDelete.customerName}</p>
+              </div>
+            </div>
+            <form action={deleteAction} className="flex flex-wrap justify-end gap-2 border-t border-border p-5">
+              <input type="hidden" name="quotationId" value={quotationToDelete.id} />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setQuotationToDelete(null)}
+                disabled={deletePending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="danger" disabled={deletePending}>
+                <Trash2 className="h-4 w-4" />
+                Delete quotation
+              </Button>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

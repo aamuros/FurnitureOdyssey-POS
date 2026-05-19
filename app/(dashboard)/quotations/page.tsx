@@ -74,6 +74,11 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
           displayName: true
         }
       },
+      order: {
+        select: {
+          id: true
+        }
+      },
       _count: {
         select: {
           items: true
@@ -108,7 +113,8 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
           subtotalAmount: formatMoney(quotation.subtotalAmount),
           totalAmount: formatMoney(quotation.totalAmount),
           createdBy: quotation.createdBy?.displayName ?? null,
-          updatedAt: formatDate(quotation.updatedAt)
+          updatedAt: formatDate(quotation.updatedAt),
+          canDelete: quotation.status === "DRAFT" && !quotation.order
         }))}
       />
     </>
