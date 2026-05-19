@@ -1,6 +1,6 @@
 # Upload and Document Storage Policy
 
-This policy is the shared foundation for future product, quotation, order, delivery, payment, and document upload UI. The application currently stores Cloudinary metadata in PostgreSQL and does not upload files directly from these screens yet.
+This policy is the shared foundation for product, quotation, order, delivery, payment, and document upload UI. Product image uploads are implemented through server actions. Other categories still use existing metadata/snapshot behavior until upload controls are added.
 
 ## Current Metadata Model
 
@@ -21,9 +21,19 @@ Upload rules live in:
 - `lib/uploads/paths.ts`: deterministic Cloudinary folder/path helpers.
 - `lib/uploads/validation.ts`: server-side validation for category, MIME type, extension, file size, filenames, dimensions, and upload permissions.
 - `lib/uploads/cloudinary.ts`: reusable Cloudinary transformation URL helpers.
-- `lib/uploads/server.ts`: server-action helper that maps upload categories to the existing `requirePermission` authorization flow.
+- `lib/uploads/server.ts`: server-action helpers that map upload categories to the existing `requirePermission` authorization flow, sniff file signatures, validate policy rules, upload to Cloudinary, and return normalized metadata.
 
 Future server actions and API routes should import from `@/lib/uploads` instead of defining upload rules locally.
+
+## Cloudinary Configuration
+
+Server-side uploads require:
+
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+
+These values must stay server-only. Do not prefix the API secret with `NEXT_PUBLIC_`.
 
 ## Categories
 
@@ -68,16 +78,22 @@ Do not force all generated PDFs to be permanently stored unless a future workflo
 
 ## Deletion and Replacement
 
-Product images are mutable catalog media. They can be replaced, and a future upload action may hard-delete the Cloudinary asset when no historical snapshot depends on it.
+Product images are mutable catalog media. The current product image UI uploads to Cloudinary, stores metadata in `ProductImage`, supports primary image selection, and removes metadata from the product record. Removal is metadata-only: the Cloudinary asset is not destroyed yet. Historical quotation/order snapshots that already copied product image URLs must not be deleted or rewritten.
 
 Quotation and order item images are historical sales snapshots. Once used in sent/accepted quotations, confirmed orders, or generated PDFs, they should be preserved. Deleting should usually remove or hide active metadata from the editable record only after confirming historical records keep their own snapshot references.
 
 Payment proof, delivery proof, and generated documents are audit/history artifacts. Prefer preserving metadata and stored files. Replacement should create a new artifact or update metadata with activity logging, not silently overwrite finalized evidence.
 
+## Implemented Upload Categories
+
+- `product-image`: server-side Cloudinary upload from the product workspace, `PRODUCTS:UPDATE` permission, product existence check, policy validation, metadata persistence, primary image handling, metadata removal, and activity logging.
+
 ## Not Implemented Yet
 
-- Browser upload UI, drag-and-drop interactions, and progress states.
+- Drag-and-drop interactions and upload progress states.
 - Direct Cloudinary signed-upload endpoints.
+- Quotation item image upload controls and actions.
+- Order item image upload controls and actions.
 - Customer portal uploads.
 - Payment gateway verification.
 - Delivery provider integration uploads.

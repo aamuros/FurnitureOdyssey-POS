@@ -102,3 +102,14 @@ export type UploadValidationResult =
       ok: false;
       issues: UploadValidationIssue[];
     };
+
+export type UploadedFileMetadata = {
+  cloudinaryPublicId: string;
+  secureUrl: string;
+  resourceType: string;
+  format: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  originalFilename: string;
+};

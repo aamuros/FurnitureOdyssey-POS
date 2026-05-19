@@ -86,12 +86,17 @@ DIRECT_URL="postgresql://postgres:postgres@127.0.0.1:55522/postgres?schema=publi
 NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:55521"
 NEXT_PUBLIC_SUPABASE_ANON_KEY="your-local-or-hosted-supabase-publishable-key"
 SUPABASE_SERVICE_ROLE_KEY="your-local-or-hosted-server-only-secret-key"
+CLOUDINARY_CLOUD_NAME="your-cloudinary-cloud-name"
+CLOUDINARY_API_KEY="your-cloudinary-api-key"
+CLOUDINARY_API_SECRET="your-cloudinary-api-secret"
 FIRST_ADMIN_AUTH_USER_ID=""
 FIRST_ADMIN_EMAIL="admin@example.com"
 FIRST_ADMIN_NAME="Furniture Odyssey Admin"
 ```
 
 `FIRST_ADMIN_*` values are only needed when running the seed script to create the first active Admin profile. The auth user must already exist in Supabase Auth.
+
+`CLOUDINARY_*` values are server-only credentials used by product image uploads and future document/media upload actions. Do not expose the API secret through `NEXT_PUBLIC_*` variables.
 
 The committed Supabase local config uses a `555xx` port range to avoid conflicts with other local Supabase projects:
 

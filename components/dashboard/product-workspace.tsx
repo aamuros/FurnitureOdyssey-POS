@@ -1,8 +1,14 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { ImagePlus, Pencil, Plus, Save, Trash2 } from "lucide-react";
-import { createProductAction, updateProductAction } from "@/app/actions/products";
+import { ImagePlus, Pencil, Plus, Save, Star, Trash2, Upload } from "lucide-react";
+import {
+  createProductAction,
+  removeProductImageAction,
+  setPrimaryProductImageAction,
+  updateProductAction,
+  uploadProductImageAction
+} from "@/app/actions/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -51,14 +57,6 @@ const initialState = {
   message: ""
 };
 
-const emptyImage: ProductImageDraft = {
-  cloudinaryPublicId: "",
-  secureUrl: "",
-  altText: "",
-  sortOrder: 0,
-  isPrimary: true
-};
-
 function statusTone(status: ProductRow["status"]) {
   return status === "ACTIVE" ? "success" : "neutral";
 }
@@ -74,75 +72,57 @@ function formatMoney(value: number | null, currency: string) {
   }).format(value);
 }
 
-function imagePayload(images: ProductImageDraft[]) {
-  return images
-    .filter((image) => image.cloudinaryPublicId.trim() || image.secureUrl.trim())
-    .map((image, index) => ({
-      ...image,
-      sortOrder: Number.isFinite(image.sortOrder) ? image.sortOrder : index,
-      isPrimary: image.isPrimary
-    }));
-}
-
-function ProductImageFields({
-  images,
-  setImages
+function ProductImageManager({
+  productId,
+  productName,
+  images
 }: {
+  productId: string;
+  productName: string;
   images: ProductImageDraft[];
-  setImages: React.Dispatch<React.SetStateAction<ProductImageDraft[]>>;
 }) {
-  function updateImage(index: number, field: keyof ProductImageDraft, value: string | boolean | number) {
-    setImages((current) =>
-      current.map((image, imageIndex) => {
-        if (imageIndex !== index) {
-          return field === "isPrimary" && value === true
-            ? { ...image, isPrimary: false }
-            : image;
-        }
-
-        return {
-          ...image,
-          [field]: value
-        };
-      })
-    );
+  async function uploadImage(formData: FormData) {
+    await uploadProductImageAction(formData);
   }
 
-  function addImage() {
-    setImages((current) => [
-      ...current,
-      {
-        ...emptyImage,
-        sortOrder: current.length,
-        isPrimary: current.length === 0
-      }
-    ]);
+  async function setPrimaryImage(formData: FormData) {
+    await setPrimaryProductImageAction(formData);
   }
 
-  function removeImage(index: number) {
-    setImages((current) => {
-      const next = current.filter((_, imageIndex) => imageIndex !== index);
-
-      if (next.length && !next.some((image) => image.isPrimary)) {
-        return next.map((image, imageIndex) => ({
-          ...image,
-          isPrimary: imageIndex === 0
-        }));
-      }
-
-      return next;
-    });
+  async function removeImage(formData: FormData) {
+    await removeProductImageAction(formData);
   }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Product images</h3>
-        <Button type="button" variant="secondary" onClick={addImage} className="min-h-9 px-3">
-          <ImagePlus className="h-4 w-4" />
-          Add image
-        </Button>
       </div>
+      <form action={uploadImage} className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_96px_auto]">
+        <input type="hidden" name="productId" value={productId} />
+        <label className="space-y-2 text-sm font-medium">
+          Image file
+          <Input name="file" type="file" accept="image/jpeg,image/png,image/webp" required />
+        </label>
+        <label className="space-y-2 text-sm font-medium">
+          Alt text
+          <Input name="altText" placeholder={productName} />
+        </label>
+        <label className="space-y-2 text-sm font-medium">
+          Sort
+          <Input name="sortOrder" type="number" min="0" defaultValue={images.length} />
+        </label>
+        <div className="flex items-end gap-3">
+          <label className="flex min-h-10 items-center gap-2 text-sm text-muted-foreground">
+            <input name="isPrimary" type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" />
+            Primary
+          </label>
+          <Button type="submit" variant="secondary" className="min-h-10 px-3">
+            <Upload className="h-4 w-4" />
+            Upload
+          </Button>
+        </div>
+      </form>
       {images.map((image, index) => (
         <div key={image.id ?? index} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[96px_1fr]">
           <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
@@ -157,52 +137,36 @@ function ProductImageFields({
               <ImagePlus className="h-5 w-5 text-muted-foreground" />
             )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              value={image.cloudinaryPublicId}
-              onChange={(event) => updateImage(index, "cloudinaryPublicId", event.target.value)}
-              placeholder="Cloudinary public ID"
-              aria-label="Cloudinary public ID"
-            />
-            <Input
-              value={image.secureUrl}
-              onChange={(event) => updateImage(index, "secureUrl", event.target.value)}
-              placeholder="Secure URL"
-              aria-label="Secure image URL"
-            />
-            <Input
-              value={image.altText}
-              onChange={(event) => updateImage(index, "altText", event.target.value)}
-              placeholder="Alt text"
-              aria-label="Alt text"
-            />
-            <Input
-              type="number"
-              min="0"
-              value={image.sortOrder}
-              onChange={(event) => updateImage(index, "sortOrder", Number(event.target.value))}
-              aria-label="Image sort order"
-            />
-            <div className="flex items-center gap-3 sm:col-span-2">
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={image.isPrimary}
-                  onChange={(event) => updateImage(index, "isPrimary", event.target.checked)}
-                  className="h-4 w-4 accent-[hsl(var(--primary))]"
-                />
-                Primary
-              </label>
-              <Button type="button" variant="ghost" onClick={() => removeImage(index)} className="min-h-9 px-2">
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium">{image.altText || productName}</p>
+              <p className="break-all text-xs text-muted-foreground">{image.cloudinaryPublicId}</p>
+              <p className="text-xs text-muted-foreground">Sort {image.sortOrder}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <form action={setPrimaryImage}>
+                <input type="hidden" name="productId" value={productId} />
+                <input type="hidden" name="imageId" value={image.id ?? ""} />
+                <Button type="submit" variant={image.isPrimary ? "secondary" : "ghost"} className="min-h-9 px-3" disabled={image.isPrimary}>
+                  <Star className="h-4 w-4" />
+                  {image.isPrimary ? "Primary" : "Set primary"}
+                </Button>
+              </form>
+              <form action={removeImage}>
+                <input type="hidden" name="productId" value={productId} />
+                <input type="hidden" name="imageId" value={image.id ?? ""} />
+                <Button type="submit" variant="ghost" className="min-h-9 px-2">
                 <Trash2 className="h-4 w-4" />
-              </Button>
+                  Remove
+                </Button>
+              </form>
             </div>
           </div>
         </div>
       ))}
       {images.length === 0 ? (
         <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-          Add Cloudinary image metadata when a product photo is available.
+          Upload product photos after saving the product record.
         </p>
       ) : null}
     </div>
@@ -212,8 +176,6 @@ function ProductImageFields({
 export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWorkspaceProps) {
   const [createState, createAction, createPending] = useActionState(createProductAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateProductAction, initialState);
-  const [createImages, setCreateImages] = useState<ProductImageDraft[]>([]);
-  const [editImages, setEditImages] = useState<ProductImageDraft[]>(() => products[0]?.images ?? []);
   const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ?? "");
 
   const selectedProduct = useMemo(
@@ -223,7 +185,6 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
 
   function selectProduct(product: ProductRow) {
     setSelectedProductId(product.id);
-    setEditImages(product.images);
   }
 
   return (
@@ -238,7 +199,6 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
               </p>
             </div>
             <form action={createAction} className="space-y-4 p-5">
-              <input type="hidden" name="images" value={JSON.stringify(imagePayload(createImages))} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2 text-sm font-medium">
                   Code
@@ -292,7 +252,6 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 <input name="isWebsiteVisible" type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" />
                 Visible on future customer website
               </label>
-              <ProductImageFields images={createImages} setImages={setCreateImages} />
               {createState.message ? (
                 <p className={createState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
                   {createState.message}
@@ -316,7 +275,6 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
             </div>
             <form key={selectedProduct.id} action={updateAction} className="space-y-4 p-5">
               <input type="hidden" name="productId" value={selectedProduct.id} />
-              <input type="hidden" name="images" value={JSON.stringify(imagePayload(editImages))} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2 text-sm font-medium">
                   Code
@@ -375,7 +333,6 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 />
                 Visible on future customer website
               </label>
-              <ProductImageFields images={editImages} setImages={setEditImages} />
               {updateState.message ? (
                 <p className={updateState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
                   {updateState.message}
@@ -386,6 +343,13 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 Update product
               </Button>
             </form>
+            <div className="border-t border-border p-5">
+              <ProductImageManager
+                productId={selectedProduct.id}
+                productName={selectedProduct.name}
+                images={selectedProduct.images}
+              />
+            </div>
           </section>
         ) : null}
       </div>

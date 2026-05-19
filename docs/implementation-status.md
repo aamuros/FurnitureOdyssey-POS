@@ -10,7 +10,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Admin-only user management for inviting and updating staff records.
 - Permission-gated navigation and server actions.
 - Shared validation with Zod for customer, inquiry, quotation, order, payment, delivery, and document payloads.
-- Central upload foundation now defines reusable category policy, allowed MIME types/extensions, size limits, Cloudinary path conventions, server-side validation, permission mapping, image transformation helpers, deletion/replacement policy, and PDF storage behavior in `lib/uploads`.
+- Central upload foundation now defines reusable category policy, allowed MIME types/extensions, size limits, Cloudinary path conventions, server-side validation, permission mapping, server-side Cloudinary upload helpers, image transformation helpers, deletion/replacement policy, and PDF storage behavior in `lib/uploads`.
 - Shared calculation helpers for quotation totals, order totals, order cost/profit snapshots, payment status, delivery status, and order progress.
 - Automated Node test coverage now protects quotation totals, order totals, fixed and percentage discounts, payment balances/statuses, delivery progress, order progress, validation schemas, and cost/profit snapshot calculations.
 - Central status lifecycle rules now define valid quotation, order, order delivery, delivery, and payment transitions. Server actions use these rules before mutating protected workflow statuses.
@@ -36,6 +36,13 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Calculate item totals, quotation subtotal, discounts, and final total on the server.
 - Update quotation status to `SENT`, `ACCEPTED`, `DECLINED`, or `CANCELLED`.
 - Quotation status updates are controlled internally through server actions and logged with old status, new status, and source action metadata.
+
+### Products
+
+- Product management supports server-side Cloudinary image upload from the product workspace.
+- Product image uploads require `PRODUCTS:UPDATE`, validate the product exists, validate file type/extension/size through the central upload policy, sniff file signatures server-side, and store normalized Cloudinary metadata in `ProductImage`.
+- Product image management supports alt text, sort order, primary image selection, metadata removal, and activity logging.
+- Product image removal detaches database metadata only. Cloudinary asset destruction is intentionally not implemented yet so historical quotation/order snapshots and generated PDFs keep their copied image references.
 
 ### Orders
 
@@ -115,10 +122,9 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 ## Partially Implemented or Placeholder Areas
 
-- Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment and delivery routes exist as module entry points; the working payment and delivery forms currently live inside the order workspace.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
-- Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application. Future upload actions should use `@/lib/uploads` for policy, path, validation, transformation, and permission rules.
+- Quotation item and order item image upload actions are not implemented yet. Existing quotation/order snapshot behavior still preserves image metadata copied from product images or manually supplied item metadata.
 
 ## Not Implemented in MVP
 

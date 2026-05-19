@@ -5,6 +5,7 @@ import type { ProductStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
+import { uploadFileToCloudinary } from "@/lib/uploads/server";
 import {
   createProductSchema,
   updateProductSchema,
@@ -34,56 +35,6 @@ function imageCreateData(images: ProductImageInput[]) {
     sortOrder: image.sortOrder ?? index,
     isPrimary: image.isPrimary || index === 0
   }));
-}
-
-async function syncProductImages(
-  tx: Prisma.TransactionClient,
-  productId: string,
-  images: ProductImageInput[]
-) {
-  const retainedImageIds = images
-    .map((image) => image.id)
-    .filter((imageId): imageId is string => Boolean(imageId));
-
-  await tx.productImage.deleteMany({
-    where: {
-      productId,
-      id: retainedImageIds.length
-        ? {
-            notIn: retainedImageIds
-          }
-        : undefined
-    }
-  });
-
-  await Promise.all(
-    images.map((image, index) => {
-      const data = {
-        cloudinaryPublicId: image.cloudinaryPublicId,
-        secureUrl: image.secureUrl,
-        altText: image.altText,
-        sortOrder: image.sortOrder ?? index,
-        isPrimary: image.isPrimary || index === 0
-      };
-
-      if (!image.id) {
-        return tx.productImage.create({
-          data: {
-            productId,
-            ...data
-          }
-        });
-      }
-
-      return tx.productImage.updateMany({
-        where: {
-          id: image.id,
-          productId
-        },
-        data
-      });
-    })
-  );
 }
 
 function uniqueCodeMessage(error: unknown) {
@@ -202,7 +153,7 @@ export async function updateProductAction(
     internalNotes: formData.get("internalNotes"),
     isWebsiteVisible: formData.get("isWebsiteVisible") === "on",
     websiteSortOrder: formData.get("websiteSortOrder"),
-    images: parseImages(formData.get("images"))
+    images: undefined
   });
 
   if (!parsed.success) {
@@ -251,8 +202,6 @@ export async function updateProductAction(
           updatedById: actor.id
         }
       });
-
-      await syncProductImages(tx, parsed.data.productId, parsed.data.images);
 
       await tx.activityLog.create({
         data: {
@@ -333,5 +282,300 @@ export async function updateProductStatusAction(
   return {
     ok: true,
     message: `Product marked ${product.status}.`
+  };
+}
+
+export async function uploadProductImageAction(formData: FormData): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "UPDATE");
+  const productId = String(formData.get("productId") ?? "");
+  const file = formData.get("file");
+  const altText = String(formData.get("altText") ?? "").trim() || undefined;
+  const sortOrderValue = Number(formData.get("sortOrder") ?? 0);
+  const requestedPrimary = formData.get("isPrimary") === "on";
+
+  if (!productId) {
+    return {
+      ok: false,
+      message: "Choose a product before uploading an image."
+    };
+  }
+
+  if (!(file instanceof File) || file.size === 0) {
+    return {
+      ok: false,
+      message: "Choose an image file to upload."
+    };
+  }
+
+  const product = await prisma.product.findUnique({
+    where: {
+      id: productId
+    },
+    select: {
+      id: true,
+      name: true,
+      _count: {
+        select: {
+          images: true
+        }
+      }
+    }
+  });
+
+  if (!product) {
+    return {
+      ok: false,
+      message: "Product was not found."
+    };
+  }
+
+  try {
+    const uploaded = await uploadFileToCloudinary({
+      category: "product-image",
+      file,
+      path: {
+        productId
+      }
+    });
+    const isPrimary = requestedPrimary || product._count.images === 0;
+    const sortOrder = Number.isFinite(sortOrderValue) ? sortOrderValue : product._count.images;
+
+    await prisma.$transaction(async (tx) => {
+      if (isPrimary) {
+        await tx.productImage.updateMany({
+          where: {
+            productId
+          },
+          data: {
+            isPrimary: false
+          }
+        });
+      }
+
+      const image = await tx.productImage.create({
+        data: {
+          productId,
+          cloudinaryPublicId: uploaded.cloudinaryPublicId,
+          secureUrl: uploaded.secureUrl,
+          resourceType: uploaded.resourceType,
+          format: uploaded.format,
+          width: uploaded.width,
+          height: uploaded.height,
+          bytes: uploaded.bytes,
+          altText,
+          sortOrder,
+          isPrimary
+        }
+      });
+
+      await tx.product.update({
+        where: {
+          id: productId
+        },
+        data: {
+          updatedById: actor.id
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "PRODUCT_UPDATED",
+          actorId: actor.id,
+          summary: `Uploaded image for product ${product.name}.`,
+          metadata: {
+            productId,
+            productImageId: image.id,
+            cloudinaryPublicId: uploaded.cloudinaryPublicId,
+            originalFilename: uploaded.originalFilename,
+            isPrimary
+          }
+        }
+      });
+    });
+
+    revalidatePath("/products");
+    revalidatePath("/quotations");
+    revalidatePath("/orders");
+
+    return {
+      ok: true,
+      message: "Product image uploaded."
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Unable to upload product image."
+    };
+  }
+}
+
+export async function setPrimaryProductImageAction(formData: FormData): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "UPDATE");
+  const productId = String(formData.get("productId") ?? "");
+  const imageId = String(formData.get("imageId") ?? "");
+
+  const image = await prisma.productImage.findFirst({
+    where: {
+      id: imageId,
+      productId
+    },
+    include: {
+      product: {
+        select: {
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!image) {
+    return {
+      ok: false,
+      message: "Product image was not found."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.productImage.updateMany({
+      where: {
+        productId
+      },
+      data: {
+        isPrimary: false
+      }
+    });
+
+    await tx.productImage.update({
+      where: {
+        id: imageId
+      },
+      data: {
+        isPrimary: true
+      }
+    });
+
+    await tx.product.update({
+      where: {
+        id: productId
+      },
+      data: {
+        updatedById: actor.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "PRODUCT_UPDATED",
+        actorId: actor.id,
+        summary: `Set primary image for product ${image.product.name}.`,
+        metadata: {
+          productId,
+          productImageId: imageId
+        }
+      }
+    });
+  });
+
+  revalidatePath("/products");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    message: "Primary product image updated."
+  };
+}
+
+export async function removeProductImageAction(formData: FormData): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "UPDATE");
+  const productId = String(formData.get("productId") ?? "");
+  const imageId = String(formData.get("imageId") ?? "");
+
+  const image = await prisma.productImage.findFirst({
+    where: {
+      id: imageId,
+      productId
+    },
+    include: {
+      product: {
+        select: {
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!image) {
+    return {
+      ok: false,
+      message: "Product image was not found."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.productImage.delete({
+      where: {
+        id: imageId
+      }
+    });
+
+    if (image.isPrimary) {
+      const nextPrimary = await tx.productImage.findFirst({
+        where: {
+          productId
+        },
+        orderBy: [
+          {
+            sortOrder: "asc"
+          },
+          {
+            createdAt: "asc"
+          }
+        ]
+      });
+
+      if (nextPrimary) {
+        await tx.productImage.update({
+          where: {
+            id: nextPrimary.id
+          },
+          data: {
+            isPrimary: true
+          }
+        });
+      }
+    }
+
+    await tx.product.update({
+      where: {
+        id: productId
+      },
+      data: {
+        updatedById: actor.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "PRODUCT_UPDATED",
+        actorId: actor.id,
+        summary: `Removed image metadata from product ${image.product.name}.`,
+        metadata: {
+          productId,
+          productImageId: imageId,
+          cloudinaryPublicId: image.cloudinaryPublicId,
+          deletionMode: "metadata-only"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/products");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    message: "Product image metadata removed."
   };
 }
