@@ -53,12 +53,12 @@ This application is focused on the manual sales workflow used by Admin and Staff
 | `/orders` | Quotation conversion, manual orders, payments, deliveries, and document records |
 | `/payments` | Payment module entry point |
 | `/deliveries` | Delivery module entry point |
-| `/documents` | Document module entry point |
+| `/documents` | Document registry for generated operational PDFs and stored document references |
 | `/sales-history` | Sales history module entry point |
 | `/users` | Admin user and permission management |
 | `/settings` | Admin settings placeholder |
 
-Some module entry pages are placeholders while the working order, payment, delivery, and document workflows are available from the order workspace.
+Some module entry pages are placeholders while the working order, payment, and delivery workflows are available from the order workspace.
 
 ## Data Model Overview
 

@@ -89,6 +89,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
 - Order document metadata creation now validates related payment/delivery ownership, updates receipt metadata when applicable, and writes activity logs in one database transaction.
+- Documents route now provides a permission-gated document registry for generated operational documents, with document type/status/date/search filters, pagination, customer and related record context, stored/download status, and export/source links based on existing permissions.
 - Upload and document storage policy is documented in `docs/upload-and-document-storage-policy.md`. Operational PDFs remain generated on demand by default, with optional `OrderDocument` metadata and stored Cloudinary PDF references only when a finalized/exported artifact is explicitly needed.
 
 ### Settings
@@ -115,7 +116,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 ## Partially Implemented or Placeholder Areas
 
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
-- Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
+- Payment and delivery routes exist as module entry points; the working payment and delivery forms currently live inside the order workspace.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
 - Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application. Future upload actions should use `@/lib/uploads` for policy, path, validation, transformation, and permission rules.
 
