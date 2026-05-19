@@ -10,6 +10,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Admin-only user management for inviting and updating staff records.
 - Permission-gated navigation and server actions.
 - Shared validation with Zod for customer, inquiry, quotation, order, payment, delivery, and document payloads.
+- Central upload foundation now defines reusable category policy, allowed MIME types/extensions, size limits, Cloudinary path conventions, server-side validation, permission mapping, image transformation helpers, deletion/replacement policy, and PDF storage behavior in `lib/uploads`.
 - Shared calculation helpers for quotation totals, order totals, order cost/profit snapshots, payment status, delivery status, and order progress.
 - Automated Node test coverage now protects quotation totals, order totals, fixed and percentage discounts, payment balances/statuses, delivery progress, order progress, validation schemas, and cost/profit snapshot calculations.
 - Central status lifecycle rules now define valid quotation, order, order delivery, delivery, and payment transitions. Server actions use these rules before mutating protected workflow statuses.
@@ -88,6 +89,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
 - Order document metadata creation now validates related payment/delivery ownership, updates receipt metadata when applicable, and writes activity logs in one database transaction.
+- Upload and document storage policy is documented in `docs/upload-and-document-storage-policy.md`. Operational PDFs remain generated on demand by default, with optional `OrderDocument` metadata and stored Cloudinary PDF references only when a finalized/exported artifact is explicitly needed.
 
 ### Settings
 
@@ -115,7 +117,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
-- Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application.
+- Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application. Future upload actions should use `@/lib/uploads` for policy, path, validation, transformation, and permission rules.
 
 ## Not Implemented in MVP
 
