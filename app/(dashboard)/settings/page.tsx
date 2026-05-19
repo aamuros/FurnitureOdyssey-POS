@@ -1,21 +1,21 @@
 import { PageHeader } from "@/components/dashboard/page-header";
-import { requireAdmin } from "@/lib/auth/server";
+import { SettingsWorkspace } from "@/components/dashboard/settings-workspace";
+import { requirePermission } from "@/lib/auth/server";
+import { hasPermission, type UserWithPermissions } from "@/lib/auth/permissions";
+import { getAppSettings } from "@/lib/settings/get-settings";
 
 export default async function SettingsPage() {
-  await requireAdmin();
+  const user = (await requirePermission("SETTINGS", "VIEW")) as UserWithPermissions;
+  const settings = await getAppSettings();
+  const canUpdate = hasPermission(user, "SETTINGS", "UPDATE");
 
   return (
     <>
       <PageHeader
         title="Settings"
-        description="Admin-only foundation for future business settings, document defaults, and system configuration."
+        description="Admin configuration for company details, payment instructions, document labels, and PDF defaults."
       />
-      <section className="rounded-lg border border-border bg-panel p-5">
-        <h2 className="text-sm font-semibold">Phase 1 placeholder</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Settings are protected for Admin users. Detailed configuration will be added as operational modules mature.
-        </p>
-      </section>
+      <SettingsWorkspace settings={settings} canUpdate={canUpdate} />
     </>
   );
 }

@@ -96,7 +96,6 @@ export const dashboardNavItems: DashboardNavItem[] = [
     title: "Settings",
     href: "/settings",
     module: "SETTINGS",
-    icon: Settings,
-    adminOnly: true
+    icon: Settings
   }
 ];

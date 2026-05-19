@@ -25,6 +25,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 700
   },
+  logo: {
+    width: 54,
+    height: 54,
+    objectFit: "contain",
+    marginBottom: 6
+  },
   companyDetails: {
     marginTop: 3,
     lineHeight: 1.35
@@ -146,12 +152,21 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <View>
+              {data.company.logoUrl ? (
+                // React-PDF Image does not expose an alt prop in its TypeScript API.
+                // eslint-disable-next-line jsx-a11y/alt-text
+                <Image src={data.company.logoUrl} style={styles.logo} />
+              ) : null}
               <Text style={styles.company}>{data.company.displayName}</Text>
               <View style={styles.companyDetails}>
+                {data.company.registeredName ? (
+                  <Text style={styles.muted}>{data.company.registeredName}</Text>
+                ) : null}
                 <Text style={styles.muted}>{fallbackText(data.company.address)}</Text>
                 <Text style={styles.muted}>{fallbackText(data.company.contactNumber)}</Text>
                 <Text style={styles.muted}>{fallbackText(data.company.email)}</Text>
                 <Text style={styles.muted}>{fallbackText(data.company.facebookPage)}</Text>
+                {data.company.websiteUrl ? <Text style={styles.muted}>{data.company.websiteUrl}</Text> : null}
               </View>
             </View>
             <Text style={styles.muted}>{generatedLabel(data)}</Text>
@@ -218,11 +233,17 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           </View>
         ) : null}
 
-        {data.paymentInstructions || data.company.bankDetails ? (
+        {data.paymentInstructions ||
+        data.company.paymentInstructions ||
+        data.company.bankDetails ||
+        data.company.eWalletDetails ||
+        data.company.otherPaymentNotes ? (
           <View style={styles.paymentBox}>
             <Text style={styles.sectionTitle}>Payment Instructions</Text>
             <Text style={styles.notes}>{fallbackText(data.paymentInstructions ?? data.company.paymentInstructions)}</Text>
             <Text style={styles.notes}>{fallbackText(data.company.bankDetails)}</Text>
+            {data.company.eWalletDetails ? <Text style={styles.notes}>{data.company.eWalletDetails}</Text> : null}
+            {data.company.otherPaymentNotes ? <Text style={styles.notes}>{data.company.otherPaymentNotes}</Text> : null}
           </View>
         ) : null}
 

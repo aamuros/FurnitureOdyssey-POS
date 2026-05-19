@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { companyProfile } from "@/lib/config/company-profile";
 import { prisma } from "@/lib/prisma";
 import {
   fallbackText,
@@ -13,18 +12,36 @@ import {
   safeFilename,
   titleCaseLabel
 } from "@/lib/pdf/formatters";
+import {
+  documentPrefixForKind,
+  footerForKind,
+  getAppSettings
+} from "@/lib/settings/get-settings";
+import type { AppSettingsInput } from "@/lib/validation/settings";
 import type { OperationalPdfData, OperationalPdfKind, PdfSummaryRow } from "@/lib/pdf/types";
 
-const company = {
-  displayName: companyProfile.name,
-  address: companyProfile.address,
-  contactNumber: companyProfile.contactNumber,
-  email: companyProfile.email,
-  facebookPage: companyProfile.facebookPage,
-  bankDetails: companyProfile.bankDetails,
-  paymentInstructions: companyProfile.defaultPaymentInstructions,
-  footer: companyProfile.documentFooter
-};
+function companyForPdf(settings: AppSettingsInput) {
+  return {
+    displayName: settings.companyProfile.companyName,
+    registeredName: settings.companyProfile.registeredName,
+    address: settings.companyProfile.address,
+    contactNumber: settings.companyProfile.contactNumber,
+    email: settings.companyProfile.email,
+    facebookPage: settings.companyProfile.facebookPage,
+    websiteUrl: settings.companyProfile.websiteUrl,
+    logoUrl: settings.companyProfile.logoUrl,
+    logoAltText: settings.companyProfile.logoAltText,
+    bankDetails: settings.payment.bankDetails,
+    eWalletDetails: settings.payment.eWalletDetails,
+    otherPaymentNotes: settings.payment.otherPaymentNotes,
+    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    footer: footerForKind(settings, "final-order-summary")
+  };
+}
+
+function orderDisplayNumber(settings: AppSettingsInput, order: { id: string; orderNumber: string | null }) {
+  return order.orderNumber ?? formatDocumentNumber(documentPrefixForKind(settings, "order"), order.id.slice(0, 8));
+}
 
 function jsonText(value: unknown, keys: string[]) {
   if (!value || typeof value !== "object") {
@@ -46,7 +63,7 @@ function customerDetail(value: {
 }) {
   return [value.customerType, value.companyName, value.contactPersonName]
     .filter(Boolean)
-    .join(" · ");
+    .join(" - ");
 }
 
 function primaryContact(
@@ -154,6 +171,9 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
     notFound();
   }
 
+  const settings = await getAppSettings();
+  const company = companyForPdf(settings);
+
   return {
     kind: "quotation",
     title: "Quotation",
@@ -168,7 +188,10 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
       address: firstAddress(quotation.customer.addresses)
     },
     summary: [
-      { label: "Quotation number", value: formatDocumentNumber("QTN", quotation.id.slice(0, 8)) },
+      {
+        label: "Quotation number",
+        value: formatDocumentNumber(documentPrefixForKind(settings, "quotation"), quotation.id.slice(0, 8))
+      },
       { label: "Quotation date", value: formatDate(quotation.createdAt) },
       { label: "Expiration date", value: "Not set" },
       { label: "Status", value: titleCaseLabel(quotation.status) },
@@ -182,7 +205,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
               quotation.inquiry.subject
             ]
               .filter(Boolean)
-              .join(" · ")
+              .join(" - ")
           : "Not linked"
       },
       { label: "Delivery location", value: fallbackText(quotation.inquiry?.deliveryLocation) }
@@ -216,8 +239,8 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
       imageUrl: primaryImage(item.images)
     })),
     notes: quotation.customerNotes,
-    paymentInstructions: companyProfile.defaultPaymentInstructions,
-    footerNote: companyProfile.documentFooter
+    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    footerNote: footerForKind(settings, "quotation")
   };
 }
 
@@ -244,11 +267,14 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
     notFound();
   }
 
+  const settings = await getAppSettings();
+  const company = companyForPdf(settings);
+
   return {
     kind: "invoice",
     title: "Order Invoice",
     subtitle: "Sales order payment summary",
-    filename: generatedFilename("invoice", order.orderNumber ?? order.id.slice(0, 8)),
+    filename: generatedFilename("invoice", orderDisplayNumber(settings, order)),
     generatedAt: new Date(),
     company,
     customer: {
@@ -266,7 +292,16 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
         "postalCode"
       ])
     },
-    summary: orderSummary(order),
+    summary: [
+      {
+        label: "Invoice number",
+        value: formatDocumentNumber(
+          documentPrefixForKind(settings, "invoice"),
+          order.orderNumber ?? order.id.slice(0, 8)
+        )
+      },
+      ...orderSummary(order, settings)
+    ],
     totals: orderTotals(order),
     items: order.items.map((item) => ({
       code: item.snapshotProductCode,
@@ -281,8 +316,8 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
       imageUrl: primaryImage(item.images)
     })),
     notes: order.customerNotes,
-    paymentInstructions: companyProfile.defaultPaymentInstructions,
-    footerNote: companyProfile.documentFooter
+    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    footerNote: footerForKind(settings, "invoice")
   };
 }
 
@@ -314,6 +349,9 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
   if (!payment) {
     notFound();
   }
+
+  const settings = await getAppSettings();
+  const company = companyForPdf(settings);
 
   let paidBefore = 0;
 
@@ -354,10 +392,13 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
       ])
     },
     summary: [
-      { label: "Order", value: payment.order.orderNumber ?? payment.order.id },
+      { label: "Order", value: orderDisplayNumber(settings, payment.order) },
       {
         label: "Receipt number",
-        value: formatDocumentNumber("PAY", payment.paymentNumber ?? payment.id.slice(0, 8))
+        value: formatDocumentNumber(
+          documentPrefixForKind(settings, "payment-receipt"),
+          payment.paymentNumber ?? payment.id.slice(0, 8)
+        )
       },
       { label: "Payment type", value: titleCaseLabel(payment.paymentType) },
       { label: "Payment date", value: formatDate(payment.paymentDate) },
@@ -372,7 +413,8 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
       { label: "Balance after", value: formatMoney(balanceAfter, payment.order.currency) }
     ],
     notes: payment.customerNotes,
-    footerNote: companyProfile.documentFooter
+    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    footerNote: footerForKind(settings, "payment-receipt")
   };
 }
 
@@ -404,6 +446,9 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
     notFound();
   }
 
+  const settings = await getAppSettings();
+  const company = companyForPdf(settings);
+
   return {
     kind: "delivery-receipt",
     title: "Delivery Receipt",
@@ -428,8 +473,14 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
         ]) ?? jsonText(delivery.order.deliveryAddressSnapshot, ["addressLine", "city", "province", "postalCode"])
     },
     summary: [
-      { label: "Order", value: delivery.order.orderNumber ?? delivery.order.id },
-      { label: "Delivery receipt number", value: formatDocumentNumber("DR", delivery.id.slice(0, 8)) },
+      { label: "Order", value: orderDisplayNumber(settings, delivery.order) },
+      {
+        label: "Delivery receipt number",
+        value: formatDocumentNumber(
+          documentPrefixForKind(settings, "delivery-receipt"),
+          delivery.id.slice(0, 8)
+        )
+      },
       { label: "Status", value: formatDeliveryStatus(delivery.status) },
       { label: "Scheduled date", value: formatDate(delivery.scheduledDate) },
       { label: "Time window", value: fallbackText(delivery.scheduledTimeWindow) },
@@ -450,7 +501,7 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
       imageUrl: primaryImage(item.orderItem.images)
     })),
     notes: delivery.deliveryNotes,
-    footerNote: companyProfile.documentFooter,
+    footerNote: footerForKind(settings, "delivery-receipt"),
     signatureRequired: true,
     assemblyTodo: true
   };
@@ -493,11 +544,14 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
     notFound();
   }
 
+  const settings = await getAppSettings();
+  const company = companyForPdf(settings);
+
   return {
     kind: "final-order-summary",
     title: "Final Order Summary",
     subtitle: "Order, payment, and delivery record",
-    filename: generatedFilename("final-order-summary", order.orderNumber ?? order.id.slice(0, 8)),
+    filename: generatedFilename("final-order-summary", orderDisplayNumber(settings, order)),
     generatedAt: new Date(),
     company,
     customer: {
@@ -516,7 +570,16 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
           "postalCode"
         ]) ?? jsonText(order.deliveryAddressSnapshot, ["addressLine", "city", "province", "postalCode"])
     },
-    summary: orderSummary(order),
+    summary: [
+      {
+        label: "Final summary number",
+        value: formatDocumentNumber(
+          documentPrefixForKind(settings, "final-order-summary"),
+          order.orderNumber ?? order.id.slice(0, 8)
+        )
+      },
+      ...orderSummary(order, settings)
+    ],
     totals: orderTotals(order),
     items: order.items.map((item) => ({
       code: item.snapshotProductCode,
@@ -532,16 +595,17 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
     })),
     payments: order.payments.map((payment) => ({
       label: formatDate(payment.paymentDate),
-      value: `${titleCaseLabel(payment.paymentType)} · ${formatMoney(Number(payment.amount), order.currency)}`
+      value: `${titleCaseLabel(payment.paymentType)} - ${formatMoney(Number(payment.amount), order.currency)}`
     })),
     deliveries: order.deliveries.map((delivery) => ({
       label: formatDate(delivery.scheduledDate),
-      value: `${formatDeliveryStatus(delivery.status)} · ${
+      value: `${formatDeliveryStatus(delivery.status)} - ${
         delivery.deliveryProviderName ?? titleCaseLabel(delivery.deliveryProviderType, "Provider not specified")
       }`
     })),
     notes: order.customerNotes,
-    footerNote: companyProfile.documentFooter
+    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    footerNote: footerForKind(settings, "final-order-summary")
   };
 }
 
@@ -577,9 +641,9 @@ function orderSummary(order: {
   totalAmount: unknown;
   paidAmount: unknown;
   balanceAmount: unknown;
-}): PdfSummaryRow[] {
+}, settings: AppSettingsInput): PdfSummaryRow[] {
   return [
-    { label: "Order", value: order.orderNumber ?? order.id },
+    { label: "Order", value: orderDisplayNumber(settings, order) },
     { label: "Order date", value: formatDate(order.confirmedAt ?? order.createdAt) },
     { label: "Status", value: titleCaseLabel(order.status) },
     { label: "Payment status", value: formatPaymentStatus(order.paymentStatus) },

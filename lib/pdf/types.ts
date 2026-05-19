@@ -32,11 +32,17 @@ export type OperationalPdfData = {
   generatedAt: Date;
   company: {
     displayName: string;
+    registeredName?: string | null;
     address?: string | null;
     contactNumber?: string | null;
     email?: string | null;
     facebookPage?: string | null;
+    websiteUrl?: string | null;
+    logoUrl?: string | null;
+    logoAltText?: string | null;
     bankDetails?: string | null;
+    eWalletDetails?: string | null;
+    otherPaymentNotes?: string | null;
     paymentInstructions?: string | null;
     footer?: string | null;
   };

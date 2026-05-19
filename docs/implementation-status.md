@@ -60,7 +60,8 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 ### Documents and PDFs
 
-- Centralized static Furniture Odyssey PDF/business profile placeholders in code config.
+- Centralized static Furniture Odyssey PDF/business profile placeholders remain as safe fallbacks.
+- Admin-managed Settings now store company profile, payment/MOP instructions, document footer notes, and conservative document display prefixes in PostgreSQL.
 - Shared PDF formatting helpers cover PHP currency, dates, quantities, fallback text, document numbers, and status labels.
 - Store order document metadata, including type, title, Cloudinary public ID, secure URL, status, generated date, and notes.
 - Generate downloadable PDFs with React-PDF for:
@@ -70,7 +71,16 @@ This document maps the current codebase to the phase plans in `docs/`. It should
   - Delivery receipt
   - Final order summary
 - PDF output includes Furniture Odyssey branding, customer-facing notes, payment instructions, item images when snapshot image data exists, safer missing-value fallbacks, and clearer receipt/delivery handoff sections.
+- PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
+
+### Settings
+
+- Settings route is no longer a placeholder.
+- Access uses the existing `SETTINGS:VIEW` and `SETTINGS:UPDATE` permission model; Admin users continue to pass permissions automatically.
+- Company Profile settings cover company name, optional registered/display name, address, contact number, email, Facebook page, website URL, logo URL, and logo alt text.
+- Payment / MOP settings cover default payment instructions, bank details, e-wallet details, other payment notes, and copyable MOP script text.
+- Document / PDF Defaults settings cover quotation, invoice, payment receipt, delivery receipt, and final order summary footer notes plus display prefixes for quotation, order, invoice, payment receipt, delivery receipt, and final summary documents.
 
 ### Sales History and Basic Reports
 
@@ -88,7 +98,6 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
-- Settings page is a placeholder.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
 - Assembly-required delivery data is not modeled yet; delivery receipt PDFs show this as not specified until a future workflow adds the field.
 - Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application.

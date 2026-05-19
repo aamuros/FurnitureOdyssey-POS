@@ -68,6 +68,7 @@ enum ActivityAction {
   DELIVERY_SCHEDULED
   DELIVERY_UPDATED
   DOCUMENT_CREATED
+  SETTINGS_UPDATED
 }
 
 enum CustomerType {
@@ -266,6 +267,7 @@ model UserProfile {
   createdDeliveries  Delivery[]       @relation("DeliveryCreator")
   updatedDeliveries  Delivery[]       @relation("DeliveryUpdater")
   generatedDocuments OrderDocument[]  @relation("DocumentGenerator")
+  updatedSettings     AppSetting[]     @relation("SettingUpdater")
 
   @@index([role])
   @@index([status])
@@ -299,6 +301,19 @@ model ActivityLog {
   @@index([action])
   @@index([createdAt])
   @@index([targetUserId])
+}
+
+model AppSetting {
+  id          String       @id @default(uuid()) @db.Uuid
+  key         String       @unique
+  value       Json
+  updatedById String?      @db.Uuid
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  updatedBy   UserProfile? @relation("SettingUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([key])
+  @@index([updatedById])
 }
 
 model Customer {
