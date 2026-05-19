@@ -1,3 +1,4 @@
+import { ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { requireActiveUser } from "@/lib/auth/server";
@@ -30,28 +31,32 @@ export default async function DashboardPage({
         description="Access foundation for customer records, sales documents, orders, payments, deliveries, and sales history."
       />
       {params.error === "forbidden" ? (
-        <div className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          You do not have access to that area.
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
+          <ShieldAlert className="h-4 w-4" />
+          <span>You do not have access to that area.</span>
         </div>
       ) : null}
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-border bg-panel p-5">
+        <div className="studio-card p-5">
+          <p className="studio-kicker">Profile</p>
           <p className="text-sm text-muted-foreground">Account status</p>
           <div className="mt-3">
             <StatusPill tone="success">{user.status}</StatusPill>
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-panel p-5">
+        <div className="studio-card p-5">
+          <p className="studio-kicker">Access</p>
           <p className="text-sm text-muted-foreground">Role</p>
           <p className="mt-3 text-xl font-semibold">{user.role}</p>
         </div>
-        <div className="rounded-lg border border-border bg-panel p-5">
+        <div className="studio-card p-5">
+          <p className="studio-kicker">Workspace</p>
           <p className="text-sm text-muted-foreground">Visible modules</p>
           <p className="mt-3 text-xl font-semibold">{availableModules.length}</p>
         </div>
       </section>
-      <section className="mt-6 rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card mt-6">
+        <div className="studio-card-header">
           <h2 className="text-sm font-semibold">Available work areas</h2>
         </div>
         <div className="divide-y divide-border">

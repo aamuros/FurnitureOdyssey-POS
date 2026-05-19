@@ -20,8 +20,9 @@ export async function ModulePlaceholder({
   return (
     <>
       <PageHeader title={title} description={description} />
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Workspace</p>
           <h2 className="text-sm font-semibold">Phase 1 placeholder</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Access control and navigation are active. Full records will be added in later phases.

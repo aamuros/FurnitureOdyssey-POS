@@ -338,7 +338,7 @@ function PaymentForm({ order }: { order: OrderRow }) {
         Add payment
       </Button>
       {state.message ? (
-        <p className={state.ok ? "text-sm text-emerald-700 md:col-span-6" : "text-sm text-danger md:col-span-6"}>
+        <p className={state.ok ? "text-sm text-success md:col-span-6" : "text-sm text-danger md:col-span-6"}>
           {state.message}
         </p>
       ) : null}
@@ -379,7 +379,7 @@ function PaymentDueTimingForm({ order }: { order: OrderRow }) {
         Save due timing
       </Button>
       {state.message ? (
-        <p className={state.ok ? "text-sm text-emerald-700 md:col-span-4" : "text-sm text-danger md:col-span-4"}>
+        <p className={state.ok ? "text-sm text-success md:col-span-4" : "text-sm text-danger md:col-span-4"}>
           {state.message}
         </p>
       ) : null}
@@ -452,7 +452,7 @@ function DeliveryForm({ order }: { order: OrderRow }) {
       <Textarea name="deliveryNotes" placeholder="Delivery notes" className="md:col-span-5" />
       <Textarea name="internalNotes" placeholder="Internal notes" className="md:col-span-5" />
       {state.message ? (
-        <p className={state.ok ? "text-sm text-emerald-700 md:col-span-5" : "text-sm text-danger md:col-span-5"}>
+        <p className={state.ok ? "text-sm text-success md:col-span-5" : "text-sm text-danger md:col-span-5"}>
           {state.message}
         </p>
       ) : null}
@@ -549,7 +549,7 @@ function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
         Save progress
       </Button>
       {state.message ? (
-        <p className={state.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>{state.message}</p>
+        <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
       ) : null}
     </form>
   );
@@ -649,7 +649,7 @@ function DocumentForm({
           </Button>
           <Textarea name="notes" placeholder="Document notes" className="md:col-span-5" />
           {state.message ? (
-            <p className={state.ok ? "text-sm text-emerald-700 md:col-span-5" : "text-sm text-danger md:col-span-5"}>
+            <p className={state.ok ? "text-sm text-success md:col-span-5" : "text-sm text-danger md:col-span-5"}>
               {state.message}
             </p>
           ) : null}
@@ -758,8 +758,9 @@ export function OrderWorkspace({
   return (
     <div className="space-y-6">
       {canCreateOrders ? (
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Order Intake</p>
             <h2 className="text-sm font-semibold">Convert approved quotation</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Approved quotations become confirmed internal orders with copied snapshots.
@@ -781,7 +782,7 @@ export function OrderWorkspace({
               Convert
             </Button>
             {convertState.message ? (
-              <p className={convertState.ok ? "text-sm text-emerald-700 md:col-span-2" : "text-sm text-danger md:col-span-2"}>
+              <p className={convertState.ok ? "text-sm text-success md:col-span-2" : "text-sm text-danger md:col-span-2"}>
                 {convertState.message}
               </p>
             ) : null}
@@ -792,8 +793,9 @@ export function OrderWorkspace({
       {canCreateOrders ? (
       <form action={manualAction} className="grid gap-6 xl:grid-cols-[1fr_320px]">
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Manual Order</p>
             <h2 className="text-sm font-semibold">Manual order</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Create a direct order without quotation or inventory availability requirements.
@@ -940,8 +942,9 @@ export function OrderWorkspace({
           </div>
         </section>
 
-        <aside className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <aside className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Order Summary</p>
             <h2 className="text-sm font-semibold">Order totals</h2>
           </div>
           <div className="space-y-3 p-5 text-sm">
@@ -989,7 +992,7 @@ export function OrderWorkspace({
               <span className="font-semibold">{money(totals.totalAmount)}</span>
             </div>
             {manualState.message ? (
-              <p className={manualState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+              <p className={manualState.ok ? "text-sm text-success" : "text-sm text-danger"}>
                 {manualState.message}
               </p>
             ) : null}
@@ -1004,7 +1007,7 @@ export function OrderWorkspace({
 
       <section className="space-y-4">
         {orders.map((order) => (
-          <article key={order.id} className="rounded-lg border border-border bg-panel">
+          <article key={order.id} className="studio-card">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div>
                 <h2 className="text-sm font-semibold">
@@ -1368,7 +1371,7 @@ export function OrderWorkspace({
           </article>
         ))}
         {orders.length === 0 ? (
-          <div className="rounded-lg border border-border bg-panel px-5 py-8 text-sm text-muted-foreground">
+          <div className="studio-empty px-5 py-8 text-sm">
             No orders yet. Convert an approved quotation or create a manual order.
           </div>
         ) : null}

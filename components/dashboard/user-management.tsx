@@ -147,8 +147,9 @@ export function UserManagement({ users }: UserManagementProps) {
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Team Access</p>
           <h2 className="text-sm font-semibold">Invite user</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Supabase sends the invite. The profile remains pending until activated.
@@ -175,7 +176,7 @@ export function UserManagement({ users }: UserManagementProps) {
           </label>
           <PermissionEditor permissions={invitePermissions} onChange={setInvitePermissions} />
           {inviteState.message ? (
-            <p className={inviteState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+            <p className={inviteState.ok ? "text-sm text-success" : "text-sm text-danger"}>
               {inviteState.message}
             </p>
           ) : null}
@@ -186,8 +187,9 @@ export function UserManagement({ users }: UserManagementProps) {
         </form>
       </section>
 
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Staff Profile</p>
           <h2 className="text-sm font-semibold">Manage access</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Admin users bypass Staff permission flags.
@@ -239,7 +241,7 @@ export function UserManagement({ users }: UserManagementProps) {
             </div>
             <PermissionEditor permissions={editPermissions} onChange={setEditPermissions} />
             {updateState.message ? (
-              <p className={updateState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+              <p className={updateState.ok ? "text-sm text-success" : "text-sm text-danger"}>
                 {updateState.message}
               </p>
             ) : null}
@@ -253,8 +255,9 @@ export function UserManagement({ users }: UserManagementProps) {
         )}
       </section>
 
-      <section className="rounded-lg border border-border bg-panel xl:col-span-2">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card xl:col-span-2">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Permissions</p>
           <h2 className="text-sm font-semibold">Current users</h2>
         </div>
         <div className="overflow-x-auto">

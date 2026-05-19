@@ -8,6 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
+function loginErrorMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  if (normalizedMessage.includes("invalid login credentials")) {
+    return "Email or password does not match an active account.";
+  }
+
+  if (normalizedMessage.includes("email not confirmed")) {
+    return "This account still needs email confirmation.";
+  }
+
+  if (normalizedMessage.includes("fetch") || normalizedMessage.includes("network")) {
+    return "Cannot reach the login service. Check Supabase is running, then try again.";
+  }
+
+  return "Could not sign in. Check the account details and try again.";
+}
+
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -25,14 +43,20 @@ export function LoginForm() {
     setIsSubmitting(true);
     setError(null);
 
-    const supabase = createSupabaseBrowserClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
 
-    if (signInError) {
-      setError(signInError.message);
+      if (signInError) {
+        setError(loginErrorMessage(signInError.message));
+        setIsSubmitting(false);
+        return;
+      }
+    } catch {
+      setError("Cannot reach the login service. Check Supabase is running, then try again.");
       setIsSubmitting(false);
       return;
     }
@@ -52,6 +76,8 @@ export function LoginForm() {
           id="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
@@ -70,8 +96,12 @@ export function LoginForm() {
           required
         />
       </div>
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      <Button className="w-full" disabled={isSubmitting}>
+      {error ? (
+        <p className="text-sm text-danger" role="alert" aria-live="polite">
+          {error}
+        </p>
+      ) : null}
+      <Button type="submit" className="w-full" disabled={isSubmitting}>
         {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
         Sign in
       </Button>

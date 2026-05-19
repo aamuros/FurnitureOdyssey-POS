@@ -140,15 +140,16 @@ export default async function PaymentsPage() {
       />
 
       <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Payment Ledger</p>
             <h2 className="text-sm font-semibold">Payment History</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Recent downpayments, partial payments, final payments, and delivery balance payments.
             </p>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
+            <table className="studio-table w-full min-w-[980px] text-left text-sm">
               <thead className="border-b border-border text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-5 py-3 font-medium">Date</th>
@@ -216,15 +217,16 @@ export default async function PaymentsPage() {
             </table>
           </div>
           {payments.length === 0 ? (
-            <div className="px-5 py-8 text-sm text-muted-foreground">
+            <div className="studio-empty m-5 px-4 py-4 text-sm">
               No payments have been recorded yet.
             </div>
           ) : null}
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-border bg-panel">
-            <div className="border-b border-border px-5 py-4">
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Open Balances</p>
               <h2 className="text-sm font-semibold">Customer Balances</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Customers with at least one order balance still open.

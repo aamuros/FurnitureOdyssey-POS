@@ -69,8 +69,8 @@ function FormMessage({ state }: { state: typeof initialState }) {
     <p
       className={`rounded-md px-3 py-2 text-sm ${
         state.ok
-          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-          : "border border-red-200 bg-red-50 text-red-700"
+          ? "border border-success/25 bg-success/10 text-success"
+          : "border border-danger/25 bg-danger/10 text-danger"
       }`}
     >
       {state.message}
@@ -133,8 +133,9 @@ export function SettingsWorkspace({ settings, canUpdate }: SettingsWorkspaceProp
       </nav>
 
       {activeSection === "company" ? (
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Company Details</p>
             <h2 className="text-sm font-semibold">Company Profile</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               These values appear in generated PDF headers when available. Blank fields use safe placeholders.
@@ -182,8 +183,9 @@ export function SettingsWorkspace({ settings, canUpdate }: SettingsWorkspaceProp
       ) : null}
 
       {activeSection === "payment" ? (
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Payment Copy</p>
             <h2 className="text-sm font-semibold">Payment / MOP Details</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Store reusable instructions only. This does not verify payments or connect to gateways.
@@ -227,8 +229,9 @@ export function SettingsWorkspace({ settings, canUpdate }: SettingsWorkspaceProp
       ) : null}
 
       {activeSection === "documents" ? (
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Document Footer</p>
             <h2 className="text-sm font-semibold">Document / PDF Defaults</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Configure display prefixes and footer notes. These are not legal, tax, BIR, or accounting compliance settings.

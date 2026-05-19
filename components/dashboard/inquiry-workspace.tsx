@@ -57,6 +57,10 @@ function statusTone(status: string) {
     return "danger" as const;
   }
 
+  if (status === "IN_PROGRESS") {
+    return "teal" as const;
+  }
+
   if (status === "WAITING_FOR_CUSTOMER") {
     return "warning" as const;
   }
@@ -81,8 +85,9 @@ export function InquiryWorkspace({ inquiries, customers, staff }: InquiryWorkspa
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Inquiry Intake</p>
           <h2 className="text-sm font-semibold">New inquiry</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Manually capture Facebook, Messenger, and Viber requests.
@@ -186,7 +191,7 @@ export function InquiryWorkspace({ inquiries, customers, staff }: InquiryWorkspa
             </label>
           </div>
           {state.message ? (
-            <p className={state.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+            <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>
               {state.message}
             </p>
           ) : null}
@@ -197,15 +202,16 @@ export function InquiryWorkspace({ inquiries, customers, staff }: InquiryWorkspa
         </form>
       </section>
 
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Inquiry Board</p>
           <h2 className="text-sm font-semibold">Inquiry records</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Current manual intake records linked to customers.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left text-sm">
+          <table className="studio-table w-full min-w-[920px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Inquiry</th>
@@ -247,8 +253,8 @@ export function InquiryWorkspace({ inquiries, customers, staff }: InquiryWorkspa
               ))}
               {inquiries.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={7}>
-                    No inquiries match the current filters.
+                  <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={7}>
+                    <div className="studio-empty px-4 py-4">No inquiries match the current filters.</div>
                   </td>
                 </tr>
               ) : null}

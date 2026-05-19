@@ -1,8 +1,8 @@
-import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { Armchair, LogOut } from "lucide-react";
 import type { PermissionModule } from "@prisma/client";
 import { signOut } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
+import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { dashboardNavItems } from "@/lib/auth/navigation";
 import { canViewModule, type UserWithPermissions } from "@/lib/auth/permissions";
 
@@ -25,33 +25,21 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
   });
 
   return (
-    <div className="min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[260px_1fr]">
-      <aside className="border-b border-border bg-panel lg:min-h-svh lg:border-b-0 lg:border-r">
-        <div className="flex h-16 items-center border-b border-border px-5">
+    <div className="min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[280px_1fr]">
+      <aside className="border-b border-border bg-panel/95 shadow-studio lg:min-h-svh lg:border-b-0 lg:border-r">
+        <div className="flex min-h-20 items-center gap-3 border-b border-border px-5">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-soft-accent text-accent">
+            <Armchair className="h-5 w-5" />
+          </div>
           <div>
-            <p className="text-sm font-semibold">Furniture Odyssey</p>
-            <p className="text-xs text-muted-foreground">Sales operations</p>
+            <p className="text-base font-semibold leading-5">Furniture Odyssey</p>
+            <p className="studio-kicker mt-1">Sales Studio</p>
           </div>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-3 lg:block lg:space-y-1 lg:overflow-visible">
-          {visibleItems.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="inline-flex min-h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground lg:flex"
-              >
-                <Icon className="h-4 w-4" />
-                {item.title}
-              </Link>
-            );
-          })}
-        </nav>
+        <DashboardNav allowedHrefs={visibleItems.map((item) => item.href)} />
       </aside>
       <div className="min-w-0">
-        <header className="flex min-h-16 items-center justify-between border-b border-border bg-panel px-5">
+        <header className="flex min-h-16 items-center justify-between border-b border-border bg-panel/88 px-5 backdrop-blur">
           <div>
             <p className="text-sm font-medium">{user.displayName}</p>
             <p className="text-xs text-muted-foreground">{user.role}</p>

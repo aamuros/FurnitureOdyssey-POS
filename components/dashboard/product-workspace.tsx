@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
-import { ImagePlus, Pencil, Plus, Save, Star, Trash2, Upload } from "lucide-react";
+import { ImagePlus, PackageOpen, Pencil, Plus, Save, Star, Trash2, Upload } from "lucide-react";
 import {
   createProductAction,
   removeProductImageAction,
@@ -98,7 +98,7 @@ function ProductImageManager({
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Product images</h3>
       </div>
-      <form action={uploadImage} className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_96px_auto]">
+      <form action={uploadImage} className="studio-subpanel grid gap-3 p-3 sm:grid-cols-[1fr_1fr_96px_auto]">
         <input type="hidden" name="productId" value={productId} />
         <label className="space-y-2 text-sm font-medium">
           Image file
@@ -124,8 +124,8 @@ function ProductImageManager({
         </div>
       </form>
       {images.map((image, index) => (
-        <div key={image.id ?? index} className="grid gap-3 rounded-md border border-border p-3 lg:grid-cols-[96px_1fr]">
-          <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+        <div key={image.id ?? index} className="studio-subpanel grid gap-3 p-3 lg:grid-cols-[96px_1fr]">
+          <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
             {image.secureUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -165,7 +165,7 @@ function ProductImageManager({
         </div>
       ))}
       {images.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+        <p className="studio-empty px-3 py-4 text-sm">
           Upload product photos after saving the product record.
         </p>
       ) : null}
@@ -191,8 +191,9 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
     <div className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
       <div className="space-y-6">
         {canCreate ? (
-          <section className="rounded-lg border border-border bg-panel">
-            <div className="border-b border-border px-5 py-4">
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Catalog Piece</p>
               <h2 className="text-sm font-semibold">New product</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Create catalog records for quotation and order selection.
@@ -253,7 +254,7 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 Visible on future customer website
               </label>
               {createState.message ? (
-                <p className={createState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+                <p className={createState.ok ? "text-sm text-success" : "text-sm text-danger"}>
                   {createState.message}
                 </p>
               ) : null}
@@ -266,8 +267,9 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
         ) : null}
 
         {canUpdate && selectedProduct ? (
-          <section className="rounded-lg border border-border bg-panel">
-            <div className="border-b border-border px-5 py-4">
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Catalog Details</p>
               <h2 className="text-sm font-semibold">Edit product</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Select a row from the product list to update catalog details.
@@ -334,7 +336,7 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 Visible on future customer website
               </label>
               {updateState.message ? (
-                <p className={updateState.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+                <p className={updateState.ok ? "text-sm text-success" : "text-sm text-danger"}>
                   {updateState.message}
                 </p>
               ) : null}
@@ -354,15 +356,16 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
         ) : null}
       </div>
 
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Furniture Catalog</p>
           <h2 className="text-sm font-semibold">Product catalog</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Search and filter from the page controls above this list.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1060px] text-left text-sm">
+          <table className="studio-table w-full min-w-[1060px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Image</th>
@@ -378,9 +381,9 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
             </thead>
             <tbody className="divide-y divide-border">
               {products.map((product) => (
-                <tr key={product.id} className={selectedProductId === product.id ? "bg-muted/50" : undefined}>
+                <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/45" : undefined}>
                   <td className="px-5 py-3">
-                    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border border-border bg-muted">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55 shadow-sm">
                       {product.primaryImage ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -425,8 +428,11 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
               ))}
               {products.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={canUpdate ? 9 : 8}>
-                    No products match the current filters.
+                  <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={canUpdate ? 9 : 8}>
+                    <div className="studio-empty flex items-center gap-3 px-4 py-4">
+                      <PackageOpen className="h-5 w-5 text-accent" />
+                      <span>No products match the current filters.</span>
+                    </div>
                   </td>
                 </tr>
               ) : null}

@@ -10,7 +10,7 @@ import type {
   PaymentType
 } from "@prisma/client";
 
-export type StatusTone = "neutral" | "success" | "warning" | "danger";
+export type StatusTone = "neutral" | "success" | "warning" | "danger" | "teal";
 
 const labels: Record<string, string> = {
   ACKNOWLEDGEMENT_RECEIPT: "Acknowledgement receipt",
@@ -69,8 +69,12 @@ export function readableLabel(value: string | null | undefined) {
 }
 
 export function statusTone(status: string): StatusTone {
-  if (["PAID", "DELIVERED", "COMPLETED", "CONFIRMED", "RECORDED", "GENERATED"].includes(status)) {
+  if (["PAID", "DELIVERED", "COMPLETED", "RECORDED", "GENERATED"].includes(status)) {
     return "success";
+  }
+
+  if (["CONFIRMED", "SCHEDULED", "SCHEDULED_FOR_DELIVERY", "IN_TRANSIT"].includes(status)) {
+    return "teal";
   }
 
   if (
@@ -79,9 +83,6 @@ export function statusTone(status: string): StatusTone {
       "DOWNPAYMENT_PAID",
       "BALANCE_DUE_ON_DELIVERY",
       "PLANNED",
-      "SCHEDULED",
-      "SCHEDULED_FOR_DELIVERY",
-      "IN_TRANSIT",
       "PARTIALLY_DELIVERED"
     ].includes(status)
   ) {

@@ -17,10 +17,16 @@ const config: Config = {
         panel: "hsl(var(--panel))",
         primary: "hsl(var(--primary))",
         "primary-foreground": "hsl(var(--primary-foreground))",
+        accent: "hsl(var(--accent))",
+        "accent-foreground": "hsl(var(--accent-foreground))",
+        "soft-accent": "hsl(var(--soft-accent))",
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
         danger: "hsl(var(--danger))"
       },
       boxShadow: {
-        line: "inset 0 -1px 0 hsl(var(--border))"
+        line: "inset 0 -1px 0 hsl(var(--border))",
+        studio: "0 18px 42px hsl(22 30% 19% / 0.07)"
       }
     }
   },

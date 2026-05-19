@@ -191,19 +191,19 @@ function statusTone(status: string | null | undefined) {
     [
       "DRAFT",
       "SENT",
-      "CONFIRMED",
       "PARTIALLY_PAID",
-      "SCHEDULED",
-      "SCHEDULED_FOR_DELIVERY",
       "PARTIALLY_DELIVERED",
       "DOWNPAYMENT_PAID",
       "BALANCE_DUE_ON_DELIVERY",
       "NOT_SCHEDULED",
-      "PLANNED",
-      "IN_TRANSIT"
+      "PLANNED"
     ].includes(status ?? "")
   ) {
     return "warning" as const;
+  }
+
+  if (["CONFIRMED", "SCHEDULED", "SCHEDULED_FOR_DELIVERY", "IN_TRANSIT"].includes(status ?? "")) {
+    return "teal" as const;
   }
 
   if (["DECLINED", "CANCELLED", "FAILED", "VOIDED", "REFUNDED", "PARTIALLY_REFUNDED"].includes(status ?? "")) {
@@ -492,7 +492,7 @@ function neededAction(order: {
 
 function RestrictedPanel({ title }: { title: string }) {
   return (
-    <section className="rounded-lg border border-border bg-panel px-5 py-8 text-sm text-muted-foreground">
+    <section className="studio-empty px-5 py-8 text-sm">
       You do not have permission to view {title.toLowerCase()}.
     </section>
   );
@@ -1921,8 +1921,9 @@ function ReportSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-panel">
-      <div className="border-b border-border px-5 py-4">
+    <section className="studio-card">
+      <div className="studio-card-header">
+        <p className="studio-kicker">Sales History</p>
         <h2 className="text-sm font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>

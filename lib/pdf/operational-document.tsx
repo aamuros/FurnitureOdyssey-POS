@@ -7,13 +7,14 @@ const styles = StyleSheet.create({
   page: {
     padding: 36,
     fontSize: 9,
-    color: "#111827",
+    color: "#3f2b22",
     fontFamily: "Helvetica"
   },
   header: {
     marginBottom: 20,
-    borderBottom: "1px solid #d1d5db",
-    paddingBottom: 12
+    borderBottom: "1.5px solid #7f9f9c",
+    backgroundColor: "#f8f3ec",
+    padding: 12
   },
   headerTop: {
     display: "flex",
@@ -23,7 +24,8 @@ const styles = StyleSheet.create({
   },
   company: {
     fontSize: 18,
-    fontWeight: 700
+    fontWeight: 700,
+    color: "#3f2b22"
   },
   logo: {
     width: 54,
@@ -38,15 +40,16 @@ const styles = StyleSheet.create({
   title: {
     marginTop: 16,
     fontSize: 22,
-    fontWeight: 700
+    fontWeight: 700,
+    color: "#3f2b22"
   },
   subtitle: {
     marginTop: 3,
     fontSize: 10,
-    color: "#4b5563"
+    color: "#7b6658"
   },
   muted: {
-    color: "#6b7280"
+    color: "#7b6658"
   },
   section: {
     marginTop: 14
@@ -54,7 +57,8 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginBottom: 6,
     fontSize: 11,
-    fontWeight: 700
+    fontWeight: 700,
+    color: "#b98247"
   },
   grid: {
     display: "flex",
@@ -68,12 +72,12 @@ const styles = StyleSheet.create({
   row: {
     display: "flex",
     flexDirection: "row",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #d6c4b2",
     paddingVertical: 4
   },
   label: {
     width: "38%",
-    color: "#6b7280"
+    color: "#7b6658"
   },
   value: {
     width: "62%"
@@ -81,14 +85,16 @@ const styles = StyleSheet.create({
   tableHeader: {
     display: "flex",
     flexDirection: "row",
-    borderBottom: "1px solid #9ca3af",
-    paddingBottom: 4,
-    fontWeight: 700
+    borderBottom: "1px solid #7f9f9c",
+    backgroundColor: "#ead6bd",
+    padding: 5,
+    fontWeight: 700,
+    color: "#3f2b22"
   },
   tableRow: {
     display: "flex",
     flexDirection: "row",
-    borderBottom: "1px solid #e5e7eb",
+    borderBottom: "1px solid #d6c4b2",
     paddingVertical: 6
   },
   itemName: {
@@ -100,7 +106,7 @@ const styles = StyleSheet.create({
     height: 42,
     objectFit: "cover",
     marginRight: 6,
-    border: "1px solid #e5e7eb"
+    border: "1px solid #d6c4b2"
   },
   itemBody: {
     flexGrow: 1,
@@ -120,7 +126,8 @@ const styles = StyleSheet.create({
   },
   paymentBox: {
     marginTop: 14,
-    border: "1px solid #d1d5db",
+    border: "1px solid #d6c4b2",
+    backgroundColor: "#f8f3ec",
     padding: 8
   },
   signatureGrid: {
@@ -131,16 +138,16 @@ const styles = StyleSheet.create({
   },
   signatureLine: {
     flexGrow: 1,
-    borderTop: "1px solid #111827",
+    borderTop: "1px solid #3f2b22",
     paddingTop: 4,
     textAlign: "center"
   },
   footer: {
     marginTop: 18,
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid #d6c4b2",
     paddingTop: 8,
     fontSize: 8,
-    color: "#6b7280",
+    color: "#7b6658",
     lineHeight: 1.35
   }
 });

@@ -113,8 +113,9 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Client Record</p>
           <h2 className="text-sm font-semibold">New customer</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Create manual records for individual buyers and company clients.
@@ -173,7 +174,7 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
               </Button>
             </div>
             {contacts.map((contact, index) => (
-              <div key={index} className="grid gap-3 rounded-md border border-border p-3 sm:grid-cols-[0.9fr_1.2fr_auto]">
+              <div key={index} className="studio-subpanel grid gap-3 p-3 sm:grid-cols-[0.9fr_1.2fr_auto]">
                 <Select
                   value={contact.type}
                   onChange={(event) => updateContact(index, "type", event.target.value)}
@@ -214,7 +215,7 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
             <Textarea name="notes" placeholder="Manual context from Facebook, Messenger, Viber, or staff handoff." />
           </label>
           {state.message ? (
-            <p className={state.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+            <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>
               {state.message}
             </p>
           ) : null}
@@ -225,15 +226,16 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
         </form>
       </section>
 
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Client List</p>
           <h2 className="text-sm font-semibold">Customer records</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Search and filter from the page controls above this list.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[880px] text-left text-sm">
+          <table className="studio-table w-full min-w-[880px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Customer</th>
@@ -279,8 +281,8 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
               ))}
               {customers.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={6}>
-                    No customers match the current filters.
+                  <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={6}>
+                    <div className="studio-empty px-4 py-4">No customers match the current filters.</div>
                   </td>
                 </tr>
               ) : null}

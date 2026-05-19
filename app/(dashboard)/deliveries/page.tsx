@@ -45,7 +45,11 @@ function statusTone(status: string) {
     return "success" as const;
   }
 
-  if (["SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED"].includes(status)) {
+  if (["SCHEDULED", "IN_TRANSIT"].includes(status)) {
+    return "teal" as const;
+  }
+
+  if (["PARTIALLY_DELIVERED"].includes(status)) {
     return "warning" as const;
   }
 
@@ -105,15 +109,16 @@ export default async function DeliveriesPage() {
         description="Internal delivery schedules, partial delivery quantities, provider notes, and delivery receipt readiness."
       />
 
-      <section className="overflow-hidden rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Delivery Studio</p>
           <h2 className="text-sm font-semibold">Scheduled deliveries</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Delivery records are created from order details and can include partial item quantities.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left text-sm">
+          <table className="studio-table w-full min-w-[920px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">DR no.</th>

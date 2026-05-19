@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Download,
   ImagePlus,
+  FileText,
   PackageSearch,
   Plus,
   Save,
@@ -203,7 +204,7 @@ function statusTone(status: string) {
 }
 
 const pdfLinkClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-border bg-panel px-2 text-sm font-medium text-foreground transition hover:bg-muted";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
 
 export function QuotationWorkspace({
   customers,
@@ -339,14 +340,18 @@ export function QuotationWorkspace({
     <div className="space-y-6">
       <form action={action} className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
-        <section className="rounded-lg border border-border bg-panel">
-          <div className="border-b border-border px-5 py-4">
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">Furniture Proposal</p>
             <h2 className="text-sm font-semibold">Quotation draft</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Prepare negotiated line items before PDF generation is added.
             </p>
           </div>
           <div className="space-y-5 p-5">
+            <div>
+              <p className="studio-kicker mb-3">Client Details</p>
+            </div>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm font-medium">
                 Customer
@@ -381,7 +386,7 @@ export function QuotationWorkspace({
             </div>
 
             {selectedCustomer ? (
-              <div className="rounded-md border border-border bg-background px-4 py-3 text-sm">
+              <div className="studio-subpanel px-4 py-3 text-sm">
                 <p className="font-medium">{selectedCustomer.displayName}</p>
                 <p className="text-muted-foreground">
                   {selectedCustomer.primaryContact ?? "No primary contact saved"}
@@ -389,7 +394,7 @@ export function QuotationWorkspace({
               </div>
             ) : null}
 
-            <div className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-[1fr_auto_auto]">
+            <div className="studio-subpanel grid gap-3 p-4 md:grid-cols-[1fr_auto_auto]">
               <Select
                 value={selectedProductId}
                 onChange={(event) => setSelectedProductId(event.target.value)}
@@ -413,9 +418,10 @@ export function QuotationWorkspace({
             </div>
 
             <div className="space-y-4">
+              <p className="studio-kicker">Pieces</p>
               {items.map((item, index) => (
-                <div key={index} className="rounded-lg border border-border">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div key={index} className="overflow-hidden rounded-xl border border-border bg-panel shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-soft-accent/35 px-4 py-3">
                     <div className="flex items-center gap-2">
                       <StatusPill>{item.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom"}</StatusPill>
                       <p className="text-sm font-semibold">Item {index + 1}</p>
@@ -514,11 +520,11 @@ export function QuotationWorkspace({
                         }
                       />
                     </label>
-                    <div className="rounded-md bg-background p-3 text-sm">
+                    <div className="rounded-lg border border-border bg-background/55 p-3 text-sm">
                       <p className="text-muted-foreground">Line subtotal</p>
                       <p className="font-semibold">{money(item.quantity * item.unitPrice)}</p>
                     </div>
-                    <div className="rounded-md bg-background p-3 text-sm">
+                    <div className="rounded-lg border border-border bg-background/55 p-3 text-sm">
                       <p className="text-muted-foreground">Line total</p>
                       <p className="font-semibold">{money(lineTotal(item))}</p>
                     </div>
@@ -551,7 +557,7 @@ export function QuotationWorkspace({
                         <div
                           role="img"
                           aria-label={item.images[0].altText ?? item.itemName}
-                          className="h-24 w-32 rounded-md border border-border bg-cover bg-center"
+                          className="h-24 w-32 rounded-lg border border-border bg-cover bg-center"
                           style={{
                             backgroundImage: `url("${item.images[0].secureUrl}")`
                           }}
@@ -579,12 +585,13 @@ export function QuotationWorkspace({
               ))}
             </div>
 
+            <p className="studio-kicker">Sales Terms</p>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background/55 px-3 text-sm font-medium">
                 <input type="checkbox" name="needsAssembly" value="true" />
                 Needs assembly
               </label>
-              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background/55 px-3 text-sm font-medium">
                 <input type="checkbox" name="salesInvoiceRequested" value="true" />
                 Sales invoice requested
               </label>
@@ -617,8 +624,9 @@ export function QuotationWorkspace({
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-border bg-panel">
-            <div className="border-b border-border px-5 py-4">
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Summary</p>
               <h2 className="text-sm font-semibold">Totals</h2>
             </div>
             <div className="space-y-3 p-5 text-sm">
@@ -663,7 +671,7 @@ export function QuotationWorkspace({
                 <span className="font-semibold">{money(totals.totalAmount)}</span>
               </div>
               {state.message ? (
-                <p className={state.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>
+                <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>
                   {state.message}
                 </p>
               ) : null}
@@ -676,21 +684,22 @@ export function QuotationWorkspace({
         </aside>
       </form>
 
-      <section className="rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Proposal Archive</p>
           <h2 className="text-sm font-semibold">Quotation records</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Draft records preserve item snapshots for future PDF output. Mark approved quotations
             accepted before conversion to orders.
           </p>
           {statusState.message ? (
-            <p className={statusState.ok ? "mt-2 text-sm text-emerald-700" : "mt-2 text-sm text-danger"}>
+            <p className={statusState.ok ? "mt-2 text-sm text-success" : "mt-2 text-sm text-danger"}>
               {statusState.message}
             </p>
           ) : null}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="studio-table w-full min-w-[980px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Quotation</th>
@@ -774,8 +783,11 @@ export function QuotationWorkspace({
               ))}
               {quotations.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={9}>
-                    No quotations saved yet.
+                  <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={10}>
+                    <div className="studio-empty flex items-center gap-3 px-4 py-4">
+                      <FileText className="h-5 w-5 text-accent" />
+                      <span>No quotations saved yet.</span>
+                    </div>
                   </td>
                 </tr>
               ) : null}

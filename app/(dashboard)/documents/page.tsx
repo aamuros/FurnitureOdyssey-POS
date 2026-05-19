@@ -382,15 +382,16 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
         </Button>
       </form>
 
-      <section className="overflow-hidden rounded-lg border border-border bg-panel">
-        <div className="border-b border-border px-5 py-4">
+      <section className="studio-card">
+        <div className="studio-card-header">
+          <p className="studio-kicker">Document Library</p>
           <h2 className="text-sm font-semibold">Document Registry</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Recent generated documents and stored document references linked to operational records.
           </p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1380px] text-left text-sm">
+          <table className="studio-table w-full min-w-[1380px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Document number</th>
