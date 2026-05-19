@@ -420,7 +420,7 @@ export function QuotationWorkspace({
             <div className="space-y-4">
               <p className="studio-kicker">Pieces</p>
               {items.map((item, index) => (
-                <div key={index} className="overflow-hidden rounded-xl border border-border bg-panel shadow-sm">
+                <div key={index} className="overflow-hidden rounded-lg border border-border bg-panel">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-soft-accent/35 px-4 py-3">
                     <div className="flex items-center gap-2">
                       <StatusPill>{item.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom"}</StatusPill>
@@ -520,11 +520,11 @@ export function QuotationWorkspace({
                         }
                       />
                     </label>
-                    <div className="rounded-lg border border-border bg-background/55 p-3 text-sm">
+                    <div className="rounded-lg border border-border bg-background p-3 text-sm">
                       <p className="text-muted-foreground">Line subtotal</p>
                       <p className="font-semibold">{money(item.quantity * item.unitPrice)}</p>
                     </div>
-                    <div className="rounded-lg border border-border bg-background/55 p-3 text-sm">
+                    <div className="rounded-lg border border-border bg-background p-3 text-sm">
                       <p className="text-muted-foreground">Line total</p>
                       <p className="font-semibold">{money(lineTotal(item))}</p>
                     </div>
@@ -587,11 +587,11 @@ export function QuotationWorkspace({
 
             <p className="studio-kicker">Sales Terms</p>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background/55 px-3 text-sm font-medium">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium">
                 <input type="checkbox" name="needsAssembly" value="true" />
                 Needs assembly
               </label>
-              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background/55 px-3 text-sm font-medium">
+              <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium">
                 <input type="checkbox" name="salesInvoiceRequested" value="true" />
                 Sales invoice requested
               </label>

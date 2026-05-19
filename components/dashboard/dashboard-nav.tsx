@@ -27,7 +27,7 @@ export function DashboardNav({ allowedHrefs }: DashboardNavProps) {
             className={cn(
               "inline-flex min-h-10 shrink-0 items-center gap-3 rounded-lg px-3 text-sm font-medium transition lg:flex",
               isActive
-                ? "bg-soft-accent text-foreground shadow-sm ring-1 ring-border"
+                ? "bg-soft-accent text-foreground ring-1 ring-border"
                 : "text-muted-foreground hover:bg-muted/55 hover:text-foreground"
             )}
           >

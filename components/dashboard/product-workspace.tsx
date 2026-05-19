@@ -383,7 +383,7 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
               {products.map((product) => (
                 <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/45" : undefined}>
                   <td className="px-5 py-3">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55 shadow-sm">
+                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
                       {product.primaryImage ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img

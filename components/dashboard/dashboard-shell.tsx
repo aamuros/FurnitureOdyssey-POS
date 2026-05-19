@@ -26,7 +26,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
 
   return (
     <div className="min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[280px_1fr]">
-      <aside className="border-b border-border bg-panel/95 shadow-studio lg:min-h-svh lg:border-b-0 lg:border-r">
+      <aside className="border-b border-border bg-panel lg:min-h-svh lg:border-b-0 lg:border-r">
         <div className="flex min-h-20 items-center gap-3 border-b border-border px-5">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-soft-accent text-accent">
             <Armchair className="h-5 w-5" />
@@ -39,7 +39,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
         <DashboardNav allowedHrefs={visibleItems.map((item) => item.href)} />
       </aside>
       <div className="min-w-0">
-        <header className="flex min-h-16 items-center justify-between border-b border-border bg-panel/88 px-5 backdrop-blur">
+        <header className="flex min-h-16 items-center justify-between border-b border-border bg-panel px-5">
           <div>
             <p className="text-sm font-medium">{user.displayName}</p>
             <p className="text-xs text-muted-foreground">{user.role}</p>

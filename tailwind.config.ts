@@ -25,8 +25,7 @@ const config: Config = {
         danger: "hsl(var(--danger))"
       },
       boxShadow: {
-        line: "inset 0 -1px 0 hsl(var(--border))",
-        studio: "0 18px 42px hsl(22 30% 19% / 0.07)"
+        line: "inset 0 -1px 0 hsl(var(--border))"
       }
     }
   },
