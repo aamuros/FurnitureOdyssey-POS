@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import { QuickCustomerForm } from "@/components/dashboard/quick-customer-form";
 import {
   deliveryStatusLabel,
   documentStatusLabel,
@@ -180,7 +181,9 @@ type OrderWorkspaceProps = {
   canUpdateDeliveries: boolean;
   canCreateDocuments: boolean;
   canExportDocuments: boolean;
+  canCreateCustomers: boolean;
   customers: CustomerOption[];
+  staff: Array<{ id: string; displayName: string }>;
   products: ProductOption[];
   approvedQuotations: ApprovedQuotationOption[];
   orders: OrderRow[];
@@ -669,7 +672,9 @@ export function OrderWorkspace({
   canUpdateDeliveries,
   canCreateDocuments,
   canExportDocuments,
+  canCreateCustomers,
   customers,
+  staff,
   products,
   approvedQuotations,
   orders
@@ -790,18 +795,26 @@ export function OrderWorkspace({
         </section>
       ) : null}
 
+      {canCreateOrders && canCreateCustomers ? (
+        <QuickCustomerForm
+          staff={staff}
+          title="Quick customer"
+          description="Select an existing customer for a manual order or add a buyer record here."
+        />
+      ) : null}
+
       {canCreateOrders ? (
-      <form action={manualAction} className="grid gap-6 xl:grid-cols-[1fr_320px]">
-        <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
-        <section className="studio-card">
-          <div className="studio-card-header">
-            <p className="studio-kicker">Manual Order</p>
-            <h2 className="text-sm font-semibold">Manual order</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Create a direct order without quotation or inventory availability requirements.
-            </p>
-          </div>
-          <div className="space-y-4 p-5">
+        <form action={manualAction} className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Manual Order</p>
+              <h2 className="text-sm font-semibold">Manual order</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Create a direct order without quotation or inventory availability requirements.
+              </p>
+            </div>
+            <div className="space-y-4 p-5">
             <label className="block space-y-2 text-sm font-medium">
               Customer
               <Select name="customerId" required defaultValue={customers[0]?.id ?? ""}>

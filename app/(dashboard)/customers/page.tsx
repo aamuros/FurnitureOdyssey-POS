@@ -40,12 +40,21 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         archivedAt: showArchived ? { not: null } : null,
         customerType,
         assignedStaffId: assignedStaffId || undefined,
-        inquiries: source
-          ? {
-              some: {
-                source: source as never
+        AND: source
+          ? [
+              {
+                OR: [
+                  { source: source as never },
+                  {
+                    inquiries: {
+                      some: {
+                        source: source as never
+                      }
+                    }
+                  }
+                ]
               }
-            }
+            ]
           : undefined,
         OR: query
           ? [
@@ -113,8 +122,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   return (
     <>
       <PageHeader
-        title="Customers"
-        description="Central records for individual buyers and company clients from marketplace, Messenger, Viber, and manual staff intake."
+        title="Customer Directory"
+        description="Buyer records for contact reuse, address reuse, sales history, and repeat-customer context."
       />
       <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[1.4fr_0.8fr_0.9fr_0.9fr_auto]">
         <Input name="q" defaultValue={params.q ?? ""} placeholder="Search name, company, phone, Viber, Facebook, or email" />
@@ -157,8 +166,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
           primaryContact: customer.contacts[0]
             ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
             : null,
-          latestInquirySource: customer.inquiries[0]?.source ?? null,
-          latestInquiryStatus: customer.inquiries[0]?.status ?? null,
+          source: customer.source ?? customer.inquiries[0]?.source ?? null,
           assignedStaff: customer.assignedStaff?.displayName ?? null,
           updatedAt: formatDate(customer.updatedAt)
         }))}

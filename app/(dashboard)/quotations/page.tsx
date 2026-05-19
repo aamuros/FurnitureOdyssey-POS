@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { QuotationWorkspace } from "@/components/dashboard/quotation-workspace";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
+import { hasPermission } from "@/lib/auth/permissions";
 
 type QuotationsPageProps = {
   searchParams?: Promise<{
@@ -26,12 +27,13 @@ function formatMoney(value: unknown) {
 }
 
 export default async function QuotationsPage({ searchParams }: QuotationsPageProps) {
-  await requirePermission("QUOTATIONS", "VIEW");
+  const user = await requirePermission("QUOTATIONS", "VIEW");
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const status = params.status?.trim() || undefined;
+  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
 
-  const [customers, inquiries, products, quotations] = await Promise.all([
+  const [customers, staff, products, quotations] = await Promise.all([
     prisma.customer.findMany({
       where: {
         archivedAt: null
@@ -53,20 +55,16 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
         }
       }
     }),
-    prisma.inquiry.findMany({
+    prisma.userProfile.findMany({
       where: {
-        status: {
-          notIn: ["CLOSED", "LOST", "CONVERTED_TO_ORDER"]
-        }
+        status: "ACTIVE"
       },
       orderBy: {
-        createdAt: "desc"
+        displayName: "asc"
       },
       select: {
         id: true,
-        customerId: true,
-        subject: true,
-        requestedItems: true
+        displayName: true
       }
     }),
     prisma.product.findMany({
@@ -145,9 +143,11 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
     <>
       <PageHeader
         title="Quotations"
-        description="Manual-friendly quotation drafts with catalog snapshots, custom items, negotiated pricing, discounts, notes, and PDF-ready data."
+        description="Create a quotation for a serious buyer with catalog snapshots, custom items, negotiated pricing, discounts, notes, and PDF-ready data."
       />
       <QuotationWorkspace
+        canCreateCustomers={canCreateCustomers}
+        staff={staff}
         customers={customers.map((customer) => ({
           id: customer.id,
           displayName: customer.displayName,
@@ -156,7 +156,6 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
             ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
             : null
         }))}
-        inquiries={inquiries}
         products={products.map((product) => {
           const primaryImage = product.images[0] ?? null;
 

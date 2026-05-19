@@ -21,8 +21,7 @@ type CustomerRow = {
   companyName: string | null;
   contactPersonName: string | null;
   primaryContact: string | null;
-  latestInquirySource: string | null;
-  latestInquiryStatus: string | null;
+  source: string | null;
   assignedStaff: string | null;
   updatedAt: string;
 };
@@ -55,22 +54,6 @@ const emptyContact: ContactDraft = {
 
 function sourceLabel(value: string | null) {
   return value ? value.replaceAll("_", " ").toLowerCase() : "None";
-}
-
-function statusTone(status: string | null) {
-  if (status === "CONVERTED_TO_ORDER" || status === "QUOTED") {
-    return "success" as const;
-  }
-
-  if (status === "LOST" || status === "CLOSED") {
-    return "danger" as const;
-  }
-
-  if (status === "WAITING_FOR_CUSTOMER") {
-    return "warning" as const;
-  }
-
-  return "neutral" as const;
 }
 
 export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) {
@@ -115,10 +98,10 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <section className="studio-card">
         <div className="studio-card-header">
-          <p className="studio-kicker">Client Record</p>
+          <p className="studio-kicker">Buyer Records</p>
           <h2 className="text-sm font-semibold">New customer</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Create manual records for individual buyers and company clients.
+            Customer records help reuse contact details and view sales history.
           </p>
         </div>
         <form action={action} className="space-y-4 p-5">
@@ -140,6 +123,20 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
                     {member.displayName}
                   </option>
                 ))}
+              </Select>
+            </label>
+            <label className="space-y-2 text-sm font-medium">
+              Source
+              <Select name="source" defaultValue="">
+                <option value="">Optional</option>
+                <option value="FACEBOOK_MARKETPLACE">Facebook Marketplace</option>
+                <option value="FACEBOOK_PAGE">Facebook Page</option>
+                <option value="MESSENGER">Messenger</option>
+                <option value="VIBER">Viber</option>
+                <option value="WALK_IN">Walk-in</option>
+                <option value="PHONE">Phone</option>
+                <option value="REFERRAL">Referral</option>
+                <option value="OTHER">Other</option>
               </Select>
             </label>
           </div>
@@ -212,7 +209,7 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
           </div>
           <label className="block space-y-2 text-sm font-medium">
             Notes
-            <Textarea name="notes" placeholder="Manual context from Facebook, Messenger, Viber, or staff handoff." />
+            <Textarea name="notes" placeholder="Optional buyer context from Facebook, Messenger, Viber, phone, walk-in, or staff handoff." />
           </label>
           {state.message ? (
             <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>
@@ -228,8 +225,8 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
 
       <section className="studio-card">
         <div className="studio-card-header">
-          <p className="studio-kicker">Client List</p>
-          <h2 className="text-sm font-semibold">Customer records</h2>
+          <p className="studio-kicker">Customer Directory</p>
+          <h2 className="text-sm font-semibold">Buyer records</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Search and filter from the page controls above this list.
           </p>
@@ -242,7 +239,7 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
                 <th className="px-5 py-3 font-medium">Type</th>
                 <th className="px-5 py-3 font-medium">Primary contact</th>
                 <th className="px-5 py-3 font-medium">Assigned</th>
-                <th className="px-5 py-3 font-medium">Latest inquiry</th>
+                <th className="px-5 py-3 font-medium">Source</th>
                 <th className="px-5 py-3 font-medium">Updated</th>
               </tr>
             </thead>
@@ -266,14 +263,7 @@ export function CustomerWorkspace({ customers, staff }: CustomerWorkspaceProps) 
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="capitalize text-muted-foreground">
-                        {sourceLabel(customer.latestInquirySource)}
-                      </span>
-                      {customer.latestInquiryStatus ? (
-                        <StatusPill tone={statusTone(customer.latestInquiryStatus)}>
-                          {customer.latestInquiryStatus}
-                        </StatusPill>
-                      ) : null}
+                      <span className="capitalize text-muted-foreground">{sourceLabel(customer.source)}</span>
                     </div>
                   </td>
                   <td className="px-5 py-3 text-muted-foreground">{customer.updatedAt}</td>

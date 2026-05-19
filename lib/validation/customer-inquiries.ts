@@ -22,6 +22,18 @@ export const createCustomerSchema = z
     lastName: optionalText,
     companyName: optionalText,
     contactPersonName: optionalText,
+    source: z
+      .enum([
+        "FACEBOOK_MARKETPLACE",
+        "FACEBOOK_PAGE",
+        "MESSENGER",
+        "VIBER",
+        "WALK_IN",
+        "PHONE",
+        "REFERRAL",
+        "OTHER"
+      ])
+      .optional(),
     assignedStaffId: optionalText,
     notes: optionalText,
     contacts: z.array(customerContactSchema).default([])

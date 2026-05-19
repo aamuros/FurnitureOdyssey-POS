@@ -1,6 +1,5 @@
 import {
   Boxes,
-  ClipboardList,
   FileText,
   LayoutDashboard,
   Package,
@@ -32,16 +31,10 @@ export const dashboardNavItems: DashboardNavItem[] = [
     icon: LayoutDashboard
   },
   {
-    title: "Customers",
+    title: "Customer Directory",
     href: "/customers",
     module: "CUSTOMERS",
     icon: Users
-  },
-  {
-    title: "Inquiries",
-    href: "/inquiries",
-    module: "INQUIRIES",
-    icon: ClipboardList
   },
   {
     title: "Products",

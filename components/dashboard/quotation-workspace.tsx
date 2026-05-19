@@ -18,19 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import { QuickCustomerForm } from "@/components/dashboard/quick-customer-form";
 
 type CustomerOption = {
   id: string;
   displayName: string;
   companyName: string | null;
   primaryContact: string | null;
-};
-
-type InquiryOption = {
-  id: string;
-  customerId: string;
-  subject: string;
-  requestedItems: string | null;
 };
 
 type ProductOption = {
@@ -74,9 +68,10 @@ type QuotationRow = {
 
 type QuotationWorkspaceProps = {
   customers: CustomerOption[];
-  inquiries: InquiryOption[];
+  staff: Array<{ id: string; displayName: string }>;
   products: ProductOption[];
   quotations: QuotationRow[];
+  canCreateCustomers: boolean;
 };
 
 type ItemImageDraft = {
@@ -208,9 +203,10 @@ const pdfLinkClass =
 
 export function QuotationWorkspace({
   customers,
-  inquiries,
+  staff,
   products,
-  quotations
+  quotations,
+  canCreateCustomers
 }: QuotationWorkspaceProps) {
   const [state, action, pending] = useActionState(createQuotationAction, initialState);
   const [statusState, statusAction, statusPending] = useActionState(
@@ -225,7 +221,6 @@ export function QuotationWorkspace({
   >("");
   const [quotationDiscountValue, setQuotationDiscountValue] = useState(0);
 
-  const customerInquiries = inquiries.filter((inquiry) => inquiry.customerId === customerId);
   const selectedCustomer = customers.find((customer) => customer.id === customerId);
 
   const totals = useMemo(() => {
@@ -338,6 +333,13 @@ export function QuotationWorkspace({
 
   return (
     <div className="space-y-6">
+      {canCreateCustomers ? (
+        <QuickCustomerForm
+          staff={staff}
+          title="Quick customer"
+          description="Create a quotation for a serious buyer. Select an existing customer below or add a new buyer record here."
+        />
+      ) : null}
       <form action={action} className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
         <section className="studio-card">
@@ -372,17 +374,9 @@ export function QuotationWorkspace({
                   ))}
                 </Select>
               </label>
-              <label className="space-y-2 text-sm font-medium">
-                Related inquiry
-                <Select name="inquiryId" defaultValue="">
-                  <option value="">No inquiry link</option>
-                  {customerInquiries.map((inquiry) => (
-                    <option key={inquiry.id} value={inquiry.id}>
-                      {inquiry.subject}
-                    </option>
-                  ))}
-                </Select>
-              </label>
+              <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                Select an existing customer or add a new one above.
+              </div>
             </div>
 
             {selectedCustomer ? (
