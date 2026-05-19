@@ -23,6 +23,26 @@ function parseItems(value: FormDataEntryValue | null) {
   }
 }
 
+function friendlyValidationMessage(message: string | undefined, fallback: string) {
+  if (!message) {
+    return fallback;
+  }
+
+  if (message.includes("Expected string") || message.includes("received null")) {
+    return "Some optional details were blank. Please check the required fields and try again.";
+  }
+
+  if (message === "Choose a customer.") {
+    return "Select or enter a customer name.";
+  }
+
+  if (message === "Add at least one quotation item.") {
+    return "Add at least one item to continue.";
+  }
+
+  return message;
+}
+
 export async function createQuotationAction(
   _previousState: ActionState,
   formData: FormData
@@ -47,7 +67,10 @@ export async function createQuotationAction(
   if (!parsed.success) {
     return {
       ok: false,
-      message: parsed.error.issues[0]?.message ?? "Invalid quotation details."
+      message: friendlyValidationMessage(
+        parsed.error.issues[0]?.message,
+        "Invalid quotation details."
+      )
     };
   }
 

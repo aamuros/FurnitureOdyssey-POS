@@ -1,10 +1,13 @@
 import { z } from "zod";
 
-const optionalText = z
-  .string()
-  .trim()
-  .transform((value) => (value.length ? value : undefined))
-  .optional();
+const optionalText = z.preprocess(
+  (value) => (value === null ? undefined : value),
+  z
+    .string()
+    .trim()
+    .transform((value) => (value.length ? value : undefined))
+    .optional()
+);
 
 export const customerContactSchema = z.object({
   type: z.enum(["PHONE", "VIBER", "FACEBOOK_PROFILE", "FACEBOOK_PAGE", "EMAIL", "OTHER"]),

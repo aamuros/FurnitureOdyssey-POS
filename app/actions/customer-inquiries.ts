@@ -19,6 +19,8 @@ import {
 type ActionState = {
   ok: boolean;
   message: string;
+  customerId?: string;
+  customerDisplayName?: string;
 };
 
 function parseContacts(value: FormDataEntryValue | null) {
@@ -67,6 +69,18 @@ function normalizedContacts(input: CreateCustomerInput) {
   }));
 }
 
+function friendlyValidationMessage(message: string | undefined, fallback: string) {
+  if (!message) {
+    return fallback;
+  }
+
+  if (message.includes("Expected string") || message.includes("received null")) {
+    return "Some optional details were blank. Please check the required fields and try again.";
+  }
+
+  return message;
+}
+
 export async function createCustomerAction(
   _previousState: ActionState,
   formData: FormData
@@ -88,11 +102,15 @@ export async function createCustomerAction(
   if (!parsed.success) {
     return {
       ok: false,
-      message: parsed.error.issues[0]?.message ?? "Invalid customer details."
+      message: friendlyValidationMessage(
+        parsed.error.issues[0]?.message,
+        "Invalid customer details."
+      )
     };
   }
 
   const customer = await prisma.$transaction(async (tx) => {
+    const contacts = normalizedContacts(parsed.data);
     const created = await tx.customer.create({
       data: {
         customerType: parsed.data.customerType as CustomerType,
@@ -105,11 +123,13 @@ export async function createCustomerAction(
         assignedStaffId: parsed.data.assignedStaffId,
         notes: parsed.data.notes,
         createdById: actor.id,
-        contacts: {
-          createMany: {
-            data: normalizedContacts(parsed.data)
-          }
-        }
+        contacts: contacts.length
+          ? {
+              createMany: {
+                data: contacts
+              }
+            }
+          : undefined
       }
     });
 
@@ -134,7 +154,9 @@ export async function createCustomerAction(
   revalidatePath("/orders");
   return {
     ok: true,
-    message: `Customer saved: ${customer.displayName}.`
+    message: `Customer saved: ${customer.displayName}.`,
+    customerId: customer.id,
+    customerDisplayName: customer.displayName
   };
 }
 

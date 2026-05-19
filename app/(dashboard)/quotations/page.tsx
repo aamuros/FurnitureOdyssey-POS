@@ -1,8 +1,8 @@
 import { PageHeader } from "@/components/dashboard/page-header";
-import { QuotationWorkspace } from "@/components/dashboard/quotation-workspace";
+import { QuotationRecordsList } from "@/components/dashboard/quotation-workspace";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
-import { hasPermission } from "@/lib/auth/permissions";
+import { Plus } from "lucide-react";
 
 type QuotationsPageProps = {
   searchParams?: Promise<{
@@ -27,172 +27,83 @@ function formatMoney(value: unknown) {
 }
 
 export default async function QuotationsPage({ searchParams }: QuotationsPageProps) {
-  const user = await requirePermission("QUOTATIONS", "VIEW");
+  await requirePermission("QUOTATIONS", "VIEW");
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const status = params.status?.trim() || undefined;
-  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
 
-  const [customers, staff, products, quotations] = await Promise.all([
-    prisma.customer.findMany({
-      where: {
-        archivedAt: null
-      },
-      orderBy: {
-        displayName: "asc"
-      },
-      include: {
-        contacts: {
-          orderBy: [
+  const quotations = await prisma.quotation.findMany({
+    where: {
+      status: status ? (status as never) : undefined,
+      OR: query
+        ? [
+            { quotationNumber: { contains: query, mode: "insensitive" } },
             {
-              isPrimary: "desc"
+              customer: {
+                OR: [
+                  { displayName: { contains: query, mode: "insensitive" } },
+                  { companyName: { contains: query, mode: "insensitive" } }
+                ]
+              }
             },
             {
-              createdAt: "asc"
-            }
-          ],
-          take: 1
-        }
-      }
-    }),
-    prisma.userProfile.findMany({
-      where: {
-        status: "ACTIVE"
-      },
-      orderBy: {
-        displayName: "asc"
-      },
-      select: {
-        id: true,
-        displayName: true
-      }
-    }),
-    prisma.product.findMany({
-      where: {
-        status: "ACTIVE"
-      },
-      orderBy: {
-        name: "asc"
-      },
-      include: {
-        images: {
-          orderBy: [
-            {
-              isPrimary: "desc"
-            },
-            {
-              sortOrder: "asc"
-            }
-          ],
-          take: 1
-        }
-      }
-    }),
-    prisma.quotation.findMany({
-      where: {
-        status: status ? (status as never) : undefined,
-        OR: query
-          ? [
-              { quotationNumber: { contains: query, mode: "insensitive" } },
-              {
-                customer: {
+              items: {
+                some: {
                   OR: [
-                    { displayName: { contains: query, mode: "insensitive" } },
-                    { companyName: { contains: query, mode: "insensitive" } }
+                    { itemName: { contains: query, mode: "insensitive" } },
+                    { description: { contains: query, mode: "insensitive" } },
+                    { specifications: { contains: query, mode: "insensitive" } }
                   ]
                 }
-              },
-              {
-                items: {
-                  some: {
-                    OR: [
-                      { itemName: { contains: query, mode: "insensitive" } },
-                      { description: { contains: query, mode: "insensitive" } },
-                      { specifications: { contains: query, mode: "insensitive" } }
-                    ]
-                  }
-                }
               }
-            ]
-          : undefined
+            }
+          ]
+        : undefined
+    },
+    orderBy: {
+      updatedAt: "desc"
+    },
+    include: {
+      customer: {
+        select: {
+          displayName: true
+        }
       },
-      orderBy: {
-        updatedAt: "desc"
+      createdBy: {
+        select: {
+          displayName: true
+        }
       },
-      include: {
-        customer: {
-          select: {
-            displayName: true
-          }
-        },
-        createdBy: {
-          select: {
-            displayName: true
-          }
-        },
-        _count: {
-          select: {
-            items: true
-          }
+      _count: {
+        select: {
+          items: true
         }
       }
-    })
-  ]);
+    }
+  });
 
   return (
     <>
       <PageHeader
         title="Quotations"
-        description="Create a quotation for a serious buyer with catalog snapshots, custom items, negotiated pricing, discounts, notes, and PDF-ready data."
-      />
-      <QuotationWorkspace
-        canCreateCustomers={canCreateCustomers}
-        staff={staff}
-        customers={customers.map((customer) => ({
-          id: customer.id,
-          displayName: customer.displayName,
-          companyName: customer.companyName,
-          primaryContact: customer.contacts[0]
-            ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
-            : null
-        }))}
-        products={products.map((product) => {
-          const primaryImage = product.images[0] ?? null;
-
-          return {
-            id: product.id,
-            code: product.code,
-            name: product.name,
-            category: product.category,
-            description: product.description,
-            specifications: product.specifications,
-            referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
-            primaryImage: primaryImage
-              ? {
-                  id: primaryImage.id,
-                  cloudinaryPublicId: primaryImage.cloudinaryPublicId,
-                  secureUrl: primaryImage.secureUrl,
-                  resourceType: primaryImage.resourceType,
-                  format: primaryImage.format,
-                  width: primaryImage.width,
-                  height: primaryImage.height,
-                  bytes: primaryImage.bytes,
-                  altText: primaryImage.altText
-                }
-              : null
-          };
-        })}
+        description="Search, review, download, and update quotation records. Create new quotations in the focused builder."
+      >
+        <a
+          href="/quotations/new"
+          className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" />
+          New quotation
+        </a>
+      </PageHeader>
+      <QuotationRecordsList
+        query={query ?? ""}
+        status={status ?? ""}
         quotations={quotations.map((quotation) => ({
           id: quotation.id,
           quotationNumber: quotation.quotationNumber,
           customerName: quotation.customer.displayName,
           status: quotation.status,
-          needsAssembly: quotation.needsAssembly,
-          salesInvoiceRequested: quotation.salesInvoiceRequested,
-          modeOfDelivery: quotation.modeOfDelivery,
-          deliveryMethod: quotation.deliveryMethod,
-          paymentTerms: quotation.paymentTerms,
-          specialInstructions: quotation.specialInstructions,
           itemCount: quotation._count.items,
           subtotalAmount: formatMoney(quotation.subtotalAmount),
           totalAmount: formatMoney(quotation.totalAmount),

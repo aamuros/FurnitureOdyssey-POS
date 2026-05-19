@@ -1,18 +1,24 @@
 import { z } from "zod";
 
-const optionalText = z
-  .string()
-  .trim()
-  .transform((value) => (value.length ? value : undefined))
-  .optional();
-
-const optionalTextMax = (max: number, message: string) =>
+const optionalText = z.preprocess(
+  (value) => (value === null ? undefined : value),
   z
     .string()
     .trim()
-    .max(max, message)
     .transform((value) => (value.length ? value : undefined))
-    .optional();
+    .optional()
+);
+
+const optionalTextMax = (max: number, message: string) =>
+  z.preprocess(
+    (value) => (value === null ? undefined : value),
+    z
+      .string()
+      .trim()
+      .max(max, message)
+      .transform((value) => (value.length ? value : undefined))
+      .optional()
+  );
 
 const formBoolean = z.preprocess(
   (value) => value === true || value === "true" || value === "on" || value === "1" || value === "yes",
