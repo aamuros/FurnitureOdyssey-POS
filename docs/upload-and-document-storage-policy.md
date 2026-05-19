@@ -1,6 +1,6 @@
 # Upload and Document Storage Policy
 
-This policy is the shared foundation for product, quotation, order, delivery, payment, and document upload UI. Product image uploads are implemented through server actions. Other categories still use existing metadata/snapshot behavior until upload controls are added.
+This policy is the shared foundation for product, quotation, order, delivery, payment, and document upload behavior. Product image uploads are implemented through server actions. Other upload categories are either policy-only or represented by existing metadata/snapshot forms until dedicated upload controls are added.
 
 ## Current Metadata Model
 
@@ -35,17 +35,17 @@ Server-side uploads require:
 
 These values must stay server-only. Do not prefix the API secret with `NEXT_PUBLIC_`.
 
-## Categories
+## Upload Categories and Current State
 
-| Category | Types | Max size | Folder convention | Permission |
-| --- | --- | ---: | --- | --- |
-| `product-image` | JPEG, PNG, WebP | 5 MB | `products/{productId}/images/{fileId}` | `PRODUCTS:UPDATE` |
-| `quotation-item-image` | JPEG, PNG, WebP | 5 MB | `quotations/{quotationId}/items/{quotationItemId}/images/{fileId}` | `QUOTATIONS:UPDATE` |
-| `order-item-image` | JPEG, PNG, WebP | 5 MB | `orders/{orderId}/items/{orderItemId}/images/{fileId}` | `ORDERS:UPDATE` |
-| `customer-attachment` | JPEG, PNG, WebP, PDF | 10 MB | `customers/{customerId}/attachments/{fileId}` | `CUSTOMERS:UPDATE` |
-| `payment-proof` | JPEG, PNG, WebP, PDF | 10 MB | `payments/{paymentId}/proof/{fileId}` | `PAYMENTS:UPDATE` |
-| `delivery-proof` | JPEG, PNG, WebP, PDF | 10 MB | `deliveries/{deliveryId}/proof/{fileId}` | `DELIVERIES:UPDATE` |
-| `generated-document` | PDF | 10 MB | `orders/{orderId}/documents/{documentType}/{documentNumberOrFileId}.pdf` | `DOCUMENTS:EXPORT` |
+| Category | Types | Max size | Folder convention | Permission | Current state |
+| --- | --- | ---: | --- | --- | --- |
+| `product-image` | JPEG, PNG, WebP | 5 MB | `products/{productId}/images/{fileId}` | `PRODUCTS:UPDATE` | Implemented upload UI/action |
+| `quotation-item-image` | JPEG, PNG, WebP | 5 MB | `quotations/{quotationId}/items/{quotationItemId}/images/{fileId}` | `QUOTATIONS:UPDATE` | Policy exists; no dedicated upload action yet |
+| `order-item-image` | JPEG, PNG, WebP | 5 MB | `orders/{orderId}/items/{orderItemId}/images/{fileId}` | `ORDERS:UPDATE` | Policy exists; no dedicated upload action yet |
+| `customer-attachment` | JPEG, PNG, WebP, PDF | 10 MB | `customers/{customerId}/attachments/{fileId}` | `CUSTOMERS:UPDATE` | Policy-only; no attachment model/UI yet |
+| `payment-proof` | JPEG, PNG, WebP, PDF | 10 MB | `payments/{paymentId}/proof/{fileId}` | `PAYMENTS:UPDATE` | Policy-only; no proof model/UI yet |
+| `delivery-proof` | JPEG, PNG, WebP, PDF | 10 MB | `deliveries/{deliveryId}/proof/{fileId}` | `DELIVERIES:UPDATE` | Policy-only; no proof model/UI yet |
+| `generated-document` | PDF | 10 MB | `orders/{orderId}/documents/{documentType}/{documentNumberOrFileId}.pdf` | `DOCUMENTS:EXPORT` | Policy exists; PDFs generate on demand, and stored document references can be recorded manually from the order workspace |
 
 Executable, script, and archive extensions are blocked by validation even if a browser reports a misleading MIME type.
 
@@ -64,7 +64,7 @@ Store the original Cloudinary `secureUrl` and metadata in PostgreSQL. Use transf
 
 Operational PDFs are generated on demand by default through `app/api/documents/[documentType]/[id]/route.ts` and React-PDF. The route is permission-gated by `DOCUMENTS:EXPORT` plus the source module view permission.
 
-The system may store optional document metadata in `OrderDocument`. Stored PDF files should only be created when the business explicitly finalizes or exports a document artifact. A stored generated document must include:
+The system may store optional document records in `OrderDocument`. Stored PDF files should only be created when the business explicitly finalizes or exports a document artifact. A stored generated document must include:
 
 - document type
 - source order and related quotation/payment/delivery when applicable
@@ -88,12 +88,27 @@ Payment proof, delivery proof, and generated documents are audit/history artifac
 
 - `product-image`: server-side Cloudinary upload from the product workspace, `PRODUCTS:UPDATE` permission, product existence check, policy validation, metadata persistence, primary image handling, metadata removal, and activity logging.
 
+## Policy-Only Categories
+
+- `customer-attachment`: limits, paths, and permissions are defined, but there is no customer attachment model or upload UI yet.
+- `payment-proof`: limits, paths, and permissions are defined, but there is no payment proof model or upload UI yet.
+- `delivery-proof`: limits, paths, and permissions are defined, but there is no delivery proof model or upload UI yet.
+
+## Partially Represented Categories
+
+- `quotation-item-image`: quotation items can carry image metadata copied from product images or manually supplied as item metadata, but there is no dedicated file upload action yet.
+- `order-item-image`: order items preserve copied quotation/product image metadata, but there is no dedicated file upload action yet.
+- `generated-document`: operational PDFs are generated on demand. `OrderDocument` records can track generated documents and optional stored-file references, but permanent Cloudinary PDF upload/storage is not automatic.
+
 ## Not Implemented Yet
 
 - Drag-and-drop interactions and upload progress states.
 - Direct Cloudinary signed-upload endpoints.
 - Quotation item image upload controls and actions.
 - Order item image upload controls and actions.
+- Customer attachment upload controls and actions.
+- Payment proof upload controls and actions.
+- Delivery proof upload controls and actions.
 - Customer portal uploads.
 - Payment gateway verification.
 - Delivery provider integration uploads.

@@ -15,7 +15,7 @@ This application is focused on the manual sales workflow used by Admin and Staff
 - Manual order creation for sales that do not start from a quotation.
 - Multiple payments per order with downpayment, partial payment, final payment, and delivery balance payment types.
 - Multiple deliveries per order with partial delivery quantities.
-- Document metadata records for generated or uploaded operational documents.
+- Document records for generated operational documents and optional stored document references.
 - React-PDF download routes for quotation, invoice, payment receipt, delivery receipt, and final order summary PDFs.
 - Supabase Auth-backed login with Prisma user profiles, roles, permissions, and activity logs.
 
@@ -51,14 +51,14 @@ This application is focused on the manual sales workflow used by Admin and Staff
 | `/inquiries` | Inquiry capture and follow-up context |
 | `/quotations` | Draft quotations, custom items, discounts, and approval status updates |
 | `/orders` | Quotation conversion, manual orders, payments, deliveries, and document records |
-| `/payments` | Payment module entry point |
-| `/deliveries` | Delivery module entry point |
-| `/documents` | Document registry for generated operational PDFs and stored document references |
-| `/sales-history` | Sales history module entry point |
+| `/payments` | Read-only payment history, customer balances, receipt links, and order balance tracking |
+| `/deliveries` | Read-only delivery schedule, partial delivery quantities, provider notes, and receipt readiness |
+| `/documents` | Generated document registry with search, download actions, related record links, and quotation/invoice/receipt/delivery/final summary tracking |
+| `/sales-history` | Permission-gated operational reports for overview, unfinished sales, balances, payments, deliveries, orders, quotations, and customer sales history |
 | `/users` | Admin user and permission management |
-| `/settings` | Admin settings placeholder |
+| `/settings` | Admin configuration for company profile, payment/MOP instructions, document footer notes, document prefixes, and PDF defaults |
 
-Some module entry pages are placeholders while the working order, payment, and delivery workflows are available from the order workspace.
+Payment and delivery creation still happens from the order workspace. The standalone payment and delivery routes provide operational lookup and tracking views rather than full edit workspaces.
 
 ## Data Model Overview
 
@@ -72,7 +72,7 @@ The Prisma schema models the operational records used by the MVP:
 - `Order`, `OrderItem`, and `OrderItemImage` for confirmed operational sales records.
 - `Payment` for multiple payment records and balance tracking.
 - `Delivery` and `DeliveryItem` for scheduled and partial deliveries.
-- `OrderDocument` for generated or uploaded document metadata.
+- `OrderDocument` for generated document records and optional stored document references.
 
 Historical records use snapshots for customer, product, item, price, discount, image, payment, and delivery details so later edits do not silently change saved orders or documents.
 
@@ -96,7 +96,7 @@ FIRST_ADMIN_NAME="Furniture Odyssey Admin"
 
 `FIRST_ADMIN_*` values are only needed when running the seed script to create the first active Admin profile. The auth user must already exist in Supabase Auth.
 
-`CLOUDINARY_*` values are server-only credentials used by product image uploads and future document/media upload actions. Do not expose the API secret through `NEXT_PUBLIC_*` variables.
+`CLOUDINARY_*` values are server-only credentials used by product image uploads and future stored document/media upload actions. Do not expose the API secret through `NEXT_PUBLIC_*` variables.
 
 The committed Supabase local config uses a `555xx` port range to avoid conflicts with other local Supabase projects:
 
@@ -243,6 +243,7 @@ Prisma migrations do not provide automatic down migrations. Before applying migr
 npm run typecheck
 npm run lint
 npm run build
+npm test
 ```
 
 `npm run build` runs `prisma generate` before the Next.js production build.
@@ -251,6 +252,8 @@ npm run build
 
 Phase documents live in `docs/`:
 
+- `docs/implementation-status.md`
+- `docs/upload-and-document-storage-policy.md`
 - `docs/product-reference-catalog-for-quotations-phase.md`
 - `docs/manual-friendly-quotation-builder-phase.md`
 - `docs/approved-quotation-to-order-pos-workflow-phase.md`

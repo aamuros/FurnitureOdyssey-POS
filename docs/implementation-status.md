@@ -82,7 +82,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Centralized static Furniture Odyssey PDF/business profile placeholders remain as safe fallbacks.
 - Admin-managed Settings now store company profile, payment/MOP instructions, document footer notes, and conservative document display prefixes in PostgreSQL.
 - Shared PDF formatting helpers cover PHP currency, dates, quantities, fallback text, document numbers, and status labels.
-- Store order document metadata, including type, title, Cloudinary public ID, secure URL, status, generated date, and notes.
+- Store order document records, including type, title, optional stored-file reference, status, generated date, and notes.
 - Internal operational numbering is implemented for quotations, orders, invoices, payment receipts, delivery receipts, and final order summaries. Numbers use the configured document prefixes with `YYYY-######` sequences, for example `QT-2026-000001`, `ORD-2026-000001`, `INV-2026-000001`, `PAY-2026-000001`, `DR-2026-000001`, and `SUM-2026-000001`.
 - Operational numbers are display/reference numbers only, not legal or BIR-compliance-grade invoice controls. UUIDs remain the internal database identifiers.
 - Invoice, delivery receipt, and final summary PDF downloads generate a document number once, store it on `OrderDocument`, and reuse the same number on later downloads.
@@ -96,12 +96,12 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
 - Order document metadata creation now validates related payment/delivery ownership, updates receipt metadata when applicable, and writes activity logs in one database transaction.
-- Documents route now provides a permission-gated document registry for generated operational documents, with document type/status/date/search filters, pagination, customer and related record context, stored/download status, and export/source links based on existing permissions.
+- Documents route now provides a permission-gated document registry for generated operational documents, with document type/status/date/search filters, pagination, customer and related record context, generated-on-demand or stored status, download actions, and export/source links based on existing permissions.
 - Upload and document storage policy is documented in `docs/upload-and-document-storage-policy.md`. Operational PDFs remain generated on demand by default, with optional `OrderDocument` metadata and stored Cloudinary PDF references only when a finalized/exported artifact is explicitly needed.
 
 ### Settings
 
-- Settings route is no longer a placeholder.
+- Settings route is implemented as an admin configuration workspace.
 - Access uses the existing `SETTINGS:VIEW` and `SETTINGS:UPDATE` permission model; Admin users continue to pass permissions automatically.
 - Company Profile settings cover company name, optional registered/display name, address, contact number, email, Facebook page, website URL, logo URL, and logo alt text.
 - Payment / MOP settings cover default payment instructions, bank details, e-wallet details, other payment notes, and copyable MOP script text.
@@ -120,11 +120,14 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Customer sales history composes profile, inquiry, quotation, order, payment, delivery, balance, and latest activity details according to each module permission.
 - PDF download links appear only when document export permission is available and the source record has the required ID.
 
-## Partially Implemented or Placeholder Areas
+## Partially Implemented or Future Scope Areas
 
-- Payment and delivery routes exist as module entry points; the working payment and delivery forms currently live inside the order workspace.
+- Payment route provides read-only payment history, customer balances, receipt links, and order balance tracking. Payment creation and editing still happen from the order workspace.
+- Delivery route provides a read-only delivery schedule with partial delivery quantities, provider/recipient context, status, and receipt readiness. Delivery creation and progress updates still happen from the order workspace.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
 - Quotation item and order item image upload actions are not implemented yet. Existing quotation/order snapshot behavior still preserves image metadata copied from product images or manually supplied item metadata.
+- Upload policy exists for customer attachments, payment proof, delivery proof, and generated documents, but those categories do not yet have dedicated upload UI/actions. Stored document references can be entered from the order workspace when a finalized/exported artifact needs to be tracked.
+- Documents is a generated document registry and download/search area, not a document authoring system or compliance archive.
 
 ## Not Implemented in MVP
 
@@ -132,10 +135,11 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Public ecommerce storefront, checkout, customer account, or customer portal.
 - Facebook, Messenger, Viber, delivery provider, or payment gateway integrations.
 - Automated payment verification, refund workflows, overpayment handling, or accounting compliance.
+- Legal/BIR-compliance-grade invoice controls, official accounting receipt workflows, and tax filing logic.
 - POS hardware integration, cashier sessions, barcode scanning, or receipt printer support.
 
 ## Maintenance Notes
 
 - Keep phase documents as design references and update this status file when implementation catches up or scope changes.
-- Add route-level documentation when placeholder modules become full workspaces.
+- Add route-level documentation when partial module views become full workspaces.
 - Update the README if setup, environment variables, or verification commands change.
