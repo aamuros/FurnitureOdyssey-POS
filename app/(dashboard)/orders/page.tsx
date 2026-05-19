@@ -349,6 +349,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const canCreatePayments = hasPermission(user, "PAYMENTS", "CREATE");
   const canViewDeliveries = hasPermission(user, "DELIVERIES", "VIEW");
   const canCreateDeliveries = hasPermission(user, "DELIVERIES", "CREATE");
+  const canUpdateDeliveries = hasPermission(user, "DELIVERIES", "UPDATE");
   const canCreateDocuments = hasPermission(user, "DOCUMENTS", "CREATE");
   const canExportDocuments = hasPermission(user, "DOCUMENTS", "EXPORT");
 
@@ -681,6 +682,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canCreatePayments={canCreatePayments}
         canViewDeliveries={canViewDeliveries}
         canCreateDeliveries={canCreateDeliveries}
+        canUpdateDeliveries={canUpdateDeliveries}
         canCreateDocuments={canCreateDocuments}
         canExportDocuments={canExportDocuments}
         customers={customers}

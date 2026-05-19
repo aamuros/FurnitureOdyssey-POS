@@ -156,7 +156,6 @@ export const deliveryItemSchema = z
 
 export const createDeliverySchema = z.object({
   orderId: z.string().uuid("Choose an order."),
-  status: z.enum(["PLANNED", "SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED", "DELIVERED"]).default("SCHEDULED"),
   scheduledDate: z.coerce.date().optional(),
   scheduledTimeWindow: optionalText,
   deliveryProviderType: z.enum(["IN_HOUSE", "CUSTOMER_PICKUP", "THIRD_PARTY", "OTHER"]).optional(),
@@ -168,6 +167,21 @@ export const createDeliverySchema = z.object({
   deliveryNotes: optionalText,
   internalNotes: optionalText,
   items: z.array(deliveryItemSchema).min(1, "Add at least one delivery item.")
+});
+
+export const updateDeliveryProgressItemSchema = z.object({
+  deliveryItemId: z.string().uuid("Choose a delivery item."),
+  quantityDelivered: z.coerce.number().min(0, "Delivered quantity cannot be negative."),
+  notes: optionalText
+});
+
+export const updateDeliveryProgressSchema = z.object({
+  deliveryId: z.string().uuid("Choose a delivery."),
+  status: z.enum(["SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED", "DELIVERED", "FAILED", "CANCELLED"]),
+  deliveredAt: z.coerce.date().optional(),
+  markAllDelivered: formBoolean.default(false),
+  notes: optionalText,
+  items: z.array(updateDeliveryProgressItemSchema).default([])
 });
 
 export const createOrderDocumentSchema = z

@@ -35,11 +35,6 @@ async function logSettingsUpdate(actorId: string, section: string) {
   });
 }
 
-export async function getSettingsAction() {
-  await requirePermission("SETTINGS", "VIEW");
-  return getAppSettings();
-}
-
 export async function updateCompanyProfileSettingsAction(
   _previousState: ActionState,
   formData: FormData

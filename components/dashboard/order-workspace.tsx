@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import type { DeliveryStatus } from "@prisma/client";
 import {
   CalendarClock,
   Download,
@@ -17,6 +18,7 @@ import {
   createManualOrderAction,
   createOrderDocumentAction,
   createPaymentAction,
+  updateDeliveryProgressAction,
   updatePaymentDueTimingAction
 } from "@/app/actions/orders";
 import { Button } from "@/components/ui/button";
@@ -35,6 +37,7 @@ import {
   readableLabel,
   statusTone
 } from "@/lib/orders/status-labels";
+import { getAllowedNextStatuses } from "@/lib/status-transitions";
 
 type CustomerOption = {
   id: string;
@@ -174,6 +177,7 @@ type OrderWorkspaceProps = {
   canCreatePayments: boolean;
   canViewDeliveries: boolean;
   canCreateDeliveries: boolean;
+  canUpdateDeliveries: boolean;
   canCreateDocuments: boolean;
   canExportDocuments: boolean;
   customers: CustomerOption[];
@@ -197,7 +201,8 @@ type ItemDraft = {
   discountValue: number;
   customerNotes: string;
   internalNotes: string;
-  images: [];
+  imageCloudinaryPublicId: string;
+  imageSecureUrl: string;
 };
 
 const initialState = {
@@ -233,21 +238,38 @@ function createCustomItem(sortOrder: number): ItemDraft {
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
-    images: []
+    imageCloudinaryPublicId: "",
+    imageSecureUrl: ""
   };
 }
 
 function toActionItems(items: ItemDraft[]) {
   return items.map((item, index) => ({
-    ...item,
+    productId: item.productId,
+    itemType: item.itemType,
     sortOrder: index,
+    itemName: item.itemName,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    unitCostSnapshot: item.unitCostSnapshot,
     discountType: item.discountType || undefined,
     discountValue: item.discountType ? item.discountValue : undefined,
     description: item.description || undefined,
     specifications: item.specifications || undefined,
     customerNotes: item.customerNotes || undefined,
     internalNotes: item.internalNotes || undefined,
-    snapshotProductCode: item.snapshotProductCode || undefined
+    snapshotProductCode: item.snapshotProductCode || undefined,
+    images:
+      item.imageCloudinaryPublicId && item.imageSecureUrl
+        ? [
+            {
+              cloudinaryPublicId: item.imageCloudinaryPublicId,
+              secureUrl: item.imageSecureUrl,
+              sortOrder: 0,
+              isPrimary: true
+            }
+          ]
+        : []
   }));
 }
 
@@ -386,6 +408,9 @@ function DeliveryForm({ order }: { order: OrderRow }) {
     <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
       <input type="hidden" name="orderId" value={order.id} />
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
+      <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground md:col-span-5">
+        New deliveries are created as Scheduled. Use delivery progress to move them forward.
+      </div>
       <Select name="deliveryProviderType" defaultValue="" aria-label="Delivery provider type">
         <option value="">Provider type</option>
         <option value="IN_HOUSE">In-house</option>
@@ -395,13 +420,6 @@ function DeliveryForm({ order }: { order: OrderRow }) {
       </Select>
       <Input name="deliveryProviderName" placeholder="Provider name" />
       <Input name="deliveryProviderReference" placeholder="Provider reference" />
-      <Select name="status" defaultValue="SCHEDULED" aria-label="Delivery status">
-        <option value="PLANNED">Planned</option>
-        <option value="SCHEDULED">Scheduled</option>
-        <option value="IN_TRANSIT">In transit</option>
-        <option value="PARTIALLY_DELIVERED">Partially delivered</option>
-        <option value="DELIVERED">Delivered</option>
-      </Select>
       <Input name="scheduledDate" type="date" required aria-label="Scheduled date" />
       <Select
         value={orderItemId}
@@ -437,6 +455,101 @@ function DeliveryForm({ order }: { order: OrderRow }) {
         <p className={state.ok ? "text-sm text-emerald-700 md:col-span-5" : "text-sm text-danger md:col-span-5"}>
           {state.message}
         </p>
+      ) : null}
+    </form>
+  );
+}
+
+type DeliveryRow = OrderRow["deliveries"][number];
+
+function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
+  const [state, action, pending] = useActionState(updateDeliveryProgressAction, initialState);
+  const [status, setStatus] = useState(delivery.status);
+  const [markAllDelivered, setMarkAllDelivered] = useState(false);
+  const [items, setItems] = useState(
+    delivery.items.map((item) => ({
+      deliveryItemId: item.id,
+      quantityDelivered: item.quantityDelivered,
+      notes: ""
+    }))
+  );
+  const nextStatuses = [
+    delivery.status,
+    ...getAllowedNextStatuses("delivery", delivery.status as DeliveryStatus)
+  ];
+  const submittedItems = markAllDelivered
+    ? delivery.items.map((item) => ({
+        deliveryItemId: item.id,
+        quantityDelivered: item.quantityPlanned,
+        notes: items.find((candidate) => candidate.deliveryItemId === item.id)?.notes
+      }))
+    : items;
+
+  function updateDeliveredQuantity(deliveryItemId: string, quantityDelivered: number) {
+    setItems((current) =>
+      current.map((item) => (item.deliveryItemId === deliveryItemId ? { ...item, quantityDelivered } : item))
+    );
+  }
+
+  return (
+    <form action={action} className="mt-3 grid gap-2 rounded-md border border-border p-3">
+      <input type="hidden" name="deliveryId" value={delivery.id} />
+      <input type="hidden" name="items" value={JSON.stringify(submittedItems)} />
+      <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+        <Select
+          name="status"
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+          aria-label="Delivery progress status"
+        >
+          {nextStatuses.map((nextStatus) => (
+            <option key={nextStatus} value={nextStatus}>
+              {deliveryStatusLabel(nextStatus)}
+            </option>
+          ))}
+        </Select>
+        <Input name="deliveredAt" type="date" disabled={status !== "DELIVERED"} aria-label="Delivered date" />
+      </div>
+      <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-panel px-3 text-sm">
+        <input
+          type="checkbox"
+          name="markAllDelivered"
+          checked={markAllDelivered}
+          onChange={(event) => setMarkAllDelivered(event.target.checked)}
+          value="true"
+        />
+        Mark all planned quantities as delivered
+      </label>
+      <div className="space-y-2">
+        {delivery.items.map((item) => (
+          <label key={item.id} className="grid gap-2 text-xs md:grid-cols-[1fr_110px]">
+            <span className="text-muted-foreground">
+              {item.itemName} planned {item.quantityPlanned}
+            </span>
+            <Input
+              type="number"
+              min="0"
+              max={item.quantityPlanned}
+              step="0.01"
+              value={
+                markAllDelivered
+                  ? item.quantityPlanned
+                  : (items.find((candidate) => candidate.deliveryItemId === item.id)?.quantityDelivered ?? 0)
+              }
+              disabled={markAllDelivered}
+              onChange={(event) => updateDeliveredQuantity(item.id, Number(event.target.value))}
+              aria-label={`${item.itemName} delivered quantity`}
+            />
+          </label>
+        ))}
+      </div>
+      <Textarea name="notes" placeholder="Internal progress notes" />
+      <Button disabled={pending || nextStatuses.length <= 1}>
+        <Save className="h-4 w-4" />
+        Save progress
+      </Button>
+      {state.message ? (
+        <p className={state.ok ? "text-sm text-emerald-700" : "text-sm text-danger"}>{state.message}</p>
       ) : null}
     </form>
   );
@@ -553,6 +666,7 @@ export function OrderWorkspace({
   canCreatePayments,
   canViewDeliveries,
   canCreateDeliveries,
+  canUpdateDeliveries,
   canCreateDocuments,
   canExportDocuments,
   customers,
@@ -624,7 +738,8 @@ export function OrderWorkspace({
         discountValue: 0,
         customerNotes: "",
         internalNotes: "",
-        images: []
+        imageCloudinaryPublicId: "",
+        imageSecureUrl: ""
       }
     ]);
     setSelectedProductId("");
@@ -777,6 +892,18 @@ export function OrderWorkspace({
                     onChange={(event) => updateItem(index, { description: event.target.value })}
                     placeholder="Description"
                     className="md:col-span-5"
+                  />
+                  <Input
+                    value={item.imageCloudinaryPublicId}
+                    onChange={(event) => updateItem(index, { imageCloudinaryPublicId: event.target.value })}
+                    placeholder="Cloudinary public ID"
+                    className="md:col-span-2"
+                  />
+                  <Input
+                    value={item.imageSecureUrl}
+                    onChange={(event) => updateItem(index, { imageSecureUrl: event.target.value })}
+                    placeholder="Cloudinary secure URL"
+                    className="md:col-span-3"
                   />
                 </div>
               ))}
@@ -1068,6 +1195,7 @@ export function OrderWorkspace({
                                 Delivery receipt PDF
                               </a>
                             ) : null}
+                            {canUpdateDeliveries ? <DeliveryProgressForm delivery={delivery} /> : null}
                           </div>
                         ))}
                       </div>

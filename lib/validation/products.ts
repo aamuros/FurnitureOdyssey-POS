@@ -67,11 +67,6 @@ export const updateProductSchema = z
   })
   .superRefine(enforceSinglePrimaryImage);
 
-export const updateProductStatusSchema = z.object({
-  productId: z.string().uuid("Choose a product to update."),
-  status: z.enum(["ACTIVE", "INACTIVE"])
-});
-
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type ProductImageInput = z.infer<typeof productImageSchema>;

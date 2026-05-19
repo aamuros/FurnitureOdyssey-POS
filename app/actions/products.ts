@@ -9,7 +9,6 @@ import { uploadFileToCloudinary } from "@/lib/uploads/server";
 import {
   createProductSchema,
   updateProductSchema,
-  updateProductStatusSchema,
   type ProductImageInput
 } from "@/lib/validation/products";
 
@@ -234,55 +233,6 @@ export async function updateProductAction(
       message: uniqueCodeMessage(error) ?? "Unable to update product."
     };
   }
-}
-
-export async function updateProductStatusAction(
-  _previousState: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  const actor = await requirePermission("PRODUCTS", "UPDATE");
-  const parsed = updateProductStatusSchema.safeParse({
-    productId: formData.get("productId"),
-    status: formData.get("status")
-  });
-
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message: parsed.error.issues[0]?.message ?? "Invalid product status."
-    };
-  }
-
-  const product = await prisma.product.update({
-    where: {
-      id: parsed.data.productId
-    },
-    data: {
-      status: parsed.data.status,
-      updatedById: actor.id
-    }
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      action: "PRODUCT_UPDATED",
-      actorId: actor.id,
-      summary: `Marked product ${product.name} as ${product.status}.`,
-      metadata: {
-        productId: product.id,
-        status: product.status
-      }
-    }
-  });
-
-  revalidatePath("/products");
-  revalidatePath("/quotations");
-  revalidatePath("/orders");
-
-  return {
-    ok: true,
-    message: `Product marked ${product.status}.`
-  };
 }
 
 export async function uploadProductImageAction(formData: FormData): Promise<ActionState> {

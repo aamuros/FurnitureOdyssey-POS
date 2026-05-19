@@ -28,6 +28,7 @@ import {
   assertDeliveryPlanDoesNotExceedOrdered,
   calculateDeliverySummary
 } from "@/lib/deliveries/calculations";
+import { prepareDeliveryProgressUpdate } from "@/lib/deliveries/progress";
 import {
   assertPaymentDoesNotOverpay,
   calculatePaymentSummary
@@ -42,6 +43,7 @@ import {
   createManualOrderSchema,
   createOrderDocumentSchema,
   createPaymentSchema,
+  updateDeliveryProgressSchema,
   updatePaymentDueTimingSchema,
   type OrderItemInput
 } from "@/lib/validation/orders";
@@ -950,7 +952,6 @@ export async function createDeliveryAction(
   const initialDeliveryStatus: DeliveryStatus = "SCHEDULED";
   const parsed = createDeliverySchema.safeParse({
     orderId: formData.get("orderId"),
-    status: initialDeliveryStatus,
     scheduledDate: formData.get("scheduledDate") || undefined,
     scheduledTimeWindow: formData.get("scheduledTimeWindow"),
     deliveryProviderType: formData.get("deliveryProviderType") || undefined,
@@ -1102,6 +1103,131 @@ export async function createDeliveryAction(
   return {
     ok: true,
     message: "Delivery saved and delivery status updated."
+  };
+}
+
+export async function updateDeliveryProgressAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("DELIVERIES", "UPDATE");
+  const parsed = updateDeliveryProgressSchema.safeParse({
+    deliveryId: formData.get("deliveryId"),
+    status: formData.get("status"),
+    deliveredAt: formData.get("deliveredAt") || undefined,
+    markAllDelivered: formData.get("markAllDelivered"),
+    notes: formData.get("notes"),
+    items: parseJsonArray(formData.get("items"))
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: firstIssue(parsed.error, "Invalid delivery progress.")
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const delivery = await tx.delivery.findUnique({
+        where: {
+          id: parsed.data.deliveryId
+        },
+        include: {
+          order: true,
+          items: true
+        }
+      });
+
+      if (!delivery || delivery.order.status === "CANCELLED") {
+        throw new ActionError("Delivery is not available for progress updates.");
+      }
+
+      const nextItems = prepareDeliveryProgressUpdate({
+        currentStatus: delivery.status,
+        nextStatus: parsed.data.status as DeliveryStatus,
+        existingItems: delivery.items.map((item) => ({
+          id: item.id,
+          quantityPlanned: Number(item.quantityPlanned),
+          quantityDelivered: Number(item.quantityDelivered)
+        })),
+        itemInputs: parsed.data.items,
+        markAllDelivered: parsed.data.markAllDelivered
+      });
+
+      const deliveredAt =
+        parsed.data.status === "DELIVERED"
+          ? (parsed.data.deliveredAt ?? delivery.deliveredAt ?? new Date())
+          : delivery.deliveredAt;
+
+      await tx.delivery.update({
+        where: {
+          id: delivery.id
+        },
+        data: {
+          status: parsed.data.status as DeliveryStatus,
+          deliveredAt,
+          internalNotes: parsed.data.notes ?? delivery.internalNotes,
+          updatedById: actor.id
+        }
+      });
+
+      for (const item of nextItems) {
+        await tx.deliveryItem.update({
+          where: {
+            id: item.id
+          },
+          data: {
+            quantityDelivered: item.quantityDelivered,
+            notes: item.notes
+          }
+        });
+      }
+
+      await updateOrderDeliverySummaryTx(tx, delivery.orderId, actor.id);
+
+      await tx.activityLog.create({
+        data: {
+          action: "DELIVERY_UPDATED",
+          actorId: actor.id,
+          summary: `Updated delivery progress for order ${delivery.orderId}.`,
+          metadata: {
+            entityType: "delivery",
+            entityId: delivery.id,
+            deliveryId: delivery.id,
+            orderId: delivery.orderId,
+            orderNumber: delivery.order.orderNumber,
+            oldStatus: delivery.status,
+            newStatus: parsed.data.status,
+            sourceAction: "delivery_progress_update"
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    if (error instanceof Error) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    throw error;
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/deliveries");
+
+  return {
+    ok: true,
+    message: "Delivery progress updated."
   };
 }
 
