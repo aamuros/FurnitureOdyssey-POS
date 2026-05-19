@@ -12,6 +12,12 @@ import { createQuotationSchema } from "@/lib/validation/quotations";
 type ActionState = {
   ok: boolean;
   message: string;
+  intent?: "save_draft" | "save_preview" | "save_mark_sent";
+  quotationId?: string;
+  quotationNumber?: string | null;
+  previewUrl?: string;
+  downloadUrl?: string;
+  status?: QuotationStatus;
 };
 
 function parseItems(value: FormDataEntryValue | null) {
@@ -33,7 +39,7 @@ function friendlyValidationMessage(message: string | undefined, fallback: string
   }
 
   if (message === "Choose a customer.") {
-    return "Select or enter a customer name.";
+    return "Select an existing customer or create a new customer record.";
   }
 
   if (message === "Add at least one quotation item.") {
@@ -48,6 +54,12 @@ export async function createQuotationAction(
   formData: FormData
 ): Promise<ActionState> {
   const actor = await requirePermission("QUOTATIONS", "CREATE");
+  const requestedIntent = String(formData.get("intent") ?? "save_draft");
+  const intent =
+    requestedIntent === "save_preview" || requestedIntent === "save_mark_sent"
+      ? requestedIntent
+      : "save_draft";
+  const status: QuotationStatus = intent === "save_mark_sent" ? "SENT" : "DRAFT";
   const parsed = createQuotationSchema.safeParse({
     customerId: formData.get("customerId"),
     inquiryId: formData.get("inquiryId"),
@@ -158,7 +170,7 @@ export async function createQuotationAction(
         quotationNumber,
         customerId: parsed.data.customerId,
         inquiryId: parsed.data.inquiryId,
-        status: "DRAFT",
+        status,
         currency: "PHP",
         subtotalAmount: totals.subtotalAmount,
         itemDiscountTotal: totals.itemDiscountTotal,
@@ -235,10 +247,15 @@ export async function createQuotationAction(
       data: {
         action: "QUOTATION_CREATED",
         actorId: actor.id,
-        summary: `Created draft quotation for ${customer.displayName}.`,
+        summary:
+          status === "SENT"
+            ? `Created and marked sent quotation for ${customer.displayName}.`
+            : `Created draft quotation for ${customer.displayName}.`,
         metadata: {
           quotationId: created.id,
           quotationNumber: created.quotationNumber,
+          status,
+          intent,
           customerId: customer.id,
           inquiryId: parsed.data.inquiryId ?? "",
           totalAmount: totals.totalAmount,
@@ -257,12 +274,27 @@ export async function createQuotationAction(
   revalidatePath("/quotations");
   revalidatePath("/inquiries");
 
+  const label = quotation.quotationNumber ?? quotation.id;
+  const downloadUrl = `/api/documents/quotation/${quotation.id}?disposition=attachment`;
+  const previewUrl = `/api/documents/quotation/${quotation.id}?disposition=inline`;
+
   return {
     ok: true,
-    message: `Draft quotation saved for ${customer.displayName}: ${quotation.quotationNumber ?? quotation.id}. PHP ${Number(quotation.totalAmount).toLocaleString("en-PH", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}.`
+    intent,
+    quotationId: quotation.id,
+    quotationNumber: quotation.quotationNumber,
+    previewUrl,
+    downloadUrl,
+    status,
+    message: `${
+      status === "SENT" ? "Quotation saved and marked sent" : "Draft quotation saved"
+    } for ${customer.displayName}: ${label}. PHP ${Number(quotation.totalAmount).toLocaleString(
+      "en-PH",
+      {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }
+    )}.`
   };
 }
 

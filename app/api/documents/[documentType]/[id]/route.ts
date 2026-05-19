@@ -21,7 +21,7 @@ type RouteParams = {
   }>;
 };
 
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   const { documentType, id } = await params;
 
   if (!supportedTypes.has(documentType as OperationalPdfKind)) {
@@ -50,13 +50,14 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
   const data = await getOperationalPdfData(kind, id);
   const buffer = await renderOperationalPdf(data);
+  const disposition = new URL(request.url).searchParams.get("disposition");
+  const contentDisposition = disposition === "inline" ? "inline" : "attachment";
 
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${data.filename}"`,
+      "Content-Disposition": `${contentDisposition}; filename="${data.filename}"`,
       "Cache-Control": "private, no-store"
     }
   });
 }
-

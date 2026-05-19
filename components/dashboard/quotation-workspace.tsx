@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Eye,
   FileText,
   ImagePlus,
   PackageSearch,
@@ -119,6 +120,12 @@ type ItemDraft = {
 type ActionState = {
   ok: boolean;
   message: string;
+  intent?: "save_draft" | "save_preview" | "save_mark_sent";
+  quotationId?: string;
+  quotationNumber?: string | null;
+  previewUrl?: string;
+  downloadUrl?: string;
+  status?: "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED" | "CANCELLED";
   customerId?: string;
   customerDisplayName?: string;
 };
@@ -197,7 +204,7 @@ function friendlyActionMessage(message: string) {
   }
 
   if (message === "Choose a customer.") {
-    return "Select or enter a customer name.";
+    return "Select an existing customer or create a new customer record.";
   }
 
   if (message === "Add at least one quotation item.") {
@@ -355,6 +362,50 @@ function InlineCustomerCreate({
   );
 }
 
+function QuotationPdfPreview({
+  previewUrl,
+  downloadUrl,
+  title
+}: {
+  previewUrl: string;
+  downloadUrl: string;
+  title: string;
+}) {
+  return (
+    <section className="studio-card overflow-hidden">
+      <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="studio-kicker">PDF preview</p>
+          <h2 className="text-sm font-semibold">{title}</h2>
+        </div>
+        <a href={downloadUrl} className={pdfLinkClass}>
+          <Download className="h-4 w-4" />
+          Download PDF
+        </a>
+      </div>
+      <object
+        data={previewUrl}
+        type="application/pdf"
+        className="h-[72vh] min-h-[520px] w-full border-t border-border bg-background"
+      >
+        <div className="grid min-h-[320px] place-items-center border-t border-border bg-background p-6 text-center">
+          <div className="max-w-md space-y-3">
+            <FileText className="mx-auto h-8 w-8 text-accent" />
+            <p className="font-semibold">PDF preview is not available in this browser.</p>
+            <p className="text-sm text-muted-foreground">
+              You can still download the quotation PDF and open it locally.
+            </p>
+            <a href={downloadUrl} className={pdfLinkClass}>
+              <Download className="h-4 w-4" />
+              Download PDF
+            </a>
+          </div>
+        </div>
+      </object>
+    </section>
+  );
+}
+
 function CustomerSelector({
   customers,
   selectedCustomer,
@@ -380,17 +431,19 @@ function CustomerSelector({
   const hasExactMatch = filteredCustomers.some(
     (customer) => customer.displayName.toLowerCase() === trimmedQuery.toLowerCase()
   );
+  const selectedLabel = selectedCustomer ? "Selected customer" : "No customer selected yet";
 
   return (
     <section className="space-y-3">
       <div>
         <p className="studio-kicker">Customer</p>
-        <h2 className="text-sm font-semibold">Select the buyer</h2>
+        <h2 className="text-sm font-semibold">Search existing customer</h2>
       </div>
       <div className="studio-subpanel p-4">
         {selectedCustomer ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
             <div>
+              <p className="studio-kicker">{selectedLabel}</p>
               <p className="font-semibold">{selectedCustomer.displayName}</p>
               {selectedCustomer.detail ? (
                 <p className="text-sm text-muted-foreground">{selectedCustomer.detail}</p>
@@ -409,6 +462,7 @@ function CustomerSelector({
           </div>
         ) : (
           <>
+            <p className="mb-2 text-sm font-medium text-muted-foreground">{selectedLabel}</p>
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -444,15 +498,24 @@ function CustomerSelector({
                 ) : null}
                 {trimmedQuery && !hasExactMatch && canCreateCustomers ? (
                   <div className="border-t border-border p-3">
+                    <p className="studio-kicker">Create new customer record</p>
                     <p className="mb-2 text-sm font-medium">
-                      Use &quot;{trimmedQuery}&quot; as customer name
+                      No exact customer match. Create a new customer record for &quot;{trimmedQuery}&quot;?
                     </p>
                     <InlineCustomerCreate
                       enabled={canCreateCustomers}
                       initialName={trimmedQuery}
-                      submitLabel="Use this name"
-                      onCreated={setSelectedCustomer}
+                      submitLabel="Create buyer record"
+                      onCreated={(customer) => {
+                        setSelectedCustomer(customer);
+                        setQuery("");
+                      }}
                     />
+                  </div>
+                ) : null}
+                {trimmedQuery && !hasExactMatch && !canCreateCustomers ? (
+                  <div className="border-t border-border px-3 py-3 text-sm text-muted-foreground">
+                    No exact match. Ask an admin to create this customer or select an existing record.
                   </div>
                 ) : null}
               </div>
@@ -569,7 +632,10 @@ function QuotationItemTable({
   removeItem: (index: number) => void;
 }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [removeIndex, setRemoveIndex] = useState<number | null>(null);
   const editingItem = editingIndex === null ? null : items[editingIndex] ?? null;
+  const removingItem = removeIndex === null ? null : items[removeIndex] ?? null;
+  const requestRemove = (index: number) => setRemoveIndex(index);
 
   return (
     <div className="space-y-3">
@@ -624,14 +690,14 @@ function QuotationItemTable({
                 onChange={(event) =>
                   updateItem(index, { discountValue: parseMoneyInput(event.target.value) })
                 }
-                aria-label="Discount"
+                aria-label="Fixed item discount"
               />
               <div className="text-sm font-semibold">{money(lineTotal(item))}</div>
               <div className="flex items-center gap-1">
                 <Button type="button" variant="ghost" onClick={() => setEditingIndex(index)} className="min-h-9 px-2">
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => removeItem(index)} className="min-h-9 px-2">
+                <Button type="button" variant="ghost" onClick={() => requestRemove(index)} className="min-h-9 px-2">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -659,7 +725,7 @@ function QuotationItemTable({
                 <Button type="button" variant="ghost" onClick={() => setEditingIndex(index)} className="min-h-9 px-2">
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => removeItem(index)} className="min-h-9 px-2">
+                <Button type="button" variant="ghost" onClick={() => requestRemove(index)} className="min-h-9 px-2">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -695,7 +761,7 @@ function QuotationItemTable({
                 onChange={(event) =>
                   updateItem(index, { discountValue: parseMoneyInput(event.target.value) })
                 }
-                aria-label="Discount"
+                aria-label="Fixed item discount"
               />
             </div>
             <div className="mt-3 flex items-center justify-between text-sm">
@@ -714,6 +780,41 @@ function QuotationItemTable({
             setEditingIndex(null);
           }}
         />
+      ) : null}
+      {removingItem && removeIndex !== null ? (
+        <div className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6">
+          <div className="mx-auto mt-20 max-w-md rounded-xl border border-border bg-panel shadow-xl">
+            <div className="border-b border-border px-5 py-4">
+              <p className="studio-kicker">Remove item</p>
+              <h2 className="text-base font-semibold">
+                Remove {removingItem.itemName || `item ${removeIndex + 1}`} from the quotation?
+              </h2>
+            </div>
+            <div className="space-y-3 p-5 text-sm text-muted-foreground">
+              <p>This only removes it from the draft quotation.</p>
+              <div className="rounded-lg border border-border bg-background p-3 text-foreground">
+                <p className="font-semibold">{removingItem.itemName || `Item ${removeIndex + 1}`}</p>
+                <p className="text-sm text-muted-foreground">{money(lineTotal(removingItem))}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border p-5">
+              <Button type="button" variant="secondary" onClick={() => setRemoveIndex(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => {
+                  removeItem(removeIndex);
+                  setRemoveIndex(null);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -811,7 +912,7 @@ function ItemEditModal({
               />
             </label>
             <label className="grid gap-2 text-sm font-medium">
-              Fixed discount
+              Fixed item discount
               <Input
                 type="number"
                 min="0"
@@ -878,6 +979,7 @@ export function QuotationBuilder({
   const [productPickerOpen, setProductPickerOpen] = useState(false);
   const [additionalDiscount, setAdditionalDiscount] = useState(0);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
 
   const totals = useMemo(() => {
     const subtotalAmount = roundMoney(items.reduce((sum, item) => sum + itemSubtotal(item), 0));
@@ -899,7 +1001,7 @@ export function QuotationBuilder({
     const messages: string[] = [];
 
     if (!selectedCustomer?.id) {
-      messages.push("Select or enter a customer name.");
+      messages.push("Select an existing customer or create a new customer record.");
     }
 
     if (!items.length) {
@@ -970,6 +1072,13 @@ export function QuotationBuilder({
   }
 
   const canSubmit = validationMessages.length === 0;
+  const savedQuotationLabel = state.quotationNumber ?? state.quotationId ?? "quotation";
+
+  useEffect(() => {
+    if (state.ok && state.intent === "save_preview" && state.previewUrl) {
+      setShowPdfPreview(true);
+    }
+  }, [state.intent, state.ok, state.previewUrl]);
 
   return (
     <>
@@ -987,6 +1096,41 @@ export function QuotationBuilder({
           canCreateCustomers={canCreateCustomers}
         />
       </div>
+      {state.ok && state.quotationId && state.previewUrl && state.downloadUrl ? (
+        <div className="mt-6 space-y-4">
+          <section className="studio-card">
+            <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="studio-kicker">Saved quotation</p>
+                <h2 className="text-base font-semibold">
+                  {state.status === "SENT"
+                    ? `${savedQuotationLabel} was marked sent`
+                    : `${savedQuotationLabel} was saved as draft`}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">{friendlyActionMessage(state.message)}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" onClick={() => setShowPdfPreview((current) => !current)}>
+                  <Eye className="h-4 w-4" />
+                  {showPdfPreview ? "Hide PDF" : "Preview PDF"}
+                </Button>
+                <a href={state.downloadUrl} className={pdfLinkClass}>
+                  <Download className="h-4 w-4" />
+                  Download PDF
+                </a>
+              </div>
+            </div>
+          </section>
+          {showPdfPreview ? (
+            <QuotationPdfPreview
+              previewUrl={state.previewUrl}
+              downloadUrl={state.downloadUrl}
+              title={String(savedQuotationLabel)}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
       <form action={action} className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
         <input type="hidden" name="customerId" value={selectedCustomer?.id ?? ""} />
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
@@ -1111,7 +1255,7 @@ export function QuotationBuilder({
                   <span className="font-medium">-{money(totals.itemDiscountTotal)}</span>
                 </div>
                 <label className="block space-y-2 font-medium">
-                  Additional discount
+                  Additional fixed discount
                   <Input
                     type="number"
                     min="0"
@@ -1142,17 +1286,17 @@ export function QuotationBuilder({
                 </p>
               ) : null}
               <div className="grid gap-2">
-                <Button disabled={pending || !canSubmit}>
+                <Button disabled={pending || !canSubmit} name="intent" value="save_draft">
                   <Save className="h-4 w-4" />
                   Save draft
                 </Button>
-                <Button variant="secondary" disabled={pending || !canSubmit}>
+                <Button variant="secondary" disabled={pending || !canSubmit} name="intent" value="save_preview">
                   <FileText className="h-4 w-4" />
                   Save and preview
                 </Button>
-                <Button variant="secondary" disabled={pending || !canSubmit}>
+                <Button variant="secondary" disabled={pending || !canSubmit} name="intent" value="save_mark_sent">
                   <Send className="h-4 w-4" />
-                  Save and send
+                  Save and mark sent
                 </Button>
               </div>
             </div>
@@ -1165,10 +1309,32 @@ export function QuotationBuilder({
               <p className="text-xs text-muted-foreground">Final total</p>
               <p className="font-semibold">{money(totals.totalAmount)}</p>
             </div>
-            <Button disabled={pending || !canSubmit} className="min-h-10">
-              <Save className="h-4 w-4" />
-              Save draft
-            </Button>
+            <div className="grid shrink-0 grid-cols-3 gap-2">
+              <Button disabled={pending || !canSubmit} name="intent" value="save_draft" className="min-h-10 px-2">
+                <Save className="h-4 w-4" />
+                Draft
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={pending || !canSubmit}
+                name="intent"
+                value="save_preview"
+                className="min-h-10 px-2"
+              >
+                <FileText className="h-4 w-4" />
+                Preview
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={pending || !canSubmit}
+                name="intent"
+                value="save_mark_sent"
+                className="min-h-10 px-2"
+              >
+                <Send className="h-4 w-4" />
+                Sent
+              </Button>
+            </div>
           </div>
         </div>
       </form>
