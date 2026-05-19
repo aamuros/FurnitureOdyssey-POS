@@ -125,10 +125,10 @@ Generate the Prisma client:
 npm run prisma:generate
 ```
 
-Push the Prisma schema to the configured database:
+Apply the committed Prisma migrations to the configured local database:
 
 ```bash
-npm run prisma:push
+npm run prisma:migrate:dev
 ```
 
 Create a local Supabase Auth test user in Supabase Studio or through the Auth Admin API. Use that auth user's ID as `FIRST_ADMIN_AUTH_USER_ID`, then seed the first Admin profile:
@@ -150,6 +150,76 @@ PORT=3003 npm run dev
 ```
 
 Then open `http://localhost:3003`.
+
+## Database Migration Workflow
+
+Prisma migrations are the normal database workflow for local development, pilot testing, and future production deployments. Do not use `prisma db push` against shared, pilot, staging, or production databases because it bypasses the checked-in migration history.
+
+### Local schema changes
+
+When changing `prisma/schema.prisma`, create a named migration locally:
+
+```bash
+npm run prisma:migrate:dev -- --name describe_the_change
+npm run prisma:generate
+```
+
+Review the generated SQL in `prisma/migrations/` before committing it. Keep migrations focused on schema changes only. Data backfills or corrective data updates should be written deliberately, reviewed with the migration, and tested against a database copy when client data is involved.
+
+Use Prisma Studio for local inspection:
+
+```bash
+npm run prisma:studio
+```
+
+### Pilot and production deploys
+
+Deploy only committed migrations:
+
+```bash
+npm run prisma:migrate:status
+npm run prisma:migrate:deploy
+npm run prisma:generate
+```
+
+`prisma:migrate:deploy` is the command expected for Vercel, pilot, staging, and production database updates. It applies pending migrations without trying to create new ones.
+
+### Baseline migration
+
+This repository includes a baseline migration at `prisma/migrations/202605190000_baseline/`. It represents the current MVP schema for the internal sales operations dashboard: customers, inquiries, quotations, negotiated orders, payments, deliveries, document metadata, permissions, settings, and activity logs.
+
+Use the baseline for new empty databases. For an existing prototype database that was previously managed with `prisma db push`, take a backup first, verify the schema matches `prisma/schema.prisma`, then mark the baseline as applied before running future migrations:
+
+```bash
+npx prisma migrate resolve --applied 202605190000_baseline
+npm run prisma:migrate:status
+```
+
+Only do this for a database that already has the baseline schema. If the schema differs, create an explicit migration or repair plan instead of forcing the migration history.
+
+### Seed policy
+
+The seed script is for environment bootstrap only:
+
+```bash
+npm run seed
+```
+
+It creates or updates the first active Admin profile when `FIRST_ADMIN_AUTH_USER_ID` and `FIRST_ADMIN_EMAIL` are set. The Supabase Auth user must already exist. Do not put customer records, orders, payments, deliveries, or pilot business data in the seed script. Real operational data should be entered through the app or imported through reviewed one-off scripts.
+
+### `prisma db push`
+
+`npm run prisma:push` is kept only for short-lived throwaway prototypes or scratch databases. It is not recommended once a database may contain client, quotation, order, payment, delivery, PDF, or sales tracking records. Prefer migrations even during local development so schema changes stay traceable and repeatable.
+
+### Rollback and recovery
+
+Prisma migrations do not provide automatic down migrations. Before applying migrations to pilot or production data:
+
+- Take a database backup or Supabase point-in-time recovery checkpoint.
+- Run `npm run prisma:migrate:status` and confirm the target database is on the expected migration.
+- Test risky schema changes against a restored copy of real-like data.
+- Prefer forward-fix migrations for low-risk corrections after deployment.
+- For destructive or failed migrations, restore from backup or PITR, then create a corrected migration before retrying.
 
 ## Verification Commands
 
