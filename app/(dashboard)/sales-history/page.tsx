@@ -1467,6 +1467,25 @@ function orderListInclude(permissions: Permissions) {
   } satisfies Prisma.OrderInclude;
 }
 
+function salesWorkflowDetails(order: {
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery: string | null;
+  deliveryMethod: string | null;
+  paymentTerms: string | null;
+  specialInstructions: string | null;
+}) {
+  const delivery = [order.modeOfDelivery, order.deliveryMethod].filter(Boolean).join(" / ");
+
+  return [
+    `Assembly: ${order.needsAssembly ? "Yes" : "No"}`,
+    `Sales invoice: ${order.salesInvoiceRequested ? "Requested" : "No"}`,
+    delivery ? `Delivery: ${delivery}` : null,
+    order.paymentTerms ? `Payment terms: ${order.paymentTerms}` : null,
+    order.specialInstructions ? `Remarks: ${order.specialInstructions}` : null
+  ].filter(Boolean);
+}
+
 type OrderListRow = Prisma.OrderGetPayload<{
   include: ReturnType<typeof orderListInclude>;
 }>;
@@ -1511,6 +1530,7 @@ function OrderTable({
             const quotation = "quotation" in order ? order.quotation : null;
             const inquiry = "inquiry" in order ? order.inquiry : null;
             const deliveries = "deliveries" in order ? order.deliveries : [];
+            const salesDetails = salesWorkflowDetails(order);
 
             return (
               <tr key={order.id}>
@@ -1555,6 +1575,11 @@ function OrderTable({
                   <TableCell>
                     <div>Quotation {quotation ? quotation.id.slice(0, 8) : "None"}</div>
                     <div className="text-xs">Inquiry {inquiry?.sourceReference ?? inquiry?.id?.slice(0, 8) ?? "None"}</div>
+                    {salesDetails.map((detail) => (
+                      <div key={detail} className="text-xs text-muted-foreground">
+                        {detail}
+                      </div>
+                    ))}
                   </TableCell>
                 ) : null}
                 {mode === "orders" ? (

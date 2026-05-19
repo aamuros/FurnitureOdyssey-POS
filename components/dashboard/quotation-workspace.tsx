@@ -57,6 +57,12 @@ type QuotationRow = {
   id: string;
   customerName: string;
   status: string;
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery: string | null;
+  deliveryMethod: string | null;
+  paymentTerms: string | null;
+  specialInstructions: string | null;
   itemCount: number;
   subtotalAmount: string;
   totalAmount: string;
@@ -573,6 +579,30 @@ export function QuotationWorkspace({
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+                <input type="checkbox" name="needsAssembly" value="true" />
+                Needs assembly
+              </label>
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+                <input type="checkbox" name="salesInvoiceRequested" value="true" />
+                Sales invoice requested
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Mode of delivery
+                <Input name="modeOfDelivery" placeholder="Pickup, delivery, company-arranged" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Delivery method
+                <Input name="deliveryMethod" placeholder="In-house, third-party, customer pickup" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Payment terms
+                <Textarea name="paymentTerms" placeholder="Downpayment, balance timing, company terms" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Remarks / special instructions
+                <Textarea name="specialInstructions" placeholder="Assembly, access, timing, or client reminders" />
+              </label>
               <label className="space-y-2 text-sm font-medium">
                 Customer-facing quotation notes
                 <Textarea name="customerNotes" placeholder="Terms, delivery notes, or quotation context" />
@@ -665,6 +695,7 @@ export function QuotationWorkspace({
                 <th className="px-5 py-3 font-medium">Customer</th>
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Items</th>
+                <th className="px-5 py-3 font-medium">Sales details</th>
                 <th className="px-5 py-3 font-medium">Subtotal</th>
                 <th className="px-5 py-3 font-medium">Total</th>
                 <th className="px-5 py-3 font-medium">Created by</th>
@@ -680,6 +711,18 @@ export function QuotationWorkspace({
                     <StatusPill tone={statusTone(quotation.status)}>{quotation.status}</StatusPill>
                   </td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.itemCount}</td>
+                  <td className="px-5 py-3 text-muted-foreground">
+                    <div>Assembly: {quotation.needsAssembly ? "Yes" : "No"}</div>
+                    <div>Sales invoice: {quotation.salesInvoiceRequested ? "Yes" : "No"}</div>
+                    <div className="text-xs">
+                      {[quotation.modeOfDelivery, quotation.deliveryMethod, quotation.paymentTerms]
+                        .filter(Boolean)
+                        .join(" - ") || "Delivery/payment not specified"}
+                    </div>
+                    {quotation.specialInstructions ? (
+                      <div className="text-xs">{quotation.specialInstructions}</div>
+                    ) : null}
+                  </td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.subtotalAmount}</td>
                   <td className="px-5 py-3 font-medium">{quotation.totalAmount}</td>
                   <td className="px-5 py-3 text-muted-foreground">
@@ -728,7 +771,7 @@ export function QuotationWorkspace({
               ))}
               {quotations.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={8}>
+                  <td className="px-5 py-6 text-sm text-muted-foreground" colSpan={9}>
                     No quotations saved yet.
                   </td>
                 </tr>

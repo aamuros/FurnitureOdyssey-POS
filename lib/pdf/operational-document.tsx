@@ -257,9 +257,6 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
         {data.footerNote || data.company.footer ? (
           <View style={styles.footer}>
             <Text>{data.footerNote ?? data.company.footer}</Text>
-            {data.assemblyTodo ? (
-              <Text>Assembly required is not yet modeled in the delivery workflow.</Text>
-            ) : null}
           </View>
         ) : null}
       </Page>

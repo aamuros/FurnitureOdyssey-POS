@@ -317,6 +317,12 @@ export async function convertQuotationToOrderAction(
         totalAmount: quotation.totalAmount,
         paidAmount: 0,
         balanceAmount: quotation.totalAmount,
+        needsAssembly: quotation.needsAssembly,
+        salesInvoiceRequested: quotation.salesInvoiceRequested,
+        modeOfDelivery: quotation.modeOfDelivery,
+        deliveryMethod: quotation.deliveryMethod,
+        paymentTerms: quotation.paymentTerms,
+        specialInstructions: quotation.specialInstructions,
         customerNotes: quotation.customerNotes,
         internalNotes: quotation.internalNotes,
         sourceType: "QUOTATION",
@@ -385,7 +391,12 @@ export async function convertQuotationToOrderAction(
           metadata: {
             quotationId: quotation.id,
             orderId: created.id,
-            customerId: quotation.customerId
+            customerId: quotation.customerId,
+            needsAssembly: quotation.needsAssembly,
+            salesInvoiceRequested: quotation.salesInvoiceRequested,
+            modeOfDelivery: quotation.modeOfDelivery,
+            deliveryMethod: quotation.deliveryMethod,
+            paymentTerms: quotation.paymentTerms
           }
         },
         {
@@ -395,7 +406,9 @@ export async function convertQuotationToOrderAction(
           metadata: {
             orderId: created.id,
             quotationId: quotation.id,
-            totalAmount: Number(quotation.totalAmount)
+            totalAmount: Number(quotation.totalAmount),
+            needsAssembly: quotation.needsAssembly,
+            salesInvoiceRequested: quotation.salesInvoiceRequested
           }
         }
       ]
@@ -423,6 +436,12 @@ export async function createManualOrderAction(
     customerId: formData.get("customerId"),
     orderDiscountType: formData.get("orderDiscountType") || undefined,
     orderDiscountValue: formData.get("orderDiscountValue") || undefined,
+    needsAssembly: formData.get("needsAssembly"),
+    salesInvoiceRequested: formData.get("salesInvoiceRequested"),
+    modeOfDelivery: formData.get("modeOfDelivery"),
+    deliveryMethod: formData.get("deliveryMethod"),
+    paymentTerms: formData.get("paymentTerms"),
+    specialInstructions: formData.get("specialInstructions"),
     customerNotes: formData.get("customerNotes"),
     internalNotes: formData.get("internalNotes"),
     items: parseJsonArray(formData.get("items"))
@@ -493,6 +512,12 @@ export async function createManualOrderAction(
         totalAmount: totals.totalAmount,
         paidAmount: 0,
         balanceAmount: totals.totalAmount,
+        needsAssembly: parsed.data.needsAssembly,
+        salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+        modeOfDelivery: parsed.data.modeOfDelivery,
+        deliveryMethod: parsed.data.deliveryMethod,
+        paymentTerms: parsed.data.paymentTerms,
+        specialInstructions: parsed.data.specialInstructions,
         customerNotes: parsed.data.customerNotes,
         internalNotes: parsed.data.internalNotes,
         sourceType: "MANUAL",
@@ -553,7 +578,12 @@ export async function createManualOrderAction(
         metadata: {
           orderId: created.id,
           customerId: customer.id,
-          totalAmount: totals.totalAmount
+          totalAmount: totals.totalAmount,
+          needsAssembly: parsed.data.needsAssembly,
+          salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+          modeOfDelivery: parsed.data.modeOfDelivery,
+          deliveryMethod: parsed.data.deliveryMethod,
+          paymentTerms: parsed.data.paymentTerms
         }
       }
     });

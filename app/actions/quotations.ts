@@ -31,6 +31,12 @@ export async function createQuotationAction(
     inquiryId: formData.get("inquiryId"),
     quotationDiscountType: formData.get("quotationDiscountType") || undefined,
     quotationDiscountValue: formData.get("quotationDiscountValue") || undefined,
+    needsAssembly: formData.get("needsAssembly"),
+    salesInvoiceRequested: formData.get("salesInvoiceRequested"),
+    modeOfDelivery: formData.get("modeOfDelivery"),
+    deliveryMethod: formData.get("deliveryMethod"),
+    paymentTerms: formData.get("paymentTerms"),
+    specialInstructions: formData.get("specialInstructions"),
     customerNotes: formData.get("customerNotes"),
     internalNotes: formData.get("internalNotes"),
     items: parseItems(formData.get("items"))
@@ -133,6 +139,12 @@ export async function createQuotationAction(
         quotationDiscountValue: parsed.data.quotationDiscountValue,
         quotationDiscountAmount: totals.quotationDiscountAmount,
         totalAmount: totals.totalAmount,
+        needsAssembly: parsed.data.needsAssembly,
+        salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+        modeOfDelivery: parsed.data.modeOfDelivery,
+        deliveryMethod: parsed.data.deliveryMethod,
+        paymentTerms: parsed.data.paymentTerms,
+        specialInstructions: parsed.data.specialInstructions,
         customerNotes: parsed.data.customerNotes,
         internalNotes: parsed.data.internalNotes,
         createdById: actor.id,
@@ -201,7 +213,12 @@ export async function createQuotationAction(
           quotationId: created.id,
           customerId: customer.id,
           inquiryId: parsed.data.inquiryId ?? "",
-          totalAmount: totals.totalAmount
+          totalAmount: totals.totalAmount,
+          needsAssembly: parsed.data.needsAssembly,
+          salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+          modeOfDelivery: parsed.data.modeOfDelivery,
+          deliveryMethod: parsed.data.deliveryMethod,
+          paymentTerms: parsed.data.paymentTerms
         }
       }
     });

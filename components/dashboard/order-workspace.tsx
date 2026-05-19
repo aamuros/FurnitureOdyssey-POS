@@ -88,6 +88,12 @@ type OrderRow = {
   paymentDueTiming: string | null;
   paymentDueDate: string;
   deliveryStatus: string;
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery: string | null;
+  deliveryMethod: string | null;
+  paymentTerms: string | null;
+  specialInstructions: string | null;
   totalAmount: string;
   totalAmountValue: number;
   paidAmount: string;
@@ -733,6 +739,30 @@ export function OrderWorkspace({
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+                <input type="checkbox" name="needsAssembly" value="true" />
+                Needs assembly
+              </label>
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium">
+                <input type="checkbox" name="salesInvoiceRequested" value="true" />
+                Sales invoice requested
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Mode of delivery
+                <Input name="modeOfDelivery" placeholder="Pickup, delivery, company-arranged" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Delivery method
+                <Input name="deliveryMethod" placeholder="In-house, third-party, customer pickup" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Payment terms
+                <Textarea name="paymentTerms" placeholder="Downpayment, balance timing, company terms" />
+              </label>
+              <label className="space-y-2 text-sm font-medium">
+                Remarks / special instructions
+                <Textarea name="specialInstructions" placeholder="Assembly, access, timing, or client reminders" />
+              </label>
               <Textarea name="customerNotes" placeholder="Customer-facing order notes" />
               <Textarea name="internalNotes" placeholder="Internal notes" />
             </div>
@@ -1019,6 +1049,32 @@ export function OrderWorkspace({
                 <div className="border-t border-border pt-3">
                   <p className="text-xs uppercase text-muted-foreground">Delivery address</p>
                   <p className="mt-1">{order.deliveryAddressSnapshot ?? "No delivery address snapshot"}</p>
+                </div>
+                <div className="grid gap-2 border-t border-border pt-3">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Needs assembly</span>
+                    <span className="font-medium">{order.needsAssembly ? "Yes" : "No"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Sales invoice</span>
+                    <span className="font-medium">{order.salesInvoiceRequested ? "Requested" : "No"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Mode of delivery</span>
+                    <span className="font-medium text-right">{order.modeOfDelivery ?? "Not specified"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Delivery method</span>
+                    <span className="font-medium text-right">{order.deliveryMethod ?? "Not specified"}</span>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">Payment terms</p>
+                    <p className="mt-1">{order.paymentTerms ?? "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">Remarks / special instructions</p>
+                    <p className="mt-1">{order.specialInstructions ?? "Not specified"}</p>
+                  </div>
                 </div>
                 <div className="grid gap-2 border-t border-border pt-3">
                   <div className="flex justify-between gap-4">

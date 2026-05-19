@@ -6,6 +6,19 @@ const optionalText = z
   .transform((value) => (value.length ? value : undefined))
   .optional();
 
+const optionalTextMax = (max: number, message: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, message)
+    .transform((value) => (value.length ? value : undefined))
+    .optional();
+
+const formBoolean = z.preprocess(
+  (value) => value === true || value === "true" || value === "on" || value === "1" || value === "yes",
+  z.boolean()
+);
+
 const money = z.coerce
   .number({
     invalid_type_error: "Enter a valid amount."
@@ -73,6 +86,15 @@ export const createQuotationSchema = z
     inquiryId: optionalText,
     quotationDiscountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
     quotationDiscountValue: money.optional(),
+    needsAssembly: formBoolean.default(false),
+    salesInvoiceRequested: formBoolean.default(false),
+    modeOfDelivery: optionalTextMax(255, "Mode of delivery is too long."),
+    deliveryMethod: optionalTextMax(255, "Delivery method is too long."),
+    paymentTerms: optionalTextMax(1000, "Payment terms must be 1000 characters or fewer."),
+    specialInstructions: optionalTextMax(
+      1000,
+      "Remarks or special instructions must be 1000 characters or fewer."
+    ),
     customerNotes: optionalText,
     internalNotes: optionalText,
     items: z.array(quotationItemSchema).min(1, "Add at least one quotation item.")

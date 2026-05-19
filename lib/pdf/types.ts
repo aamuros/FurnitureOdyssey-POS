@@ -61,5 +61,4 @@ export type OperationalPdfData = {
   paymentInstructions?: string | null;
   footerNote?: string | null;
   signatureRequired?: boolean;
-  assemblyTodo?: boolean;
 };

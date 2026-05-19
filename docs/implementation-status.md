@@ -29,6 +29,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Add catalog product items or custom/manual items.
 - Snapshot product and item details into quotation items.
 - Override item names, descriptions, specifications, quantities, unit prices, discounts, customer notes, internal notes, and Cloudinary image metadata.
+- Capture client-required sales details: sales invoice request, assembly requirement, delivery mode, delivery method, payment terms, and remarks or special instructions.
 - Calculate item totals, quotation subtotal, discounts, and final total on the server.
 - Update quotation status to `SENT`, `ACCEPTED`, `DECLINED`, or `CANCELLED`.
 
@@ -37,6 +38,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Convert an `ACCEPTED` quotation into one order.
 - Prevent duplicate order creation from the same quotation.
 - Snapshot customer, contact, address, item, image, price, discount, and note data into the order.
+- Preserve quotation sales details during conversion, including sales invoice request, assembly requirement, delivery mode/method, payment terms, and special instructions.
 - Create manual orders without requiring a quotation or inventory availability.
 - Recalculate order subtotal, discounts, total, paid amount, balance, payment status, delivery status, and overall order status.
 - Orders workspace now serves as a day-to-day order control center with server-side search, filters, unfinished sales mode, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
@@ -72,7 +74,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
   - Payment receipt
   - Delivery receipt
   - Final order summary
-- PDF output includes Furniture Odyssey branding, customer-facing notes, payment instructions, item images when snapshot image data exists, safer missing-value fallbacks, and clearer receipt/delivery handoff sections.
+- PDF output includes Furniture Odyssey branding, customer-facing notes, sales invoice request, assembly requirement, delivery mode/method, payment terms, special instructions, payment instructions, item images when snapshot image data exists, safer missing-value fallbacks, and clearer receipt/delivery handoff sections.
 - PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
 - Order document metadata creation now validates related payment/delivery ownership, updates receipt metadata when applicable, and writes activity logs in one database transaction.
@@ -91,6 +93,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Overview, unfinished sales, outstanding balances, payment history, delivery schedule, order history, quotation history, and customer sales history are available as report views.
 - Overview summarizes total orders, completed orders, unfinished orders, gross sales, paid amount, outstanding balance, payments received, scheduled deliveries, and pending deliveries for the selected date range.
 - Order-focused reports support search, date range, order status, payment status, delivery status, staff, has-balance, has-delivery, completed-only, and unfinished-only filters.
+- Order history details include client-required sales details where space allows without overcrowding summary tables.
 - Quotation, payment, and delivery reports support practical search, status, staff, date range filters, and safe pagination.
 - Payment and balance values are hidden from users without payment visibility.
 - Delivery schedule details are hidden from users without delivery visibility.
@@ -102,7 +105,6 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Product reference catalog data model exists, but a dedicated product management screen is not listed in the dashboard navigation yet.
 - Payment, delivery, document, and sales history routes exist as module entry points; the working payment, delivery, and document forms currently live inside the order workspace.
 - Legal numbering, finalized accounting wording, and production business details are not finalized.
-- Assembly-required delivery data is not modeled yet; delivery receipt PDFs show this as not specified until a future workflow adds the field.
 - Cloudinary upload integration is not automated in the UI; forms currently store Cloudinary metadata supplied to the application.
 
 ## Not Implemented in MVP

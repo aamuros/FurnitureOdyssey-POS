@@ -127,6 +127,28 @@ function discountDetail(
   return `${label}: ${formatMoney(Number(discountValue), currency)}`;
 }
 
+function yesNo(value: boolean) {
+  return value ? "Yes" : "No";
+}
+
+function salesWorkflowRows(value: {
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery?: string | null;
+  deliveryMethod?: string | null;
+  paymentTerms?: string | null;
+  specialInstructions?: string | null;
+}): PdfSummaryRow[] {
+  return [
+    { label: "Needs assembly", value: yesNo(value.needsAssembly) },
+    { label: "Sales invoice requested", value: yesNo(value.salesInvoiceRequested) },
+    { label: "Mode of delivery", value: fallbackText(value.modeOfDelivery) },
+    { label: "Delivery method", value: fallbackText(value.deliveryMethod) },
+    { label: "Payment terms", value: fallbackText(value.paymentTerms) },
+    { label: "Special instructions", value: fallbackText(value.specialInstructions) }
+  ];
+}
+
 export async function getQuotationPdfData(quotationId: string): Promise<OperationalPdfData> {
   const quotation = await prisma.quotation.findUnique({
     where: {
@@ -208,7 +230,8 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
               .join(" - ")
           : "Not linked"
       },
-      { label: "Delivery location", value: fallbackText(quotation.inquiry?.deliveryLocation) }
+      { label: "Delivery location", value: fallbackText(quotation.inquiry?.deliveryLocation) },
+      ...salesWorkflowRows(quotation)
     ],
     totals: [
       { label: "Subtotal", value: formatMoney(Number(quotation.subtotalAmount), quotation.currency) },
@@ -489,7 +512,7 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
       { label: "Provider reference", value: fallbackText(delivery.deliveryProviderReference) },
       { label: "Recipient", value: delivery.recipientName ?? delivery.order.customerDisplayNameSnapshot },
       { label: "Recipient phone", value: fallbackText(delivery.recipientPhone) },
-      { label: "Assembly required", value: "Not specified" }
+      ...salesWorkflowRows(delivery.order)
     ],
     items: delivery.items.map((item) => ({
       code: item.orderItem.snapshotProductCode,
@@ -502,8 +525,7 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
     })),
     notes: delivery.deliveryNotes,
     footerNote: footerForKind(settings, "delivery-receipt"),
-    signatureRequired: true,
-    assemblyTodo: true
+    signatureRequired: true
   };
 }
 
@@ -632,6 +654,12 @@ function orderSummary(order: {
   deliveryStatus: string;
   paymentDueTiming?: string | null;
   paymentDueDate?: Date | null;
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery?: string | null;
+  deliveryMethod?: string | null;
+  paymentTerms?: string | null;
+  specialInstructions?: string | null;
   confirmedAt: Date | null;
   createdAt: Date;
   currency: string;
@@ -649,7 +677,8 @@ function orderSummary(order: {
     { label: "Payment status", value: formatPaymentStatus(order.paymentStatus) },
     { label: "Delivery status", value: formatDeliveryStatus(order.deliveryStatus) },
     { label: "Payment due timing", value: titleCaseLabel(order.paymentDueTiming) },
-    { label: "Payment due date", value: formatDate(order.paymentDueDate) }
+    { label: "Payment due date", value: formatDate(order.paymentDueDate) },
+    ...salesWorkflowRows(order)
   ];
 }
 
