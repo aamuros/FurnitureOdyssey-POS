@@ -110,6 +110,17 @@ Install dependencies:
 npm install
 ```
 
+Run the local quality checks:
+
+```bash
+npm test
+npm run typecheck
+npm run lint
+npm run build
+```
+
+`npm test` uses Node's built-in test runner with `tsx` and covers the core quotation, order, payment, delivery, order progress, validation, and cost/profit snapshot calculations under `lib/**/*.test.ts`.
+
 Start Supabase locally. Docker Desktop must be running first.
 
 ```bash

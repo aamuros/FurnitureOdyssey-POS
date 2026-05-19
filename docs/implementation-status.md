@@ -11,6 +11,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Permission-gated navigation and server actions.
 - Shared validation with Zod for customer, inquiry, quotation, order, payment, delivery, and document payloads.
 - Shared calculation helpers for quotation totals, order totals, order cost/profit snapshots, payment status, delivery status, and order progress.
+- Automated Node test coverage now protects quotation totals, order totals, fixed and percentage discounts, payment balances/statuses, delivery progress, order progress, validation schemas, and cost/profit snapshot calculations.
 - Central status lifecycle rules now define valid quotation, order, order delivery, delivery, and payment transitions. Server actions use these rules before mutating protected workflow statuses.
 
 ## Implemented Workflows

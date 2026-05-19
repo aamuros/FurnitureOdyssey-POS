@@ -22,9 +22,16 @@ import {
 } from "@/lib/numbering";
 import {
   calculateOrderItem,
-  calculateOrderTotals,
-  paymentStatus
+  calculateOrderTotals
 } from "@/lib/orders/calculations";
+import {
+  assertDeliveryPlanDoesNotExceedOrdered,
+  calculateDeliverySummary
+} from "@/lib/deliveries/calculations";
+import {
+  assertPaymentDoesNotOverpay,
+  calculatePaymentSummary
+} from "@/lib/payments/calculations";
 import {
   assertValidStatusTransition,
   nextOrderStatusFromProgress
@@ -131,18 +138,19 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
     throw new Error("Order was not found.");
   }
 
-  const paidAmount = order.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const balanceAmount = Math.max(Number(order.totalAmount) - paidAmount, 0);
-  const nextPaymentStatus = paymentStatus({
+  const paymentSummary = calculatePaymentSummary({
     totalAmount: Number(order.totalAmount),
-    paidAmount,
-    hasDownpayment: order.payments.some((payment) => payment.paymentType === "DOWNPAYMENT"),
+    payments: order.payments.map((payment) => ({
+      amount: Number(payment.amount),
+      status: payment.status,
+      paymentType: payment.paymentType,
+      paymentDate: payment.paymentDate
+    })),
     paymentDueTiming: order.paymentDueTiming
   });
-  const lastPaymentAt = order.payments[0]?.paymentDate ?? null;
   const nextOrderStatus = nextOrderStatusFromProgress({
     currentStatus: order.status,
-    paymentStatus: nextPaymentStatus,
+    paymentStatus: paymentSummary.paymentStatus,
     deliveryStatus: order.deliveryStatus
   });
 
@@ -151,16 +159,16 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
       id: order.id
     },
     data: {
-      paidAmount,
-      balanceAmount,
-      lastPaymentAt,
-      paymentStatus: nextPaymentStatus,
+      paidAmount: paymentSummary.paidAmount,
+      balanceAmount: paymentSummary.balanceAmount,
+      lastPaymentAt: paymentSummary.lastPaymentAt,
+      paymentStatus: paymentSummary.paymentStatus,
       status: nextOrderStatus,
       updatedById: actorId
     }
   });
 
-  if (order.status !== nextOrderStatus || order.paymentStatus !== nextPaymentStatus) {
+  if (order.status !== nextOrderStatus || order.paymentStatus !== paymentSummary.paymentStatus) {
     await tx.activityLog.create({
       data: {
         action: "ORDER_UPDATED",
@@ -172,7 +180,7 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
           oldStatus: order.status,
           newStatus: nextOrderStatus,
           oldPaymentStatus: order.paymentStatus,
-          newPaymentStatus: nextPaymentStatus,
+          newPaymentStatus: paymentSummary.paymentStatus,
           sourceAction: "payment_summary"
         }
       }
@@ -195,6 +203,13 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
                   notIn: ["CANCELLED", "FAILED"]
                 }
               }
+            },
+            include: {
+              delivery: {
+                select: {
+                  status: true
+                }
+              }
             }
           }
         }
@@ -213,25 +228,22 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
     throw new Error("Order was not found.");
   }
 
-  const totalQuantity = order.items.reduce((sum, item) => sum + Number(item.quantity), 0);
-  const deliveredQuantity = order.items.reduce(
-    (sum, item) =>
-      sum +
-      item.deliveryItems.reduce(
-        (itemSum, deliveryItem) => itemSum + Number(deliveryItem.quantityDelivered),
-        0
-      ),
-    0
-  );
-
-  const nextDeliveryStatus: OrderDeliveryStatus =
-    deliveredQuantity > 0 && deliveredQuantity >= totalQuantity
-      ? "DELIVERED"
-      : deliveredQuantity > 0
-        ? "PARTIALLY_DELIVERED"
-        : order.deliveries.length > 0
-          ? "SCHEDULED"
-          : "NOT_SCHEDULED";
+  const deliverySummary = calculateDeliverySummary({
+    orderItems: order.items.map((item) => ({
+      id: item.id,
+      quantity: Number(item.quantity),
+      deliveryItems: item.deliveryItems.map((deliveryItem) => ({
+        quantityDelivered: Number(deliveryItem.quantityDelivered),
+        delivery: {
+          status: deliveryItem.delivery.status
+        }
+      }))
+    })),
+    deliveries: order.deliveries.map((delivery) => ({
+      status: delivery.status
+    }))
+  });
+  const nextDeliveryStatus = deliverySummary.deliveryStatus as OrderDeliveryStatus;
   assertValidStatusTransition("orderDelivery", order.deliveryStatus, nextDeliveryStatus);
 
   const nextOrderStatus = nextOrderStatusFromProgress({
@@ -778,14 +790,17 @@ export async function createPaymentAction(
         throw new ActionError("Order is not available for payment.");
       }
 
-      const currentPaidAmount = order.payments.reduce(
-        (sum, payment) => sum + Number(payment.amount),
-        0
-      );
-      const remainingBalance = Math.max(Number(order.totalAmount) - currentPaidAmount, 0);
-
-      if (parsed.data.amount > remainingBalance) {
-        throw new ActionError("Payment amount exceeds the remaining balance.");
+      try {
+        assertPaymentDoesNotOverpay({
+          totalAmount: Number(order.totalAmount),
+          existingPayments: order.payments.map((payment) => ({
+            amount: Number(payment.amount),
+            status: payment.status
+          })),
+          nextPaymentAmount: parsed.data.amount
+        });
+      } catch (error) {
+        throw new ActionError(error instanceof Error ? error.message : "Payment amount is invalid.");
       }
 
       const paymentNumber = await generatePaymentNumber(tx);
@@ -972,6 +987,13 @@ export async function createDeliveryAction(
                       notIn: ["CANCELLED", "FAILED"]
                     }
                   }
+                },
+                include: {
+                  delivery: {
+                    select: {
+                      status: true
+                    }
+                  }
                 }
               }
             }
@@ -983,23 +1005,24 @@ export async function createDeliveryAction(
         throw new ActionError("Order is not available for delivery scheduling.");
       }
 
-      const orderItemsById = new Map(order.items.map((item) => [item.id, item]));
-
-      for (const item of parsed.data.items) {
-        const orderItem = orderItemsById.get(item.orderItemId);
-
-        if (!orderItem) {
-          throw new ActionError("Delivery item does not belong to this order.");
-        }
-
-        const plannedQuantity = orderItem.deliveryItems.reduce(
-          (sum, deliveryItem) => sum + Number(deliveryItem.quantityPlanned),
-          0
-        );
-
-        if (plannedQuantity + item.quantityPlanned > Number(orderItem.quantity)) {
-          throw new ActionError(`Delivery quantity exceeds remaining quantity for ${orderItem.itemName}.`);
-        }
+      try {
+        assertDeliveryPlanDoesNotExceedOrdered({
+          orderItems: order.items.map((item) => ({
+            id: item.id,
+            itemName: item.itemName,
+            quantity: Number(item.quantity),
+            deliveryItems: item.deliveryItems.map((deliveryItem) => ({
+              quantityPlanned: Number(deliveryItem.quantityPlanned),
+              quantityDelivered: Number(deliveryItem.quantityDelivered),
+              delivery: {
+                status: deliveryItem.delivery.status
+              }
+            }))
+          })),
+          requestedItems: parsed.data.items
+        });
+      } catch (error) {
+        throw new ActionError(error instanceof Error ? error.message : "Delivery quantities are invalid.");
       }
 
       const deliveryAddressSnapshot = parsed.data.deliveryAddress

@@ -1,4 +1,5 @@
 import type { CreateManualOrderInput, OrderItemInput } from "@/lib/validation/orders";
+import { calculatePaymentStatus } from "@/lib/payments/calculations";
 import { nextOrderStatusFromProgress } from "@/lib/status-transitions";
 
 function roundMoney(value: number) {
@@ -82,35 +83,7 @@ export function calculateOrderTotals(
   };
 }
 
-export function paymentStatus({
-  totalAmount,
-  paidAmount,
-  hasDownpayment,
-  paymentDueTiming
-}: {
-  totalAmount: number;
-  paidAmount: number;
-  hasDownpayment?: boolean;
-  paymentDueTiming?: "BEFORE_DELIVERY" | "UPON_DELIVERY" | "AFTER_DELIVERY" | null;
-}) {
-  if (paidAmount <= 0) {
-    return "UNPAID" as const;
-  }
-
-  if (paidAmount >= totalAmount) {
-    return "PAID" as const;
-  }
-
-  if (paymentDueTiming === "UPON_DELIVERY") {
-    return "BALANCE_DUE_ON_DELIVERY" as const;
-  }
-
-  if (hasDownpayment) {
-    return "DOWNPAYMENT_PAID" as const;
-  }
-
-  return "PARTIALLY_PAID" as const;
-}
+export const paymentStatus = calculatePaymentStatus;
 
 export function orderStatusFromProgress({
   currentStatus,
