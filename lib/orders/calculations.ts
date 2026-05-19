@@ -1,4 +1,5 @@
 import type { CreateManualOrderInput, OrderItemInput } from "@/lib/validation/orders";
+import { nextOrderStatusFromProgress } from "@/lib/status-transitions";
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -116,37 +117,22 @@ export function orderStatusFromProgress({
   paymentStatus: orderPaymentStatus,
   deliveryStatus
 }: {
-  currentStatus: string;
+  currentStatus:
+    | "DRAFT"
+    | "CONFIRMED"
+    | "PARTIALLY_PAID"
+    | "PAID"
+    | "SCHEDULED_FOR_DELIVERY"
+    | "PARTIALLY_DELIVERED"
+    | "DELIVERED"
+    | "COMPLETED"
+    | "CANCELLED";
   paymentStatus: string;
-  deliveryStatus: string;
+  deliveryStatus: "NOT_SCHEDULED" | "SCHEDULED" | "PARTIALLY_DELIVERED" | "DELIVERED" | "CANCELLED";
 }) {
-  if (currentStatus === "CANCELLED" || currentStatus === "COMPLETED" || currentStatus === "DRAFT") {
-    return currentStatus;
-  }
-
-  if (deliveryStatus === "DELIVERED") {
-    return "DELIVERED";
-  }
-
-  if (deliveryStatus === "PARTIALLY_DELIVERED") {
-    return "PARTIALLY_DELIVERED";
-  }
-
-  if (deliveryStatus === "SCHEDULED") {
-    return "SCHEDULED_FOR_DELIVERY";
-  }
-
-  if (orderPaymentStatus === "PAID") {
-    return "PAID";
-  }
-
-  if (
-    orderPaymentStatus === "PARTIALLY_PAID" ||
-    orderPaymentStatus === "DOWNPAYMENT_PAID" ||
-    orderPaymentStatus === "BALANCE_DUE_ON_DELIVERY"
-  ) {
-    return "PARTIALLY_PAID";
-  }
-
-  return "CONFIRMED";
+  return nextOrderStatusFromProgress({
+    currentStatus,
+    paymentStatus: orderPaymentStatus,
+    deliveryStatus
+  });
 }

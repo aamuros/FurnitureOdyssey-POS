@@ -11,6 +11,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Permission-gated navigation and server actions.
 - Shared validation with Zod for customer, inquiry, quotation, order, payment, delivery, and document payloads.
 - Shared calculation helpers for quotation totals, order totals, order cost/profit snapshots, payment status, delivery status, and order progress.
+- Central status lifecycle rules now define valid quotation, order, order delivery, delivery, and payment transitions. Server actions use these rules before mutating protected workflow statuses.
 
 ## Implemented Workflows
 
@@ -32,6 +33,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Capture client-required sales details: sales invoice request, assembly requirement, delivery mode, delivery method, payment terms, and remarks or special instructions.
 - Calculate item totals, quotation subtotal, discounts, and final total on the server.
 - Update quotation status to `SENT`, `ACCEPTED`, `DECLINED`, or `CANCELLED`.
+- Quotation status updates are controlled internally through server actions and logged with old status, new status, and source action metadata.
 
 ### Orders
 
@@ -42,6 +44,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Create manual orders without requiring a quotation or inventory availability.
 - Confirmed orders snapshot unit cost, line cost, line profit, total cost, and gross profit so historical profitability is preserved when product reference costs change later.
 - Recalculate order subtotal, discounts, total, paid amount, balance, payment status, delivery status, and overall order status.
+- Derived order progress status changes pass through the central lifecycle validator, preventing regressions such as delivered orders moving back to payment-only states.
 - Orders workspace now serves as a day-to-day order control center with server-side search, filters, unfinished sales mode, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
 - Orders search covers order number, customer/company/contact values, item names/product codes, inquiry source references, and permission-safe payment or delivery provider references.
 - Payment totals, payment history, delivery schedules, delivery details, and document export actions are conditionally shown according to the existing payment, delivery, and document permissions.
@@ -53,6 +56,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Store payment date, method, amount, reference number, payer name, customer notes, and internal notes.
 - Update order paid amount, balance, last payment date, payment status, and progress status.
 - Payment creation now writes the payment, activity log, and related order payment summary in one database transaction.
+- Payment-driven order status changes are server-controlled and logged through activity metadata. Customer-submitted data cannot freely set order statuses.
 
 ### Deliveries
 
@@ -62,6 +66,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Track planned quantity and delivered quantity for partial delivery progress.
 - Update order delivery status and overall order progress.
 - Delivery creation now writes the delivery, delivery items, activity log, and related order delivery summary in one database transaction.
+- Delivery creation schedules deliveries through the server-side lifecycle layer instead of trusting arbitrary client-submitted delivery statuses.
 
 ### Documents and PDFs
 

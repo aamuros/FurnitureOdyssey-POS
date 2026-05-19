@@ -6,6 +6,7 @@ import type {
   DeliveryStatus,
   DiscountType,
   DocumentType,
+  OrderDeliveryStatus,
   Prisma,
   QuotationItemType
 } from "@prisma/client";
@@ -22,9 +23,12 @@ import {
 import {
   calculateOrderItem,
   calculateOrderTotals,
-  orderStatusFromProgress,
   paymentStatus
 } from "@/lib/orders/calculations";
+import {
+  assertValidStatusTransition,
+  nextOrderStatusFromProgress
+} from "@/lib/status-transitions";
 import {
   convertQuotationToOrderSchema,
   createDeliverySchema,
@@ -136,7 +140,7 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
     paymentDueTiming: order.paymentDueTiming
   });
   const lastPaymentAt = order.payments[0]?.paymentDate ?? null;
-  const nextOrderStatus = orderStatusFromProgress({
+  const nextOrderStatus = nextOrderStatusFromProgress({
     currentStatus: order.status,
     paymentStatus: nextPaymentStatus,
     deliveryStatus: order.deliveryStatus
@@ -155,6 +159,25 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
       updatedById: actorId
     }
   });
+
+  if (order.status !== nextOrderStatus || order.paymentStatus !== nextPaymentStatus) {
+    await tx.activityLog.create({
+      data: {
+        action: "ORDER_UPDATED",
+        actorId,
+        summary: `Updated payment progress for order ${order.id}.`,
+        metadata: {
+          entityType: "order",
+          entityId: order.id,
+          oldStatus: order.status,
+          newStatus: nextOrderStatus,
+          oldPaymentStatus: order.paymentStatus,
+          newPaymentStatus: nextPaymentStatus,
+          sourceAction: "payment_summary"
+        }
+      }
+    });
+  }
 }
 
 async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorId: string) {
@@ -201,7 +224,7 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
     0
   );
 
-  const nextDeliveryStatus =
+  const nextDeliveryStatus: OrderDeliveryStatus =
     deliveredQuantity > 0 && deliveredQuantity >= totalQuantity
       ? "DELIVERED"
       : deliveredQuantity > 0
@@ -209,7 +232,9 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
         : order.deliveries.length > 0
           ? "SCHEDULED"
           : "NOT_SCHEDULED";
-  const nextOrderStatus = orderStatusFromProgress({
+  assertValidStatusTransition("orderDelivery", order.deliveryStatus, nextDeliveryStatus);
+
+  const nextOrderStatus = nextOrderStatusFromProgress({
     currentStatus: order.status,
     paymentStatus: order.paymentStatus,
     deliveryStatus: nextDeliveryStatus
@@ -225,6 +250,25 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
       updatedById: actorId
     }
   });
+
+  if (order.status !== nextOrderStatus || order.deliveryStatus !== nextDeliveryStatus) {
+    await tx.activityLog.create({
+      data: {
+        action: "ORDER_UPDATED",
+        actorId,
+        summary: `Updated delivery progress for order ${order.id}.`,
+        metadata: {
+          entityType: "order",
+          entityId: order.id,
+          oldStatus: order.status,
+          newStatus: nextOrderStatus,
+          oldDeliveryStatus: order.deliveryStatus,
+          newDeliveryStatus: nextDeliveryStatus,
+          sourceAction: "delivery_summary"
+        }
+      }
+    });
+  }
 }
 
 export async function convertQuotationToOrderAction(
@@ -888,9 +932,10 @@ export async function createDeliveryAction(
   formData: FormData
 ): Promise<ActionState> {
   const actor = await requirePermission("DELIVERIES", "CREATE");
+  const initialDeliveryStatus: DeliveryStatus = "SCHEDULED";
   const parsed = createDeliverySchema.safeParse({
     orderId: formData.get("orderId"),
-    status: formData.get("status") || "SCHEDULED",
+    status: initialDeliveryStatus,
     scheduledDate: formData.get("scheduledDate") || undefined,
     scheduledTimeWindow: formData.get("scheduledTimeWindow"),
     deliveryProviderType: formData.get("deliveryProviderType") || undefined,
@@ -962,13 +1007,14 @@ export async function createDeliveryAction(
             addressLine: parsed.data.deliveryAddress
           }
         : (order.deliveryAddressSnapshot ?? undefined);
+      assertValidStatusTransition("delivery", "PLANNED", initialDeliveryStatus);
 
       const deliveryNumber = await generateDeliveryReceiptNumber(tx);
       const delivery = await tx.delivery.create({
         data: {
           orderId: order.id,
           deliveryNumber,
-          status: parsed.data.status as DeliveryStatus,
+          status: initialDeliveryStatus,
           scheduledDate: parsed.data.scheduledDate,
           scheduledTimeWindow: parsed.data.scheduledTimeWindow,
           deliveryProviderType: parsed.data.deliveryProviderType as DeliveryProviderType | undefined,
@@ -985,10 +1031,7 @@ export async function createDeliveryAction(
             create: parsed.data.items.map((item) => ({
               orderItemId: item.orderItemId,
               quantityPlanned: item.quantityPlanned,
-              quantityDelivered:
-                parsed.data.status === "DELIVERED"
-                  ? item.quantityDelivered || item.quantityPlanned
-                  : item.quantityDelivered,
+              quantityDelivered: 0,
               notes: item.notes
             }))
           }
@@ -1005,9 +1048,13 @@ export async function createDeliveryAction(
           metadata: {
             orderId: order.id,
             orderNumber: order.orderNumber,
-            deliveryId: delivery.id,
             deliveryNumber: delivery.deliveryNumber,
-            status: parsed.data.status,
+            entityType: "delivery",
+            entityId: delivery.id,
+            deliveryId: delivery.id,
+            oldStatus: "PLANNED",
+            newStatus: initialDeliveryStatus,
+            sourceAction: "delivery_creation",
             deliveryProviderType: parsed.data.deliveryProviderType,
             deliveryProviderName: parsed.data.deliveryProviderName,
             deliveryProviderReference: parsed.data.deliveryProviderReference

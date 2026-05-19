@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { DiscountType, QuotationItemType } from "@prisma/client";
+import type { DiscountType, QuotationItemType, QuotationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
 import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
+import { assertValidStatusTransition } from "@/lib/status-transitions";
 import { createQuotationSchema } from "@/lib/validation/quotations";
 
 type ActionState = {
@@ -289,13 +290,24 @@ export async function updateQuotationStatusAction(
     };
   }
 
+  const nextStatus = status as QuotationStatus;
+
+  try {
+    assertValidStatusTransition("quotation", quotation.status, nextStatus);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Invalid quotation status transition."
+    };
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.quotation.update({
       where: {
         id: quotation.id
       },
       data: {
-        status: status as "ACCEPTED" | "DECLINED" | "CANCELLED" | "SENT",
+        status: nextStatus,
         updatedById: actor.id
       }
     });
@@ -306,8 +318,13 @@ export async function updateQuotationStatusAction(
         actorId: actor.id,
         summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
         metadata: {
+          entityType: "quotation",
+          entityId: quotation.id,
           quotationId: quotation.id,
-          status
+          oldStatus: quotation.status,
+          newStatus: nextStatus,
+          reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
+          sourceAction: "quotation_status_update"
         }
       }
     });
