@@ -49,6 +49,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Support downpayment, partial payment, final payment, and delivery balance payment records.
 - Store payment date, method, amount, reference number, payer name, customer notes, and internal notes.
 - Update order paid amount, balance, last payment date, payment status, and progress status.
+- Payment creation now writes the payment, activity log, and related order payment summary in one database transaction.
 
 ### Deliveries
 
@@ -57,6 +58,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Add delivery items linked to order items.
 - Track planned quantity and delivered quantity for partial delivery progress.
 - Update order delivery status and overall order progress.
+- Delivery creation now writes the delivery, delivery items, activity log, and related order delivery summary in one database transaction.
 
 ### Documents and PDFs
 
@@ -73,6 +75,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - PDF output includes Furniture Odyssey branding, customer-facing notes, payment instructions, item images when snapshot image data exists, safer missing-value fallbacks, and clearer receipt/delivery handoff sections.
 - PDF data loads saved Settings values when available and falls back to static defaults when settings are missing or incomplete.
 - Protect PDF download routes with document export permission and source module view permissions.
+- Order document metadata creation now validates related payment/delivery ownership, updates receipt metadata when applicable, and writes activity logs in one database transaction.
 
 ### Settings
 

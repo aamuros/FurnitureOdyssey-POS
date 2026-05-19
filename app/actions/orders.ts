@@ -32,6 +32,10 @@ type ActionState = {
   message: string;
 };
 
+type OrderTx = Prisma.TransactionClient;
+
+class ActionError extends Error {}
+
 function parseJsonArray(value: FormDataEntryValue | null) {
   try {
     const parsed = JSON.parse(String(value ?? "[]"));
@@ -90,8 +94,8 @@ function addressSnapshot(
     : undefined;
 }
 
-async function updateOrderPaymentSummary(orderId: string, actorId: string) {
-  const order = await prisma.order.findUnique({
+async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId: string) {
+  const order = await tx.order.findUnique({
     where: {
       id: orderId
     },
@@ -126,7 +130,7 @@ async function updateOrderPaymentSummary(orderId: string, actorId: string) {
     deliveryStatus: order.deliveryStatus
   });
 
-  await prisma.order.update({
+  await tx.order.update({
     where: {
       id: order.id
     },
@@ -141,8 +145,8 @@ async function updateOrderPaymentSummary(orderId: string, actorId: string) {
   });
 }
 
-async function updateOrderDeliverySummary(orderId: string, actorId: string) {
-  const order = await prisma.order.findUnique({
+async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorId: string) {
+  const order = await tx.order.findUnique({
     where: {
       id: orderId
     },
@@ -199,7 +203,7 @@ async function updateOrderDeliverySummary(orderId: string, actorId: string) {
     deliveryStatus: nextDeliveryStatus
   });
 
-  await prisma.order.update({
+  await tx.order.update({
     where: {
       id: order.id
     },
@@ -589,61 +593,79 @@ export async function createPaymentAction(
     };
   }
 
-  const order = await prisma.order.findUnique({
-    where: {
-      id: parsed.data.orderId
-    },
-    include: {
-      payments: {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
         where: {
-          status: "RECORDED"
+          id: parsed.data.orderId
+        },
+        include: {
+          payments: {
+            where: {
+              status: "RECORDED"
+            }
+          }
         }
+      });
+
+      if (!order || order.status === "CANCELLED") {
+        throw new ActionError("Order is not available for payment.");
       }
-    }
-  });
 
-  if (!order || order.status === "CANCELLED") {
-    return {
-      ok: false,
-      message: "Order is not available for payment."
-    };
-  }
+      const currentPaidAmount = order.payments.reduce(
+        (sum, payment) => sum + Number(payment.amount),
+        0
+      );
+      const remainingBalance = Math.max(Number(order.totalAmount) - currentPaidAmount, 0);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.payment.create({
-      data: {
-        orderId: order.id,
-        customerId: order.customerId,
-        paymentType: parsed.data.paymentType,
-        paymentDate: parsed.data.paymentDate,
-        amount: parsed.data.amount,
-        method: parsed.data.method,
-        referenceNumber: parsed.data.referenceNumber,
-        payerName: parsed.data.payerName,
-        customerNotes: parsed.data.customerNotes,
-        internalNotes: parsed.data.internalNotes,
-        receivedById: actor.id,
-        createdById: actor.id,
-        updatedById: actor.id
+      if (parsed.data.amount > remainingBalance) {
+        throw new ActionError("Payment amount exceeds the remaining balance.");
       }
-    });
 
-    await tx.activityLog.create({
-      data: {
-        action: "PAYMENT_RECORDED",
-        actorId: actor.id,
-        summary: `Recorded payment for order ${order.id}.`,
-        metadata: {
+      await tx.payment.create({
+        data: {
           orderId: order.id,
-          amount: parsed.data.amount,
+          customerId: order.customerId,
           paymentType: parsed.data.paymentType,
-          method: parsed.data.method
+          paymentDate: parsed.data.paymentDate,
+          amount: parsed.data.amount,
+          method: parsed.data.method,
+          referenceNumber: parsed.data.referenceNumber,
+          payerName: parsed.data.payerName,
+          customerNotes: parsed.data.customerNotes,
+          internalNotes: parsed.data.internalNotes,
+          receivedById: actor.id,
+          createdById: actor.id,
+          updatedById: actor.id
         }
-      }
-    });
-  });
+      });
 
-  await updateOrderPaymentSummary(order.id, actor.id);
+      await updateOrderPaymentSummaryTx(tx, order.id, actor.id);
+
+      await tx.activityLog.create({
+        data: {
+          action: "PAYMENT_RECORDED",
+          actorId: actor.id,
+          summary: `Recorded payment for order ${order.id}.`,
+          metadata: {
+            orderId: order.id,
+            amount: parsed.data.amount,
+            paymentType: parsed.data.paymentType,
+            method: parsed.data.method
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    throw error;
+  }
 
   revalidatePath("/orders");
   revalidatePath("/payments");
@@ -697,30 +719,32 @@ export async function updatePaymentDueTimingAction(
     };
   }
 
-  await prisma.order.update({
-    where: {
-      id: order.id
-    },
-    data: {
-      paymentDueTiming: parsed.data.paymentDueTiming,
-      paymentDueDate: parsed.data.paymentDueDate,
-      updatedById: actor.id
-    }
-  });
-
-  await updateOrderPaymentSummary(order.id, actor.id);
-
-  await prisma.activityLog.create({
-    data: {
-      action: "ORDER_UPDATED",
-      actorId: actor.id,
-      summary: `Updated payment due timing for order ${order.id}.`,
-      metadata: {
-        orderId: order.id,
+  await prisma.$transaction(async (tx) => {
+    await tx.order.update({
+      where: {
+        id: order.id
+      },
+      data: {
         paymentDueTiming: parsed.data.paymentDueTiming,
-        paymentDueDate: parsed.data.paymentDueDate?.toISOString()
+        paymentDueDate: parsed.data.paymentDueDate,
+        updatedById: actor.id
       }
-    }
+    });
+
+    await updateOrderPaymentSummaryTx(tx, order.id, actor.id);
+
+    await tx.activityLog.create({
+      data: {
+        action: "ORDER_UPDATED",
+        actorId: actor.id,
+        summary: `Updated payment due timing for order ${order.id}.`,
+        metadata: {
+          orderId: order.id,
+          paymentDueTiming: parsed.data.paymentDueTiming,
+          paymentDueDate: parsed.data.paymentDueDate?.toISOString()
+        }
+      }
+    });
   });
 
   revalidatePath("/orders");
@@ -760,113 +784,115 @@ export async function createDeliveryAction(
     };
   }
 
-  const order = await prisma.order.findUnique({
-    where: {
-      id: parsed.data.orderId
-    },
-    include: {
-      items: {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: {
+          id: parsed.data.orderId
+        },
         include: {
-          deliveryItems: {
-            where: {
-              delivery: {
-                status: {
-                  notIn: ["CANCELLED", "FAILED"]
+          items: {
+            include: {
+              deliveryItems: {
+                where: {
+                  delivery: {
+                    status: {
+                      notIn: ["CANCELLED", "FAILED"]
+                    }
+                  }
                 }
               }
             }
           }
         }
+      });
+
+      if (!order || order.status === "CANCELLED") {
+        throw new ActionError("Order is not available for delivery scheduling.");
       }
-    }
-  });
 
-  if (!order || order.status === "CANCELLED") {
-    return {
-      ok: false,
-      message: "Order is not available for delivery scheduling."
-    };
-  }
+      const orderItemsById = new Map(order.items.map((item) => [item.id, item]));
 
-  const orderItemsById = new Map(order.items.map((item) => [item.id, item]));
+      for (const item of parsed.data.items) {
+        const orderItem = orderItemsById.get(item.orderItemId);
 
-  for (const item of parsed.data.items) {
-    const orderItem = orderItemsById.get(item.orderItemId);
+        if (!orderItem) {
+          throw new ActionError("Delivery item does not belong to this order.");
+        }
 
-    if (!orderItem) {
-      return {
-        ok: false,
-        message: "Delivery item does not belong to this order."
-      };
-    }
+        const plannedQuantity = orderItem.deliveryItems.reduce(
+          (sum, deliveryItem) => sum + Number(deliveryItem.quantityPlanned),
+          0
+        );
 
-    const plannedQuantity = orderItem.deliveryItems.reduce(
-      (sum, deliveryItem) => sum + Number(deliveryItem.quantityPlanned),
-      0
-    );
-
-    if (plannedQuantity + item.quantityPlanned > Number(orderItem.quantity)) {
-      return {
-        ok: false,
-        message: `Delivery quantity exceeds remaining quantity for ${orderItem.itemName}.`
-      };
-    }
-  }
-
-  const deliveryAddressSnapshot = parsed.data.deliveryAddress
-    ? {
-        addressLine: parsed.data.deliveryAddress
-      }
-    : (order.deliveryAddressSnapshot ?? undefined);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.delivery.create({
-      data: {
-        orderId: order.id,
-        status: parsed.data.status as DeliveryStatus,
-        scheduledDate: parsed.data.scheduledDate,
-        scheduledTimeWindow: parsed.data.scheduledTimeWindow,
-        deliveryProviderType: parsed.data.deliveryProviderType as DeliveryProviderType | undefined,
-        deliveryProviderName: parsed.data.deliveryProviderName,
-        deliveryProviderReference: parsed.data.deliveryProviderReference,
-        deliveryAddressSnapshot: deliveryAddressSnapshot as Prisma.InputJsonValue | undefined,
-        recipientName: parsed.data.recipientName,
-        recipientPhone: parsed.data.recipientPhone,
-        deliveryNotes: parsed.data.deliveryNotes,
-        internalNotes: parsed.data.internalNotes,
-        createdById: actor.id,
-        updatedById: actor.id,
-        items: {
-          create: parsed.data.items.map((item) => ({
-            orderItemId: item.orderItemId,
-            quantityPlanned: item.quantityPlanned,
-            quantityDelivered:
-              parsed.data.status === "DELIVERED"
-                ? item.quantityDelivered || item.quantityPlanned
-                : item.quantityDelivered,
-            notes: item.notes
-          }))
+        if (plannedQuantity + item.quantityPlanned > Number(orderItem.quantity)) {
+          throw new ActionError(`Delivery quantity exceeds remaining quantity for ${orderItem.itemName}.`);
         }
       }
-    });
 
-    await tx.activityLog.create({
-      data: {
-        action: "DELIVERY_SCHEDULED",
-        actorId: actor.id,
-        summary: `Scheduled delivery for order ${order.id}.`,
-        metadata: {
+      const deliveryAddressSnapshot = parsed.data.deliveryAddress
+        ? {
+            addressLine: parsed.data.deliveryAddress
+          }
+        : (order.deliveryAddressSnapshot ?? undefined);
+
+      await tx.delivery.create({
+        data: {
           orderId: order.id,
-          status: parsed.data.status,
-          deliveryProviderType: parsed.data.deliveryProviderType,
+          status: parsed.data.status as DeliveryStatus,
+          scheduledDate: parsed.data.scheduledDate,
+          scheduledTimeWindow: parsed.data.scheduledTimeWindow,
+          deliveryProviderType: parsed.data.deliveryProviderType as DeliveryProviderType | undefined,
           deliveryProviderName: parsed.data.deliveryProviderName,
-          deliveryProviderReference: parsed.data.deliveryProviderReference
+          deliveryProviderReference: parsed.data.deliveryProviderReference,
+          deliveryAddressSnapshot: deliveryAddressSnapshot as Prisma.InputJsonValue | undefined,
+          recipientName: parsed.data.recipientName,
+          recipientPhone: parsed.data.recipientPhone,
+          deliveryNotes: parsed.data.deliveryNotes,
+          internalNotes: parsed.data.internalNotes,
+          createdById: actor.id,
+          updatedById: actor.id,
+          items: {
+            create: parsed.data.items.map((item) => ({
+              orderItemId: item.orderItemId,
+              quantityPlanned: item.quantityPlanned,
+              quantityDelivered:
+                parsed.data.status === "DELIVERED"
+                  ? item.quantityDelivered || item.quantityPlanned
+                  : item.quantityDelivered,
+              notes: item.notes
+            }))
+          }
         }
-      }
-    });
-  });
+      });
 
-  await updateOrderDeliverySummary(order.id, actor.id);
+      await updateOrderDeliverySummaryTx(tx, order.id, actor.id);
+
+      await tx.activityLog.create({
+        data: {
+          action: "DELIVERY_SCHEDULED",
+          actorId: actor.id,
+          summary: `Scheduled delivery for order ${order.id}.`,
+          metadata: {
+            orderId: order.id,
+            status: parsed.data.status,
+            deliveryProviderType: parsed.data.deliveryProviderType,
+            deliveryProviderName: parsed.data.deliveryProviderName,
+            deliveryProviderReference: parsed.data.deliveryProviderReference
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    throw error;
+  }
 
   revalidatePath("/orders");
   revalidatePath("/deliveries");
@@ -903,107 +929,109 @@ export async function createOrderDocumentAction(
     };
   }
 
-  const order = await prisma.order.findUnique({
-    where: {
-      id: parsed.data.orderId
-    },
-    select: {
-      id: true,
-      quotationId: true
-    }
-  });
-
-  if (!order) {
-    return {
-      ok: false,
-      message: "Order was not found."
-    };
-  }
-
-  if (parsed.data.paymentId) {
-    const payment = await prisma.payment.findFirst({
-      where: {
-        id: parsed.data.paymentId,
-        orderId: order.id
-      },
-      select: {
-        id: true
-      }
-    });
-
-    if (!payment) {
-      return {
-        ok: false,
-        message: "Related payment was not found for this order."
-      };
-    }
-  }
-
-  if (parsed.data.deliveryId) {
-    const delivery = await prisma.delivery.findFirst({
-      where: {
-        id: parsed.data.deliveryId,
-        orderId: order.id
-      },
-      select: {
-        id: true
-      }
-    });
-
-    if (!delivery) {
-      return {
-        ok: false,
-        message: "Related delivery was not found for this order."
-      };
-    }
-  }
-
-  await prisma.$transaction(async (tx) => {
-    const document = await tx.orderDocument.create({
-      data: {
-        orderId: order.id,
-        quotationId: order.quotationId,
-        paymentId: parsed.data.paymentId,
-        deliveryId: parsed.data.deliveryId,
-        documentType: parsed.data.documentType as DocumentType,
-        title: parsed.data.title,
-        cloudinaryPublicId: parsed.data.cloudinaryPublicId,
-        secureUrl: parsed.data.secureUrl,
-        resourceType: parsed.data.resourceType,
-        format: parsed.data.format,
-        bytes: parsed.data.bytes,
-        generatedAt: new Date(),
-        generatedById: actor.id,
-        notes: parsed.data.notes
-      }
-    });
-
-    if (document.documentType === "PAYMENT_RECEIPT" && document.paymentId) {
-      await tx.payment.update({
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
         where: {
-          id: document.paymentId
+          id: parsed.data.orderId
         },
-        data: {
-          receiptGenerated: true,
-          updatedById: actor.id
+        select: {
+          id: true,
+          quotationId: true
         }
       });
-    }
 
-    await tx.activityLog.create({
-      data: {
-        action: "DOCUMENT_CREATED",
-        actorId: actor.id,
-        summary: `Created document record for order ${order.id}.`,
-        metadata: {
-          orderId: order.id,
-          documentType: parsed.data.documentType,
-          paymentId: parsed.data.paymentId,
-          deliveryId: parsed.data.deliveryId
+      if (!order) {
+        throw new ActionError("Order was not found.");
+      }
+
+      if (parsed.data.paymentId) {
+        const payment = await tx.payment.findFirst({
+          where: {
+            id: parsed.data.paymentId,
+            orderId: order.id
+          },
+          select: {
+            id: true
+          }
+        });
+
+        if (!payment) {
+          throw new ActionError("Related payment was not found for this order.");
         }
       }
+
+      if (parsed.data.deliveryId) {
+        const delivery = await tx.delivery.findFirst({
+          where: {
+            id: parsed.data.deliveryId,
+            orderId: order.id
+          },
+          select: {
+            id: true
+          }
+        });
+
+        if (!delivery) {
+          throw new ActionError("Related delivery was not found for this order.");
+        }
+      }
+
+      const document = await tx.orderDocument.create({
+        data: {
+          orderId: order.id,
+          quotationId: order.quotationId,
+          paymentId: parsed.data.paymentId,
+          deliveryId: parsed.data.deliveryId,
+          documentType: parsed.data.documentType as DocumentType,
+          title: parsed.data.title,
+          cloudinaryPublicId: parsed.data.cloudinaryPublicId,
+          secureUrl: parsed.data.secureUrl,
+          resourceType: parsed.data.resourceType,
+          format: parsed.data.format,
+          bytes: parsed.data.bytes,
+          generatedAt: new Date(),
+          generatedById: actor.id,
+          notes: parsed.data.notes
+        }
+      });
+
+      if (document.documentType === "PAYMENT_RECEIPT" && document.paymentId) {
+        await tx.payment.update({
+          where: {
+            id: document.paymentId
+          },
+          data: {
+            receiptGenerated: true,
+            updatedById: actor.id
+          }
+        });
+      }
+
+      await tx.activityLog.create({
+        data: {
+          action: "DOCUMENT_CREATED",
+          actorId: actor.id,
+          summary: `Created document record for order ${order.id}.`,
+          metadata: {
+            orderId: order.id,
+            documentType: parsed.data.documentType,
+            paymentId: parsed.data.paymentId,
+            deliveryId: parsed.data.deliveryId
+          }
+        }
+      });
     });
-  });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    throw error;
+  }
 
   revalidatePath("/orders");
   revalidatePath("/documents");
