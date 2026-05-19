@@ -50,6 +50,7 @@ type ProductOption = {
   description: string | null;
   specifications: string | null;
   referencePrice: number | null;
+  referenceCost: number | null;
 };
 
 type ApprovedQuotationOption = {
@@ -66,6 +67,9 @@ type OrderItemRow = {
   plannedQuantity: number;
   remainingQuantity: number;
   unitPrice: string;
+  unitCostSnapshot: string;
+  lineCostTotal: string;
+  lineProfit: string;
   lineTotal: string;
   deliveredQuantity: number;
   discountAmount: string;
@@ -103,6 +107,8 @@ type OrderRow = {
   subtotalAmount: string;
   itemDiscountTotal: string;
   orderDiscountAmount: string;
+  totalCostAmount: string;
+  grossProfitAmount: string;
   customerNotes: string | null;
   internalNotes: string | null;
   relatedQuotationId: string | null;
@@ -183,6 +189,7 @@ type ItemDraft = {
   specifications: string;
   quantity: number;
   unitPrice: number;
+  unitCostSnapshot: number;
   discountType: "" | "FIXED_AMOUNT" | "PERCENTAGE";
   discountValue: number;
   customerNotes: string;
@@ -218,6 +225,7 @@ function createCustomItem(sortOrder: number): ItemDraft {
     specifications: "",
     quantity: 1,
     unitPrice: 0,
+    unitCostSnapshot: 0,
     discountType: "",
     discountValue: 0,
     customerNotes: "",
@@ -567,6 +575,9 @@ export function OrderWorkspace({
     const subtotalAmount = roundMoney(
       items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
     );
+    const totalCostAmount = roundMoney(
+      items.reduce((sum, item) => sum + item.quantity * item.unitCostSnapshot, 0)
+    );
     const orderDiscountAmount =
       orderDiscountType === "PERCENTAGE"
         ? roundMoney(subtotalAmount * (orderDiscountValue / 100))
@@ -574,10 +585,14 @@ export function OrderWorkspace({
           ? roundMoney(orderDiscountValue)
           : 0;
 
+    const totalAmount = roundMoney(Math.max(subtotalAmount - orderDiscountAmount, 0));
+
     return {
       subtotalAmount,
+      totalCostAmount,
       orderDiscountAmount,
-      totalAmount: roundMoney(Math.max(subtotalAmount - orderDiscountAmount, 0))
+      totalAmount,
+      grossProfitAmount: roundMoney(totalAmount - totalCostAmount)
     };
   }, [items, orderDiscountType, orderDiscountValue]);
 
@@ -600,6 +615,7 @@ export function OrderWorkspace({
         specifications: product.specifications ?? "",
         quantity: 1,
         unitPrice: product.referencePrice ?? 0,
+        unitCostSnapshot: product.referenceCost ?? 0,
         discountType: "",
         discountValue: 0,
         customerNotes: "",
@@ -703,30 +719,54 @@ export function OrderWorkspace({
             <div className="space-y-3">
               {items.map((item, index) => (
                 <div key={index} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
-                  <Input
-                    value={item.itemName}
-                    onChange={(event) => updateItem(index, { itemName: event.target.value })}
-                    placeholder="Item name"
-                    className="md:col-span-2"
-                  />
-                  <Input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={item.quantity}
-                    onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
-                    aria-label="Quantity"
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={item.unitPrice}
-                    onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
-                    aria-label="Unit price"
-                  />
-                  <div className="rounded-md bg-background px-3 py-2 text-sm font-medium">
-                    {money(item.quantity * item.unitPrice)}
+                  <label className="space-y-2 text-sm font-medium md:col-span-2">
+                    Item
+                    <Input
+                      value={item.itemName}
+                      onChange={(event) => updateItem(index, { itemName: event.target.value })}
+                      placeholder="Item name"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm font-medium">
+                    Quantity
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={item.quantity}
+                      onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
+                      aria-label="Quantity"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm font-medium">
+                    Unit price
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={item.unitPrice}
+                      onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                      aria-label="Unit price"
+                    />
+                  </label>
+                  {canViewPayments ? (
+                    <label className="space-y-2 text-sm font-medium">
+                      Unit cost
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.unitCostSnapshot}
+                        onChange={(event) => updateItem(index, { unitCostSnapshot: Number(event.target.value) })}
+                        aria-label="Unit cost"
+                      />
+                    </label>
+                  ) : null}
+                  <div className="space-y-2 text-sm font-medium">
+                    <span>Line total</span>
+                    <div className="rounded-md bg-background px-3 py-2 font-medium">
+                      {money(item.quantity * item.unitPrice)}
+                    </div>
                   </div>
                   <Textarea
                     value={item.description}
@@ -801,6 +841,18 @@ export function OrderWorkspace({
               <span className="text-muted-foreground">Discount</span>
               <span className="font-medium">{money(totals.orderDiscountAmount)}</span>
             </div>
+            {canViewPayments ? (
+              <>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Total cost</span>
+                  <span className="font-medium">{money(totals.totalCostAmount)}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Gross profit</span>
+                  <span className="font-medium">{money(totals.grossProfitAmount)}</span>
+                </div>
+              </>
+            ) : null}
             <div className="flex justify-between gap-4 border-t border-border pt-3 text-base">
               <span className="font-semibold">Total</span>
               <span className="font-semibold">{money(totals.totalAmount)}</span>
@@ -854,7 +906,9 @@ export function OrderWorkspace({
                         {canViewDeliveries ? <th className="py-2 font-medium">Scheduled</th> : null}
                         {canViewDeliveries ? <th className="py-2 font-medium">Delivered</th> : null}
                         {canViewPayments ? <th className="py-2 font-medium">Unit</th> : null}
+                        {canViewPayments ? <th className="py-2 font-medium">Cost</th> : null}
                         {canViewPayments ? <th className="py-2 font-medium">Discount</th> : null}
+                        {canViewPayments ? <th className="py-2 font-medium">Profit</th> : null}
                         {canViewPayments ? <th className="py-2 font-medium">Line total</th> : null}
                       </tr>
                     </thead>
@@ -870,7 +924,9 @@ export function OrderWorkspace({
                             <td className="py-2 text-muted-foreground">{item.deliveredQuantity}</td>
                           ) : null}
                           {canViewPayments ? <td className="py-2 text-muted-foreground">{item.unitPrice}</td> : null}
+                          {canViewPayments ? <td className="py-2 text-muted-foreground">{item.unitCostSnapshot}</td> : null}
                           {canViewPayments ? <td className="py-2 text-muted-foreground">{item.discountAmount}</td> : null}
+                          {canViewPayments ? <td className="py-2 text-muted-foreground">{item.lineProfit}</td> : null}
                           {canViewPayments ? <td className="py-2 font-medium">{item.lineTotal}</td> : null}
                         </tr>
                       ))}
@@ -894,6 +950,10 @@ export function OrderWorkspace({
                         <div className="rounded-md bg-background p-3">
                           <p className="text-muted-foreground">Balance</p>
                           <p className="mt-1 font-semibold">{order.balanceAmount}</p>
+                        </div>
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Gross profit</p>
+                          <p className="mt-1 font-semibold">{order.grossProfitAmount}</p>
                         </div>
                         <div className="rounded-md bg-background p-3">
                           <p className="text-muted-foreground">Last payment</p>
@@ -1105,6 +1165,14 @@ export function OrderWorkspace({
                 <div className="flex justify-between gap-4 border-t border-border pt-3">
                   <span className="text-muted-foreground">Total</span>
                   <span className="font-medium">{canViewPayments ? order.totalAmount : "Restricted"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Total cost</span>
+                  <span className="font-medium">{canViewPayments ? order.totalCostAmount : "Restricted"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Gross profit</span>
+                  <span className="font-medium">{canViewPayments ? order.grossProfitAmount : "Restricted"}</span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Paid</span>

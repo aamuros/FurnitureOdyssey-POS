@@ -54,6 +54,8 @@ export const orderItemSchema = z
     specifications: optionalText,
     quantity,
     unitPrice: money,
+    unitCostSnapshot: money.optional(),
+    unitCost: money.optional(),
     discountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
     discountValue: money.optional(),
     customerNotes: optionalText,

@@ -10,7 +10,7 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Admin-only user management for inviting and updating staff records.
 - Permission-gated navigation and server actions.
 - Shared validation with Zod for customer, inquiry, quotation, order, payment, delivery, and document payloads.
-- Shared calculation helpers for quotation totals, order totals, payment status, delivery status, and order progress.
+- Shared calculation helpers for quotation totals, order totals, order cost/profit snapshots, payment status, delivery status, and order progress.
 
 ## Implemented Workflows
 
@@ -37,9 +37,10 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 - Convert an `ACCEPTED` quotation into one order.
 - Prevent duplicate order creation from the same quotation.
-- Snapshot customer, contact, address, item, image, price, discount, and note data into the order.
+- Snapshot customer, contact, address, item, image, price, cost, discount, profit, and note data into the order.
 - Preserve quotation sales details during conversion, including sales invoice request, assembly requirement, delivery mode/method, payment terms, and special instructions.
 - Create manual orders without requiring a quotation or inventory availability.
+- Confirmed orders snapshot unit cost, line cost, line profit, total cost, and gross profit so historical profitability is preserved when product reference costs change later.
 - Recalculate order subtotal, discounts, total, paid amount, balance, payment status, delivery status, and overall order status.
 - Orders workspace now serves as a day-to-day order control center with server-side search, filters, unfinished sales mode, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
 - Orders search covers order number, customer/company/contact values, item names/product codes, inquiry source references, and permission-safe payment or delivery provider references.
@@ -91,11 +92,11 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 - Sales history route provides a permission-gated operational reporting workspace for saved orders.
 - Overview, unfinished sales, outstanding balances, payment history, delivery schedule, order history, quotation history, and customer sales history are available as report views.
-- Overview summarizes total orders, completed orders, unfinished orders, gross sales, paid amount, outstanding balance, payments received, scheduled deliveries, and pending deliveries for the selected date range.
+- Overview summarizes total orders, completed orders, unfinished orders, gross sales, total cost, gross profit, gross margin, paid amount, outstanding balance, payments received, scheduled deliveries, and pending deliveries for the selected date range.
 - Order-focused reports support search, date range, order status, payment status, delivery status, staff, has-balance, has-delivery, completed-only, and unfinished-only filters.
 - Order history details include client-required sales details where space allows without overcrowding summary tables.
 - Quotation, payment, and delivery reports support practical search, status, staff, date range filters, and safe pagination.
-- Payment and balance values are hidden from users without payment visibility.
+- Payment, cost, profit, and balance values are hidden from users without payment visibility.
 - Delivery schedule details are hidden from users without delivery visibility.
 - Customer sales history composes profile, inquiry, quotation, order, payment, delivery, balance, and latest activity details according to each module permission.
 - PDF download links appear only when document export permission is available and the source record has the required ID.

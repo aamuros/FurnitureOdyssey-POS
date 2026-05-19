@@ -424,7 +424,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         category: true,
         description: true,
         specifications: true,
-        referencePrice: true
+        referencePrice: true,
+        referenceCost: canViewPayments
       }
     }),
     prisma.quotation.findMany({
@@ -684,7 +685,11 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         customers={customers}
         products={products.map((product) => ({
           ...product,
-          referencePrice: product.referencePrice ? Number(product.referencePrice) : null
+          referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
+          referenceCost:
+            canViewPayments && "referenceCost" in product && product.referenceCost
+              ? Number(product.referenceCost)
+              : null
         }))}
         approvedQuotations={approvedQuotations.map((quotation) => ({
           id: quotation.id,
@@ -733,6 +738,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             subtotalAmount: canViewPayments ? formatMoney(order.subtotalAmount) : "Restricted",
             itemDiscountTotal: canViewPayments ? formatMoney(order.itemDiscountTotal) : "Restricted",
             orderDiscountAmount: canViewPayments ? formatMoney(order.orderDiscountAmount) : "Restricted",
+            totalCostAmount: canViewPayments ? formatMoney(order.totalCostAmount) : "Restricted",
+            grossProfitAmount: canViewPayments ? formatMoney(order.grossProfitAmount) : "Restricted",
             customerNotes: order.customerNotes,
             internalNotes: order.internalNotes,
             relatedQuotationId: order.quotation?.id ?? null,
@@ -766,6 +773,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                   )
                 : 0,
               unitPrice: canViewPayments ? formatMoney(item.unitPrice) : "Restricted",
+              unitCostSnapshot: canViewPayments ? formatMoney(item.unitCostSnapshot) : "Restricted",
+              lineCostTotal: canViewPayments ? formatMoney(item.lineCostTotal) : "Restricted",
+              lineProfit: canViewPayments ? formatMoney(item.lineProfit) : "Restricted",
               lineTotal: canViewPayments ? formatMoney(item.lineTotal) : "Restricted",
               deliveredQuantity: canViewDeliveries
                 ? item.deliveryItems.reduce((sum, deliveryItem) => sum + Number(deliveryItem.quantityDelivered), 0)

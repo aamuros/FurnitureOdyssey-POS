@@ -791,7 +791,7 @@ async function getOverviewReport({
     totalOrders,
     completedOrders,
     unfinishedOrders,
-    grossSales,
+    financialTotals,
     paidAmount,
     outstandingBalance,
     paymentCount,
@@ -808,7 +808,7 @@ async function getOverviewReport({
     permissions.canViewPayments
       ? prisma.order.aggregate({
           where: { ...orderDateWhere, status: { not: "CANCELLED" } },
-          _sum: { totalAmount: true }
+          _sum: { totalAmount: true, totalCostAmount: true, grossProfitAmount: true }
         })
       : null,
     permissions.canViewPayments
@@ -845,6 +845,10 @@ async function getOverviewReport({
         })
       : 0
   ]);
+  const grossSalesTotal = Number(financialTotals?._sum.totalAmount ?? 0);
+  const grossProfitTotal = Number(financialTotals?._sum.grossProfitAmount ?? 0);
+  const grossMargin =
+    grossSalesTotal > 0 ? `${((grossProfitTotal / grossSalesTotal) * 100).toFixed(1)}%` : "0.0%";
 
   return (
     <ReportSection
@@ -863,7 +867,19 @@ async function getOverviewReport({
         />
         <SummaryTile
           label="Gross sales total"
-          value={permissions.canViewPayments ? formatMoney(grossSales?._sum.totalAmount ?? 0) : "Restricted"}
+          value={permissions.canViewPayments ? formatMoney(grossSalesTotal) : "Restricted"}
+        />
+        <SummaryTile
+          label="Total cost"
+          value={permissions.canViewPayments ? formatMoney(financialTotals?._sum.totalCostAmount ?? 0) : "Restricted"}
+        />
+        <SummaryTile
+          label="Gross profit"
+          value={permissions.canViewPayments ? formatMoney(grossProfitTotal) : "Restricted"}
+        />
+        <SummaryTile
+          label="Gross margin"
+          value={permissions.canViewPayments ? grossMargin : "Restricted"}
         />
         <SummaryTile
           label="Paid amount"
@@ -1512,6 +1528,8 @@ function OrderTable({
             <TableHead>Delivery status</TableHead>
             {mode === "unfinished" ? <TableHead>Needed action</TableHead> : null}
             <TableHead>Total</TableHead>
+            {permissions.canViewPayments ? <TableHead>Cost</TableHead> : null}
+            {permissions.canViewPayments ? <TableHead>Gross profit</TableHead> : null}
             <TableHead>Paid</TableHead>
             <TableHead>Balance</TableHead>
             <TableHead>Last payment</TableHead>
@@ -1559,6 +1577,8 @@ function OrderTable({
                 </TableCell>
                 {mode === "unfinished" ? <TableCell>{neededAction({ ...order, deliveries })}</TableCell> : null}
                 <TableCell>{permissions.canViewPayments ? formatMoney(order.totalAmount) : "Restricted"}</TableCell>
+                {permissions.canViewPayments ? <TableCell>{formatMoney(order.totalCostAmount)}</TableCell> : null}
+                {permissions.canViewPayments ? <TableCell>{formatMoney(order.grossProfitAmount)}</TableCell> : null}
                 <TableCell>{permissions.canViewPayments ? formatMoney(order.paidAmount) : "Restricted"}</TableCell>
                 <TableCell>{permissions.canViewPayments ? formatMoney(order.balanceAmount) : "Restricted"}</TableCell>
                 <TableCell>{permissions.canViewPayments ? formatDate(order.lastPaymentAt) : "Restricted"}</TableCell>
@@ -1692,6 +1712,8 @@ async function getCustomerReport({
               paymentStatus: true,
               deliveryStatus: true,
               totalAmount: true,
+              totalCostAmount: true,
+              grossProfitAmount: true,
               paidAmount: true,
               balanceAmount: true,
               updatedAt: true
@@ -1771,6 +1793,8 @@ async function getCustomerReport({
           const payments = "payments" in customer ? customer.payments : [];
           const deliveries = deliveriesByCustomerId.get(customer.id) ?? [];
           const outstandingBalance = orders.reduce((sum, order) => sum + Number(order.balanceAmount), 0);
+          const totalCost = orders.reduce((sum, order) => sum + Number(order.totalCostAmount), 0);
+          const grossProfit = orders.reduce((sum, order) => sum + Number(order.grossProfitAmount), 0);
 
           return (
             <article key={customer.id} className="px-5 py-5">
@@ -1788,7 +1812,7 @@ async function getCustomerReport({
                     Latest activity {formatDate(customer.updatedAt)}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-center text-xs text-muted-foreground sm:grid-cols-5">
+                <div className="grid grid-cols-2 gap-2 text-center text-xs text-muted-foreground sm:grid-cols-7">
                   <MiniCount label="Inquiries" value={permissions.canViewInquiries ? customer._count.inquiries : null} />
                   <MiniCount label="Quotes" value={permissions.canViewQuotations ? customer._count.quotations : null} />
                   <MiniCount label="Orders" value={permissions.canViewOrders ? customer._count.orders : null} />
@@ -1796,6 +1820,14 @@ async function getCustomerReport({
                   <MiniCount
                     label="Balance"
                     value={permissions.canViewPayments ? formatMoney(outstandingBalance) : null}
+                  />
+                  <MiniCount
+                    label="Cost"
+                    value={permissions.canViewPayments ? formatMoney(totalCost) : null}
+                  />
+                  <MiniCount
+                    label="Profit"
+                    value={permissions.canViewPayments ? formatMoney(grossProfit) : null}
                   />
                 </div>
               </div>
@@ -1822,7 +1854,9 @@ async function getCustomerReport({
                     <CompactRow
                       key={order.id}
                       title={order.orderNumber ?? order.id.slice(0, 8)}
-                      meta={`${labelFromEnum(order.status)} · ${labelFromEnum(order.deliveryStatus)}`}
+                      meta={`${labelFromEnum(order.status)} · ${labelFromEnum(order.deliveryStatus)}${
+                        permissions.canViewPayments ? ` · Profit ${formatMoney(order.grossProfitAmount)}` : ""
+                      }`}
                     />
                   ))}
                   <EmptyInline show={orders.length === 0} label="No visible orders" />

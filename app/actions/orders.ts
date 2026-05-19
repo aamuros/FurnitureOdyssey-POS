@@ -10,6 +10,7 @@ import type {
   QuotationItemType
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import {
   calculateOrderItem,
@@ -47,6 +48,10 @@ function parseJsonArray(value: FormDataEntryValue | null) {
 
 function firstIssue(error: { issues: Array<{ message: string }> }, fallback: string) {
   return error.issues[0]?.message ?? fallback;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 function primaryContactSnapshot(
@@ -254,6 +259,11 @@ export async function convertQuotationToOrderAction(
           sortOrder: "asc"
         },
         include: {
+          product: {
+            select: {
+              referenceCost: true
+            }
+          },
           images: {
             orderBy: {
               sortOrder: "asc"
@@ -293,6 +303,29 @@ export async function convertQuotationToOrderAction(
   }
 
   const order = await prisma.$transaction(async (tx) => {
+    const calculatedItems = quotation.items.map((item) =>
+      calculateOrderItem({
+        quotationItemId: item.id,
+        productId: item.productId ?? undefined,
+        itemType: item.itemType,
+        sortOrder: item.sortOrder,
+        snapshotProductCode: item.snapshotProductCode ?? undefined,
+        itemName: item.itemName,
+        description: item.description ?? undefined,
+        specifications: item.specifications ?? undefined,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        unitCostSnapshot: Number(item.product?.referenceCost ?? 0),
+        discountType: item.discountType ?? undefined,
+        discountValue: item.discountValue ? Number(item.discountValue) : undefined,
+        customerNotes: item.customerNotes ?? undefined,
+        internalNotes: item.internalNotes ?? undefined,
+        images: []
+      })
+    );
+    const totalCostAmount = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0));
+    const grossProfitAmount = roundMoney(Number(quotation.totalAmount) - totalCostAmount);
+
     const created = await tx.order.create({
       data: {
         quotationId: quotation.id,
@@ -315,6 +348,8 @@ export async function convertQuotationToOrderAction(
         orderDiscountValue: quotation.quotationDiscountValue,
         orderDiscountAmount: quotation.quotationDiscountAmount,
         totalAmount: quotation.totalAmount,
+        totalCostAmount,
+        grossProfitAmount,
         paidAmount: 0,
         balanceAmount: quotation.totalAmount,
         needsAssembly: quotation.needsAssembly,
@@ -330,7 +365,7 @@ export async function convertQuotationToOrderAction(
         createdById: actor.id,
         updatedById: actor.id,
         items: {
-          create: quotation.items.map((item) => ({
+          create: quotation.items.map((item, index) => ({
             quotationItemId: item.id,
             productId: item.productId,
             itemType: item.itemType,
@@ -346,6 +381,9 @@ export async function convertQuotationToOrderAction(
             discountAmount: item.discountAmount,
             lineSubtotal: item.lineSubtotal,
             lineTotal: item.lineTotal,
+            unitCostSnapshot: calculatedItems[index].unitCostSnapshot,
+            lineCostTotal: calculatedItems[index].lineCostTotal,
+            lineProfit: calculatedItems[index].lineProfit,
             customerNotes: item.customerNotes,
             internalNotes: item.internalNotes,
             images: item.images.length
@@ -407,6 +445,8 @@ export async function convertQuotationToOrderAction(
             orderId: created.id,
             quotationId: quotation.id,
             totalAmount: Number(quotation.totalAmount),
+            totalCostAmount,
+            grossProfitAmount,
             needsAssembly: quotation.needsAssembly,
             salesInvoiceRequested: quotation.salesInvoiceRequested
           }
@@ -478,10 +518,42 @@ export async function createManualOrderAction(
     };
   }
 
+  const catalogProductIds = parsed.data.items
+    .filter((item) => item.itemType === "CATALOG_PRODUCT" && item.productId)
+    .map((item) => item.productId as string);
+  const productCosts = catalogProductIds.length
+    ? await prisma.product.findMany({
+        where: {
+          id: {
+            in: catalogProductIds
+          }
+        },
+        select: {
+          id: true,
+          referenceCost: true
+        }
+      })
+    : [];
+  const productCostById = new Map(
+    productCosts.map((product) => [product.id, Number(product.referenceCost ?? 0)])
+  );
+  const canSetCosts = hasPermission(actor, "PAYMENTS", "VIEW");
+  const itemsWithCosts = parsed.data.items.map((item) => ({
+    ...item,
+    unitCostSnapshot:
+      (canSetCosts ? (item.unitCostSnapshot ?? item.unitCost) : undefined) ??
+      (item.productId ? productCostById.get(item.productId) : undefined) ??
+      0
+  }));
+  const orderInput = {
+    ...parsed.data,
+    items: itemsWithCosts
+  };
+
   let totals;
 
   try {
-    totals = calculateOrderTotals(parsed.data);
+    totals = calculateOrderTotals(orderInput);
   } catch (error) {
     return {
       ok: false,
@@ -510,6 +582,8 @@ export async function createManualOrderAction(
         orderDiscountValue: parsed.data.orderDiscountValue,
         orderDiscountAmount: totals.orderDiscountAmount,
         totalAmount: totals.totalAmount,
+        totalCostAmount: totals.totalCostAmount,
+        grossProfitAmount: totals.grossProfitAmount,
         paidAmount: 0,
         balanceAmount: totals.totalAmount,
         needsAssembly: parsed.data.needsAssembly,
@@ -525,7 +599,7 @@ export async function createManualOrderAction(
         createdById: actor.id,
         updatedById: actor.id,
         items: {
-          create: parsed.data.items.map((item, index) => {
+          create: orderInput.items.map((item, index) => {
             const calculatedItem = calculateOrderItem(item);
 
             return {
@@ -544,6 +618,9 @@ export async function createManualOrderAction(
               discountAmount: calculatedItem.discountAmount,
               lineSubtotal: calculatedItem.lineSubtotal,
               lineTotal: calculatedItem.lineTotal,
+              unitCostSnapshot: calculatedItem.unitCostSnapshot,
+              lineCostTotal: calculatedItem.lineCostTotal,
+              lineProfit: calculatedItem.lineProfit,
               customerNotes: item.customerNotes,
               internalNotes: item.internalNotes,
               images: item.images.length
@@ -579,6 +656,8 @@ export async function createManualOrderAction(
           orderId: created.id,
           customerId: customer.id,
           totalAmount: totals.totalAmount,
+          totalCostAmount: totals.totalCostAmount,
+          grossProfitAmount: totals.grossProfitAmount,
           needsAssembly: parsed.data.needsAssembly,
           salesInvoiceRequested: parsed.data.salesInvoiceRequested,
           modeOfDelivery: parsed.data.modeOfDelivery,
