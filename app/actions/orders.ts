@@ -26,6 +26,11 @@ import {
   quotationUnitCostSnapshotForOrderItem
 } from "@/lib/orders/calculations";
 import {
+  canCompleteOrder,
+  canScheduleDeliveryByPaymentState,
+  canScheduleOrderDelivery
+} from "@/lib/orders/status";
+import {
   assertDeliveryPlanDoesNotExceedOrdered,
   calculateDeliverySummary
 } from "@/lib/deliveries/calculations";
@@ -39,6 +44,7 @@ import {
   nextOrderStatusFromProgress
 } from "@/lib/status-transitions";
 import {
+  completeOrderSchema,
   convertQuotationToOrderSchema,
   createDeliverySchema,
   createManualOrderSchema,
@@ -1089,20 +1095,47 @@ export async function createDeliveryAction(
         throw new ActionError("Order is not available for delivery scheduling.");
       }
 
+      const orderItemsForDeliveryState = order.items.map((item) => ({
+        id: item.id,
+        itemName: item.itemName,
+        quantity: Number(item.quantity),
+        deliveryItems: item.deliveryItems.map((deliveryItem) => ({
+          quantityPlanned: Number(deliveryItem.quantityPlanned),
+          quantityDelivered: Number(deliveryItem.quantityDelivered),
+          delivery: {
+            status: deliveryItem.delivery.status
+          }
+        }))
+      }));
+
+      if (
+        !canScheduleDeliveryByPaymentState({
+          paymentStatus: order.paymentStatus,
+          balanceAmount: order.balanceAmount,
+          paymentDueTiming: order.paymentDueTiming
+        })
+      ) {
+        throw new ActionError(
+          "Order must be fully paid before delivery, unless payment is due upon or after delivery."
+        );
+      }
+
+      if (
+        !canScheduleOrderDelivery({
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          balanceAmount: order.balanceAmount,
+          paymentDueTiming: order.paymentDueTiming,
+          deliveryStatus: order.deliveryStatus,
+          items: orderItemsForDeliveryState
+        })
+      ) {
+        throw new ActionError("Order is not eligible for delivery scheduling.");
+      }
+
       try {
         assertDeliveryPlanDoesNotExceedOrdered({
-          orderItems: order.items.map((item) => ({
-            id: item.id,
-            itemName: item.itemName,
-            quantity: Number(item.quantity),
-            deliveryItems: item.deliveryItems.map((deliveryItem) => ({
-              quantityPlanned: Number(deliveryItem.quantityPlanned),
-              quantityDelivered: Number(deliveryItem.quantityDelivered),
-              delivery: {
-                status: deliveryItem.delivery.status
-              }
-            }))
-          })),
+          orderItems: orderItemsForDeliveryState,
           requestedItems: parsed.data.items
         });
       } catch (error) {
@@ -1311,6 +1344,114 @@ export async function updateDeliveryProgressAction(
   return {
     ok: true,
     message: "Delivery progress updated."
+  };
+}
+
+export async function completeOrderAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "UPDATE");
+  const parsed = completeOrderSchema.safeParse({
+    orderId: formData.get("orderId")
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: firstIssue(parsed.error, "Invalid order.")
+    };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: {
+          id: parsed.data.orderId
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          paymentStatus: true,
+          paymentDueTiming: true,
+          balanceAmount: true,
+          deliveryStatus: true
+        }
+      });
+
+      if (!order || order.status === "CANCELLED") {
+        throw new ActionError("Order is not available for completion.");
+      }
+
+      if (order.status === "COMPLETED") {
+        return;
+      }
+
+      if (
+        !canCompleteOrder({
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          balanceAmount: order.balanceAmount,
+          paymentDueTiming: order.paymentDueTiming,
+          deliveryStatus: order.deliveryStatus
+        })
+      ) {
+        throw new ActionError("Only fully paid and fully delivered orders can be completed.");
+      }
+
+      try {
+        assertValidStatusTransition("order", order.status, "COMPLETED");
+      } catch (error) {
+        throw new ActionError(
+          error instanceof Error ? error.message : "Order cannot be completed from its current status."
+        );
+      }
+
+      await tx.order.update({
+        where: {
+          id: order.id
+        },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          updatedById: actor.id
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "ORDER_UPDATED",
+          actorId: actor.id,
+          summary: `Completed order ${order.id}.`,
+          metadata: {
+            entityType: "order",
+            entityId: order.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            oldStatus: order.status,
+            newStatus: "COMPLETED",
+            sourceAction: "order_completion"
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
+    }
+
+    throw error;
+  }
+
+  revalidatePath("/orders");
+
+  return {
+    ok: true,
+    message: "Order marked completed."
   };
 }
 
