@@ -342,10 +342,10 @@ export async function updateDraftQuotationAction(
     };
   }
 
-  if (existing.status !== "DRAFT") {
+  if (!["DRAFT", "SENT"].includes(existing.status)) {
     return {
       ok: false,
-      message: "Only draft quotations can be edited."
+      message: "Only draft or sent quotations can be edited."
     };
   }
 
@@ -366,7 +366,7 @@ export async function updateDraftQuotationAction(
     };
   }
 
-  const nextStatus = intent === "save_mark_sent" ? "SENT" : "DRAFT";
+  const nextStatus = intent === "save_mark_sent" ? "SENT" : existing.status;
 
   try {
     assertValidStatusTransition("quotation", existing.status, nextStatus);
@@ -412,7 +412,7 @@ export async function updateDraftQuotationAction(
       data: {
         action: "QUOTATION_UPDATED",
         actorId: actor.id,
-        summary: `Updated draft quotation for ${references.customer.displayName}.`,
+        summary: `Updated quotation for ${references.customer.displayName}.`,
         metadata: {
           entityType: "quotation",
           entityId: existing.id,
@@ -422,7 +422,7 @@ export async function updateDraftQuotationAction(
           oldStatus: existing.status,
           newStatus: nextStatus,
           totalAmount: totals.totalAmount,
-          sourceAction: "draft_quotation_update"
+          sourceAction: "quotation_update"
         }
       }
     });
@@ -435,7 +435,7 @@ export async function updateDraftQuotationAction(
     ok: true,
     quotationId,
     intent,
-    message: `Draft quotation updated: ${existing.quotationNumber ?? existing.id}.`
+    message: `Quotation updated: ${existing.quotationNumber ?? existing.id}.`
   };
 }
 

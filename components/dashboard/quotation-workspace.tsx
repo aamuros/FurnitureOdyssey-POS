@@ -84,6 +84,7 @@ type QuotationBuilderProps = {
   mode?: "create" | "edit";
   initialQuotation?: {
     id: string;
+    status: string;
     customer: SelectedCustomer;
     items: ItemDraft[];
     quotationDiscountValue: number;
@@ -971,6 +972,7 @@ export function QuotationBuilder({
   mode = "create",
   initialQuotation
 }: QuotationBuilderProps) {
+  const isSentEdit = mode === "edit" && initialQuotation?.status === "SENT";
   const router = useRouter();
   const [state, action, pending] = useActionState(
     mode === "edit" ? updateDraftQuotationAction : createQuotationAction,
@@ -1313,7 +1315,7 @@ export function QuotationBuilder({
                   value="save_draft"
                 >
                   <Save className="h-4 w-4" />
-                  {mode === "edit" ? "Update draft" : "Save draft"}
+                  {mode === "edit" ? "Update quotation" : "Save draft"}
                 </Button>
                 <Button
                   variant="secondary"
@@ -1322,9 +1324,9 @@ export function QuotationBuilder({
                   value="save_preview"
                 >
                   <FileText className="h-4 w-4" />
-                  Save draft & preview
+                  {mode === "edit" ? "Update & preview" : "Save draft & preview"}
                 </Button>
-                {canUpdateQuotations ? (
+                {canUpdateQuotations && !isSentEdit ? (
                   <Button
                     variant="secondary"
                     disabled={pending || state.ok}
@@ -1353,7 +1355,7 @@ export function QuotationBuilder({
               className="min-h-10"
             >
               <Save className="h-4 w-4" />
-              {mode === "edit" ? "Update draft" : "Save draft"}
+              {mode === "edit" ? "Update quotation" : "Save draft"}
             </Button>
           </div>
         </div>
@@ -1468,7 +1470,7 @@ function QuotationRecordActions({
             transform: menuPosition.placement === "above" ? "translateY(-100%)" : undefined
           }}
         >
-          {quotation.status === "DRAFT" && canUpdateQuotations ? (
+          {(quotation.status === "DRAFT" || quotation.status === "SENT") && canUpdateQuotations ? (
             <a
               href={`/quotations/${quotation.id}/edit`}
               role="menuitem"
@@ -1476,7 +1478,7 @@ function QuotationRecordActions({
               onClick={() => setMenuPosition(null)}
             >
               <Pencil className="h-4 w-4" />
-              Edit draft
+              Edit quotation
             </a>
           ) : null}
           {quotation.status === "DRAFT" && canUpdateQuotations ? (
@@ -1487,7 +1489,6 @@ function QuotationRecordActions({
               variant="ghost"
               disabled={pending}
               role="menuitem"
-              onClick={() => setMenuPosition(null)}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <Send className="h-4 w-4" />
@@ -1502,7 +1503,6 @@ function QuotationRecordActions({
               variant="ghost"
               disabled={pending}
               role="menuitem"
-              onClick={() => setMenuPosition(null)}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <CheckCircle2 className="h-4 w-4" />
@@ -1517,7 +1517,6 @@ function QuotationRecordActions({
               variant="ghost"
               disabled={pending}
               role="menuitem"
-              onClick={() => setMenuPosition(null)}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <XCircle className="h-4 w-4" />
@@ -1532,7 +1531,6 @@ function QuotationRecordActions({
               variant="ghost"
               disabled={pending}
               role="menuitem"
-              onClick={() => setMenuPosition(null)}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <X className="h-4 w-4" />
@@ -1810,10 +1808,10 @@ export function QuotationDetailActions({
             Download PDF
           </a>
         ) : null}
-        {status === "DRAFT" && canUpdateQuotations ? (
+        {(status === "DRAFT" || status === "SENT") && canUpdateQuotations ? (
           <a href={`/quotations/${quotationId}/edit`} className={cn(pdfLinkClass, "w-full justify-start px-3")}>
             <Pencil className="h-4 w-4" />
-            Edit draft
+            Edit quotation
           </a>
         ) : null}
         {status === "DRAFT" && canUpdateQuotations ? (

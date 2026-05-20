@@ -106,7 +106,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
     notFound();
   }
 
-  if (quotation.status !== "DRAFT") {
+  if (!["DRAFT", "SENT"].includes(quotation.status)) {
     redirect(`/quotations/${quotation.id}`);
   }
 
@@ -116,7 +116,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
     <>
       <PageHeader
         title={`Edit ${quotation.quotationNumber ?? "quotation"}`}
-        description="Draft quotations can be updated before they are marked sent."
+        description="Draft and sent quotations can be updated before they are accepted, declined, or cancelled."
       >
         <Link
           href={`/quotations/${quotation.id}`}
@@ -132,6 +132,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
         canUpdateQuotations
         initialQuotation={{
           id: quotation.id,
+          status: quotation.status,
           customer: {
             id: quotation.customer.id,
             displayName: quotation.customer.displayName,
