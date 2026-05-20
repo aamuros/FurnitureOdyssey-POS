@@ -344,7 +344,6 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
 
   const canCreateOrders = hasPermission(user, "ORDERS", "CREATE");
-  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
   const canViewPayments = hasPermission(user, "PAYMENTS", "VIEW");
   const canCreatePayments = hasPermission(user, "PAYMENTS", "CREATE");
@@ -622,7 +621,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     <>
       <PageHeader
         title="Orders"
-        description="Internal order records for approved quotation conversion, manual orders, payments, delivery scheduling, documents, and sales history."
+        description="Manage existing orders, balances, delivery status, next delivery, documents, and sales details."
       />
       <form className="mb-6 space-y-3 rounded-lg border border-border bg-panel p-4">
         <div className="grid gap-3 lg:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr_auto]">
@@ -704,9 +703,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canCreateDeliveries={canCreateDeliveries}
         canUpdateDeliveries={canUpdateDeliveries}
         canExportDocuments={canExportDocuments}
-        canCreateCustomers={canCreateCustomers}
         customers={customers}
-        staff={staff}
         products={products.map((product) => ({
           ...product,
           referencePrice: product.referencePrice ? Number(product.referencePrice) : null,

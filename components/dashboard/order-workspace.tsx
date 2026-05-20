@@ -24,11 +24,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
-import { QuickCustomerForm } from "@/components/dashboard/quick-customer-form";
 import {
   deliveryStatusLabel,
   orderStatusLabel,
-  paymentDueTimingLabel,
   paymentStatusLabel,
   paymentTypeLabel,
   readableLabel,
@@ -176,9 +174,7 @@ type OrderWorkspaceProps = {
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
-  canCreateCustomers: boolean;
   customers: CustomerOption[];
-  staff: Array<{ id: string; displayName: string }>;
   products: ProductOption[];
   approvedQuotations: ApprovedQuotationOption[];
   orders: OrderRow[];
@@ -200,6 +196,8 @@ type ItemDraft = {
   customerNotes: string;
   internalNotes: string;
 };
+
+type ActiveOrderAction = "payment" | "paymentDue" | "delivery" | `deliveryProgress:${string}` | null;
 
 const initialState = {
   ok: false,
@@ -594,14 +592,6 @@ function DocumentLinks({
   );
 }
 
-function isUnfinishedOrder(order: OrderRow) {
-  return (
-    !["COMPLETED", "CANCELLED"].includes(order.status) ||
-    order.paymentStatus !== "PAID" ||
-    !["DELIVERED", "CANCELLED"].includes(order.deliveryStatus)
-  );
-}
-
 function nextOrderAction(
   order: OrderRow,
   canViewPayments: boolean,
@@ -635,52 +625,6 @@ function nextOrderAction(
   return "Review order";
 }
 
-function OperationsSummary({
-  orders,
-  canViewPayments,
-  canViewDeliveries
-}: {
-  orders: OrderRow[];
-  canViewPayments: boolean;
-  canViewDeliveries: boolean;
-}) {
-  const unfinishedCount = orders.filter(isUnfinishedOrder).length;
-  const withBalanceCount = orders.filter((order) => order.balanceAmountValue > 0).length;
-  const forDeliveryCount = orders.filter((order) => !["DELIVERED", "CANCELLED"].includes(order.deliveryStatus)).length;
-  const scheduledDeliveryCount = orders.filter((order) => order.nextDeliveryDate).length;
-
-  return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-      <div className="rounded-lg border border-border bg-panel p-4">
-        <p className="text-xs uppercase text-muted-foreground">Orders shown</p>
-        <p className="mt-2 text-2xl font-semibold">{orders.length}</p>
-      </div>
-      <div className="rounded-lg border border-border bg-panel p-4">
-        <p className="text-xs uppercase text-muted-foreground">Unfinished shown</p>
-        <p className="mt-2 text-2xl font-semibold">{unfinishedCount}</p>
-      </div>
-      {canViewPayments ? (
-        <div className="rounded-lg border border-border bg-panel p-4">
-          <p className="text-xs uppercase text-muted-foreground">With balance</p>
-          <p className="mt-2 text-2xl font-semibold">{withBalanceCount}</p>
-        </div>
-      ) : null}
-      {canViewDeliveries ? (
-        <>
-          <div className="rounded-lg border border-border bg-panel p-4">
-            <p className="text-xs uppercase text-muted-foreground">For delivery</p>
-            <p className="mt-2 text-2xl font-semibold">{forDeliveryCount}</p>
-          </div>
-          <div className="rounded-lg border border-border bg-panel p-4">
-            <p className="text-xs uppercase text-muted-foreground">Scheduled delivery</p>
-            <p className="mt-2 text-2xl font-semibold">{scheduledDeliveryCount}</p>
-          </div>
-        </>
-      ) : null}
-    </section>
-  );
-}
-
 export function OrderWorkspace({
   canCreateOrders,
   canUpdateOrders,
@@ -690,9 +634,7 @@ export function OrderWorkspace({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
-  canCreateCustomers,
   customers,
-  staff,
   products,
   approvedQuotations,
   orders
@@ -712,9 +654,8 @@ export function OrderWorkspace({
   );
   const [orderDiscountValue, setOrderDiscountValue] = useState(0);
   const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
-  const [showConvertQuotation, setShowConvertQuotation] = useState(false);
-  const [showQuickCustomer, setShowQuickCustomer] = useState(false);
-  const [showManualOrder, setShowManualOrder] = useState(false);
+  const [activeOrderActions, setActiveOrderActions] = useState<Record<string, ActiveOrderAction>>({});
+  const [showNewOrderActions, setShowNewOrderActions] = useState(false);
 
   const totals = useMemo(() => {
     const subtotalAmount = roundMoney(
@@ -781,93 +722,66 @@ export function OrderWorkspace({
   }
 
   function toggleOrderDetails(orderId: string) {
+    if (expandedOrders[orderId]) {
+      setActiveOrderActions((current) => ({ ...current, [orderId]: null }));
+    }
+
     setExpandedOrders((current) => ({ ...current, [orderId]: !current[orderId] }));
   }
 
-  const canShowCreationActions = canCreateOrders || canCreateCustomers;
+  function setActiveOrderAction(orderId: string, actionKey: ActiveOrderAction) {
+    setActiveOrderActions((current) => ({
+      ...current,
+      [orderId]: current[orderId] === actionKey ? null : actionKey
+    }));
+  }
 
   return (
     <div className="space-y-6">
-      <OperationsSummary orders={orders} canViewPayments={canViewPayments} canViewDeliveries={canViewDeliveries} />
-
-      {canShowCreationActions ? (
-        <section className="flex flex-wrap gap-2">
-          {canCreateOrders ? (
-            <Button
-              type="button"
-              variant={showConvertQuotation ? "primary" : "secondary"}
-              onClick={() => setShowConvertQuotation((current) => !current)}
-            >
-              <CalendarClock className="h-4 w-4" />
-              Convert quotation
-            </Button>
-          ) : null}
-          {canCreateCustomers ? (
-            <Button
-              type="button"
-              variant={showQuickCustomer ? "primary" : "secondary"}
-              onClick={() => setShowQuickCustomer((current) => !current)}
-            >
-              <Plus className="h-4 w-4" />
-              Add customer
-            </Button>
-          ) : null}
-          {canCreateOrders ? (
-            <Button
-              type="button"
-              variant={showManualOrder ? "primary" : "secondary"}
-              onClick={() => setShowManualOrder((current) => !current)}
-            >
-              <Save className="h-4 w-4" />
-              Create manual order
-            </Button>
-          ) : null}
+      {canCreateOrders ? (
+        <section className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-9 px-3 text-xs"
+            onClick={() => setShowNewOrderActions((current) => !current)}
+          >
+            <Plus className="h-4 w-4" />
+            New order
+          </Button>
         </section>
       ) : null}
 
-      {canCreateOrders && showConvertQuotation ? (
-        <section className="studio-card">
-          <div className="studio-card-header">
-            <p className="studio-kicker">Order Intake</p>
-            <h2 className="text-sm font-semibold">Convert approved quotation</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Approved quotations become confirmed internal orders with copied snapshots.
-            </p>
-          </div>
-          <form action={convertAction} className="grid gap-3 p-5 md:grid-cols-[1fr_auto]">
-            <Select name="quotationId" required defaultValue="">
-              <option value="" disabled>
-                Choose approved quotation
-              </option>
-              {approvedQuotations.map((quotation) => (
-                <option key={quotation.id} value={quotation.id}>
-                  {quotation.customerName} - {quotation.totalAmount} - {quotation.itemCount} item(s)
+      {canCreateOrders && showNewOrderActions ? (
+        <section className="space-y-3 rounded-md border border-border bg-panel p-3">
+          <details className="rounded-md border border-border bg-background px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium">Convert approved quotation</summary>
+            <form action={convertAction} className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+              <Select name="quotationId" required defaultValue="">
+                <option value="" disabled>
+                  Choose approved quotation
                 </option>
-              ))}
-            </Select>
-            <Button disabled={convertPending || approvedQuotations.length === 0}>
-              <CalendarClock className="h-4 w-4" />
-              Convert
-            </Button>
-            {convertState.message ? (
-              <p className={convertState.ok ? "text-sm text-success md:col-span-2" : "text-sm text-danger md:col-span-2"}>
-                {convertState.message}
-              </p>
-            ) : null}
-          </form>
-        </section>
-      ) : null}
+                {approvedQuotations.map((quotation) => (
+                  <option key={quotation.id} value={quotation.id}>
+                    {quotation.customerName} - {quotation.totalAmount} - {quotation.itemCount} item(s)
+                  </option>
+                ))}
+              </Select>
+              <Button disabled={convertPending || approvedQuotations.length === 0}>
+                <CalendarClock className="h-4 w-4" />
+                Convert
+              </Button>
+              {convertState.message ? (
+                <p className={convertState.ok ? "text-sm text-success md:col-span-2" : "text-sm text-danger md:col-span-2"}>
+                  {convertState.message}
+                </p>
+              ) : null}
+            </form>
+          </details>
 
-      {canCreateCustomers && showQuickCustomer ? (
-        <QuickCustomerForm
-          staff={staff}
-          title="Quick customer"
-          description="Select an existing customer for a manual order or add a buyer record here."
-        />
-      ) : null}
-
-      {canCreateOrders && showManualOrder ? (
-        <form action={manualAction} className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <details className="rounded-md border border-border bg-background px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium">Manual order</summary>
+            <form action={manualAction} className="mt-3 grid gap-6 xl:grid-cols-[1fr_320px]">
           <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
           <section className="studio-card">
             <div className="studio-card-header">
@@ -1060,79 +974,72 @@ export function OrderWorkspace({
             </Button>
           </div>
         </aside>
-      </form>
+            </form>
+          </details>
+        </section>
       ) : null}
 
       <section className="space-y-4">
         {orders.map((order) => {
           const expanded = Boolean(expandedOrders[order.id]);
+          const activeAction = activeOrderActions[order.id] ?? null;
           const actionLabel = nextOrderAction(order, canViewPayments, canViewDeliveries, canExportDocuments);
 
           return (
             <article key={order.id} className="studio-card">
-              <div className="space-y-4 p-5">
+              <div className="space-y-3 p-3 sm:p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold">
                       {order.displayId} · {order.customerName}
                     </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {readableLabel(order.sourceType)} · Created {order.createdAt} · Updated {order.updatedAt}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>{readableLabel(order.sourceType)}</span>
                       {order.assignedStaff ? <span>Staff: {order.assignedStaff}</span> : null}
-                      {order.companyName ? <span>Company: {order.companyName}</span> : null}
-                      {order.contactPersonName ? <span>Contact: {order.contactPersonName}</span> : null}
+                      <span>Updated {order.updatedAt}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
-                    <StatusPill tone={statusTone(order.paymentStatus)}>{paymentStatusLabel(order.paymentStatus)}</StatusPill>
-                    <StatusPill tone={statusTone(order.deliveryStatus)}>{deliveryStatusLabel(order.deliveryStatus)}</StatusPill>
-                    <Button type="button" variant="secondary" onClick={() => toggleOrderDetails(order.id)}>
+                    {canViewPayments ? (
+                      <StatusPill tone={statusTone(order.paymentStatus)}>{paymentStatusLabel(order.paymentStatus)}</StatusPill>
+                    ) : null}
+                    {canViewDeliveries ? (
+                      <StatusPill tone={statusTone(order.deliveryStatus)}>{deliveryStatusLabel(order.deliveryStatus)}</StatusPill>
+                    ) : null}
+                    <Button type="button" variant="secondary" className="min-h-9 px-3 text-xs" onClick={() => toggleOrderDetails(order.id)}>
                       {expanded ? "Hide details" : "View details"}
                     </Button>
                   </div>
                 </div>
 
-                <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
-                  {canViewPayments ? (
-                    <>
-                      <div className="rounded-md bg-background p-3">
-                        <p className="text-muted-foreground">Total</p>
-                        <p className="mt-1 font-semibold">{order.totalAmount}</p>
-                      </div>
-                      <div className="rounded-md bg-background p-3">
-                        <p className="text-muted-foreground">Paid</p>
-                        <p className="mt-1 font-semibold">{order.paidAmount}</p>
-                      </div>
-                      <div className="rounded-md bg-background p-3">
-                        <p className="text-muted-foreground">Balance</p>
-                        <p className="mt-1 font-semibold">{order.balanceAmount}</p>
-                      </div>
-                    </>
-                  ) : null}
-                  {canViewDeliveries ? (
-                    <div className="rounded-md bg-background p-3">
-                      <p className="text-muted-foreground">Next delivery</p>
-                      <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None"}</p>
-                      {order.nextDeliveryProvider ? (
-                        <p className="mt-1 text-xs text-muted-foreground">{readableLabel(order.nextDeliveryProvider)}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {order.needsAssembly ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 font-medium">Needs assembly</span>
-                  ) : null}
-                  {order.salesInvoiceRequested ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 font-medium">Sales invoice requested</span>
-                  ) : null}
-                  <span className="rounded-full bg-soft-accent px-2.5 py-1 font-medium">
-                    Next: {actionLabel}
-                  </span>
+                <div className="grid gap-2 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="space-y-1">
+                    {canViewPayments ? (
+                      <>
+                        <p>
+                          <span className="text-muted-foreground">Balance: </span>
+                          <span className="font-semibold">{order.balanceAmount}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Total: {order.totalAmount} · Paid: {order.paidAmount}
+                        </p>
+                      </>
+                    ) : null}
+                    {canViewDeliveries ? (
+                      <p className={canViewPayments ? "text-xs text-muted-foreground" : ""}>
+                        <span className="text-muted-foreground">Next delivery: </span>
+                        <span className="font-medium text-foreground">{order.nextDeliveryDate ?? "None"}</span>
+                        {order.nextDeliveryProvider ? (
+                          <span> · {readableLabel(order.nextDeliveryProvider)}</span>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="rounded-md border border-border bg-background px-3 py-2">
+                    <span className="text-xs font-medium uppercase text-muted-foreground">Next action</span>
+                    <p className="font-semibold">{actionLabel}</p>
+                  </div>
                 </div>
               </div>
 
@@ -1183,59 +1090,92 @@ export function OrderWorkspace({
                   <h3 className="text-sm font-semibold">Payments</h3>
                   {canViewPayments ? (
                     <>
-                      <div className="grid gap-2 text-sm md:grid-cols-4">
+                      <div className="grid gap-2 text-sm md:grid-cols-5">
                         <div className="rounded-md bg-background p-3">
-                          <p className="text-muted-foreground">Order total</p>
-                          <p className="mt-1 font-semibold">{order.totalAmount}</p>
+                          <p className="text-muted-foreground">Balance</p>
+                          <p className="mt-1 font-semibold">{order.balanceAmount}</p>
                         </div>
                         <div className="rounded-md bg-background p-3">
                           <p className="text-muted-foreground">Paid</p>
                           <p className="mt-1 font-semibold">{order.paidAmount}</p>
                         </div>
                         <div className="rounded-md bg-background p-3">
-                          <p className="text-muted-foreground">Balance</p>
-                          <p className="mt-1 font-semibold">{order.balanceAmount}</p>
-                        </div>
-                        <div className="rounded-md bg-background p-3">
-                          <p className="text-muted-foreground">Gross profit</p>
-                          <p className="mt-1 font-semibold">{order.grossProfitAmount}</p>
+                          <p className="text-muted-foreground">Total</p>
+                          <p className="mt-1 font-semibold">{order.totalAmount}</p>
                         </div>
                         <div className="rounded-md bg-background p-3">
                           <p className="text-muted-foreground">Last payment</p>
                           <p className="mt-1 font-semibold">{order.lastPaymentDate ?? "None"}</p>
                         </div>
-                      </div>
-                      {canUpdateOrders ? <PaymentDueTimingForm order={order} /> : null}
-                      {canCreatePayments ? <PaymentForm order={order} /> : null}
-                      <div className="grid gap-2 text-sm md:grid-cols-2">
-                        {order.payments.map((payment) => (
-                          <div key={payment.id} className="rounded-md bg-background p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium">{payment.amount}</span>
-                              <StatusPill tone={statusTone(payment.status)}>{paymentStatusLabel(payment.status)}</StatusPill>
-                            </div>
-                            <p className="mt-1 text-muted-foreground">
-                              {payment.paymentDate} · {paymentTypeLabel(payment.paymentType)}
-                              {payment.method ? ` · ${readableLabel(payment.method)}` : ""}
-                              {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ""}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {payment.payerName ? `Payer: ${payment.payerName} · ` : ""}
-                              Receipt: {payment.receiptGenerated ? "Generated" : "Not generated"}
-                            </p>
-                            {canExportDocuments ? (
-                              <a
-                                href={`/api/documents/payment-receipt/${payment.id}`}
-                                className={`${pdfLinkClass} mt-3`}
-                              >
-                                <Download className="h-4 w-4" />
-                                Payment receipt PDF
-                              </a>
-                            ) : null}
+                        <div className="rounded-md bg-background p-3">
+                          <p className="text-muted-foreground">Payment status</p>
+                          <div className="mt-1">
+                            <StatusPill tone={statusTone(order.paymentStatus)}>
+                              {paymentStatusLabel(order.paymentStatus)}
+                            </StatusPill>
                           </div>
-                        ))}
+                        </div>
                       </div>
-                      {order.payments.length === 0 ? <EmptyPanel message="No payment records yet." /> : null}
+                      {canCreatePayments || (canUpdateOrders && order.balanceAmountValue > 0) ? (
+                        <div className="flex flex-wrap gap-2">
+                          {canCreatePayments ? (
+                            <Button
+                              type="button"
+                              variant={activeAction === "payment" ? "primary" : "secondary"}
+                              onClick={() => setActiveOrderAction(order.id, "payment")}
+                            >
+                              <ReceiptText className="h-4 w-4" />
+                              Record payment
+                            </Button>
+                          ) : null}
+                          {canUpdateOrders && order.balanceAmountValue > 0 ? (
+                            <Button
+                              type="button"
+                              variant={activeAction === "paymentDue" ? "primary" : "secondary"}
+                              onClick={() => setActiveOrderAction(order.id, "paymentDue")}
+                            >
+                              <CalendarClock className="h-4 w-4" />
+                              Set due timing
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {activeAction === "payment" && canCreatePayments ? <PaymentForm order={order} /> : null}
+                      {activeAction === "paymentDue" && canUpdateOrders && order.balanceAmountValue > 0 ? (
+                        <PaymentDueTimingForm order={order} />
+                      ) : null}
+                      {order.payments.length > 0 ? (
+                        <div className="grid gap-2 text-sm md:grid-cols-2">
+                          {order.payments.map((payment) => (
+                            <div key={payment.id} className="rounded-md bg-background p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-medium">{payment.amount}</span>
+                                <StatusPill tone={statusTone(payment.status)}>{paymentStatusLabel(payment.status)}</StatusPill>
+                              </div>
+                              <p className="mt-1 text-muted-foreground">
+                                {payment.paymentDate} · {paymentTypeLabel(payment.paymentType)}
+                                {payment.method ? ` · ${readableLabel(payment.method)}` : ""}
+                                {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ""}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {payment.payerName ? `Payer: ${payment.payerName} · ` : ""}
+                                Receipt: {payment.receiptGenerated ? "Generated" : "Not generated"}
+                              </p>
+                              {canExportDocuments ? (
+                                <a
+                                  href={`/api/documents/payment-receipt/${payment.id}`}
+                                  className={`${pdfLinkClass} mt-3`}
+                                >
+                                  <Download className="h-4 w-4" />
+                                  Payment receipt PDF
+                                </a>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <EmptyPanel message="No payment records yet." />
+                      )}
                     </>
                   ) : (
                     <RestrictedPanel title="payment data" />
@@ -1262,7 +1202,19 @@ export function OrderWorkspace({
                           </p>
                         </div>
                       </div>
-                      {canCreateDeliveries ? <DeliveryForm order={order} /> : null}
+                      {canCreateDeliveries ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant={activeAction === "delivery" ? "primary" : "secondary"}
+                            onClick={() => setActiveOrderAction(order.id, "delivery")}
+                          >
+                            <Truck className="h-4 w-4" />
+                            Schedule delivery
+                          </Button>
+                        </div>
+                      ) : null}
+                      {activeAction === "delivery" && canCreateDeliveries ? <DeliveryForm order={order} /> : null}
                       <div className="grid gap-2 text-sm md:grid-cols-2">
                         {order.deliveries.map((delivery) => (
                           <div key={delivery.id} className="rounded-md bg-background p-3">
@@ -1309,7 +1261,20 @@ export function OrderWorkspace({
                                 Delivery receipt PDF
                               </a>
                             ) : null}
-                            {canUpdateDeliveries ? <DeliveryProgressForm delivery={delivery} /> : null}
+                            {canUpdateDeliveries ? (
+                              <Button
+                                type="button"
+                                variant={activeAction === `deliveryProgress:${delivery.id}` ? "primary" : "secondary"}
+                                className="mt-3 min-h-9 px-3 text-xs"
+                                onClick={() => setActiveOrderAction(order.id, `deliveryProgress:${delivery.id}`)}
+                              >
+                                <Save className="h-4 w-4" />
+                                Update progress
+                              </Button>
+                            ) : null}
+                            {activeAction === `deliveryProgress:${delivery.id}` && canUpdateDeliveries ? (
+                              <DeliveryProgressForm delivery={delivery} />
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -1332,6 +1297,7 @@ export function OrderWorkspace({
                   <p className="text-xs uppercase text-muted-foreground">Customer snapshot</p>
                   <p className="mt-1 font-semibold">{order.customerName}</p>
                   {order.companyName ? <p className="text-muted-foreground">{order.companyName}</p> : null}
+                  {order.contactPersonName ? <p className="text-muted-foreground">{order.contactPersonName}</p> : null}
                   {order.contactSnapshot ? <p className="text-muted-foreground">{order.contactSnapshot}</p> : null}
                 </div>
                 {canViewDeliveries ? (
@@ -1361,70 +1327,22 @@ export function OrderWorkspace({
                       </div>
                     </>
                   ) : null}
-                  <div>
-                    <p className="text-xs uppercase text-muted-foreground">Payment terms</p>
-                    <p className="mt-1">{canViewPayments ? order.paymentTerms ?? "Not specified" : "Restricted"}</p>
-                  </div>
+                  {canViewPayments ? (
+                    <div>
+                      <p className="text-xs uppercase text-muted-foreground">Payment terms</p>
+                      <p className="mt-1">{order.paymentTerms ?? "Not specified"}</p>
+                    </div>
+                  ) : null}
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Remarks / special instructions</p>
                     <p className="mt-1">{order.specialInstructions ?? "Not specified"}</p>
                   </div>
                 </div>
-                <div className="grid gap-2 border-t border-border pt-3">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Order</span>
-                    <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Payment</span>
-                    <StatusPill tone={statusTone(order.paymentStatus)}>{paymentStatusLabel(order.paymentStatus)}</StatusPill>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Delivery</span>
-                    <StatusPill tone={statusTone(order.deliveryStatus)}>{deliveryStatusLabel(order.deliveryStatus)}</StatusPill>
-                  </div>
-                </div>
-                {canViewPayments ? (
-                  <div className="grid gap-2 border-t border-border pt-3">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className="font-medium">{order.subtotalAmount}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Order discount</span>
-                      <span className="font-medium">{order.orderDiscountAmount}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Total</span>
-                      <span className="font-medium">{order.totalAmount}</span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Paid</span>
-                      <span className="font-medium">{order.paidAmount}</span>
-                    </div>
-                    <div className="flex justify-between gap-4 text-base">
-                      <span className="font-semibold">Balance</span>
-                      <span className="font-semibold">{order.balanceAmount}</span>
-                    </div>
-                    <p className="text-muted-foreground">
-                      Due timing: {paymentDueTimingLabel(order.paymentDueTiming)}
-                      {order.paymentDueDate ? ` · ${order.paymentDueDate}` : ""}
-                    </p>
-                    <p className="mt-1 text-muted-foreground">Last payment: {order.lastPaymentDate ?? "None"}</p>
-                  </div>
-                ) : null}
-                {canViewDeliveries ? (
-                  <div className="border-t border-border pt-3">
-                    <p className="text-muted-foreground">Next delivery: {order.nextDeliveryDate ?? "None"}</p>
-                    <p className="mt-1 text-muted-foreground">
-                      Provider: {order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : "None"}
-                    </p>
-                  </div>
-                ) : null}
                 {order.relatedQuotationId || order.relatedInquiryId ? (
                   <div className="border-t border-border pt-3">
+                    <p className="text-xs uppercase text-muted-foreground">Related quotation / inquiry</p>
                     {order.relatedQuotationId ? (
-                      <p className="text-muted-foreground">
+                      <p className="mt-1 text-muted-foreground">
                         Quotation: {order.relatedQuotationNumber ?? "Not assigned"}
                         {order.relatedQuotationStatus ? ` · ${readableLabel(order.relatedQuotationStatus)}` : ""}
                       </p>
