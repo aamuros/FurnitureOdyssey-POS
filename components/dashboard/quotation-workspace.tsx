@@ -184,7 +184,7 @@ const initialState: ActionState = {
 
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
-const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "CANCELLED"] as const;
 
 function normalizeStatusFilter(value: string | undefined) {
   return quotationStatusFilterOptions.find((option) => option === value) ?? "";
@@ -1039,11 +1039,13 @@ function ProductPicker({
 function QuotationItemTable({
   items,
   updateItem,
-  removeItem
+  removeItem,
+  finalTotal
 }: {
   items: ItemDraft[];
   updateItem: (index: number, patch: Partial<ItemDraft>) => void;
   removeItem: (index: number) => void;
+  finalTotal: number;
 }) {
   function confirmRemoveItem(index: number) {
     const itemName = items[index]?.itemName?.trim() || `item ${index + 1}`;
@@ -1212,14 +1214,20 @@ function QuotationItemTable({
         ))}
       </div>
 
-      <QuotationItemCostProfitSummary items={items} />
+      <QuotationItemCostProfitSummary items={items} finalTotal={finalTotal} />
     </div>
   );
 }
 
-function QuotationItemCostProfitSummary({ items }: { items: ItemDraft[] }) {
+function QuotationItemCostProfitSummary({
+  items,
+  finalTotal
+}: {
+  items: ItemDraft[];
+  finalTotal: number;
+}) {
   const totalCost = roundMoney(items.reduce((sum, item) => sum + lineCostTotal(item), 0));
-  const grossProfit = roundMoney(items.reduce((sum, item) => sum + lineProfit(item), 0));
+  const grossProfit = roundMoney(finalTotal - totalCost);
 
   return (
     <>
@@ -1487,7 +1495,12 @@ export function QuotationBuilder({
             </div>
             <div className="p-5">
               {items.length ? (
-                <QuotationItemTable items={items} updateItem={updateItem} removeItem={removeItem} />
+                <QuotationItemTable
+                  items={items}
+                  updateItem={updateItem}
+                  removeItem={removeItem}
+                  finalTotal={totals.totalAmount}
+                />
               ) : (
                 <div className="studio-empty flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
                   <ShoppingCart className="h-7 w-7 text-accent" />
@@ -2017,7 +2030,6 @@ export function QuotationRecordsList({
               <option value="DRAFT">Draft</option>
               <option value="SENT">Sent</option>
               <option value="ACCEPTED">Accepted</option>
-              <option value="DECLINED">Declined</option>
               <option value="CANCELLED">Cancelled</option>
             </Select>
             <Button>

@@ -63,11 +63,18 @@ export function calculateQuotationTotals(input: Pick<CreateQuotationInput, "item
     throw new Error("Quotation discount exceeds the post-item-discount total.");
   }
 
+  const totalAmount = roundMoney(Math.max(postItemDiscountTotal - quotationDiscountAmount, 0));
+  const totalCostAmount = roundMoney(
+    calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0)
+  );
+
   return {
     items: calculatedItems,
     subtotalAmount,
     itemDiscountTotal,
     quotationDiscountAmount,
-    totalAmount: roundMoney(Math.max(postItemDiscountTotal - quotationDiscountAmount, 0))
+    totalAmount,
+    totalCostAmount,
+    grossProfitAmount: roundMoney(totalAmount - totalCostAmount)
   };
 }

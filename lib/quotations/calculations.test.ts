@@ -95,7 +95,8 @@ test("calculateQuotationTotals applies fixed quotation discounts and zero discou
       {
         ...baseItem,
         quantity: 2,
-        unitPrice: 1000
+        unitPrice: 1000,
+        unitCostSnapshot: 600
       }
     ]
   });
@@ -103,6 +104,8 @@ test("calculateQuotationTotals applies fixed quotation discounts and zero discou
   assert.equal(totals.itemDiscountTotal, 0);
   assert.equal(totals.quotationDiscountAmount, 300);
   assert.equal(totals.totalAmount, 1700);
+  assert.equal(totals.totalCostAmount, 1200);
+  assert.equal(totals.grossProfitAmount, 500);
 });
 
 test("calculateQuotationTotals rejects discounts larger than subtotal", () => {
