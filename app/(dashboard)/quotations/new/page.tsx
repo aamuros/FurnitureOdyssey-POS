@@ -2,8 +2,6 @@ import { QuotationBuilder } from "@/components/dashboard/quotation-workspace";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
 import { hasPermission } from "@/lib/auth/permissions";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 
 export default async function NewQuotationPage() {
   const user = await requirePermission("QUOTATIONS", "CREATE");
@@ -57,14 +55,7 @@ export default async function NewQuotationPage() {
 
   return (
     <>
-      <div className="mb-6 flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start">
-        <Link
-          href="/quotations"
-          className="inline-flex min-h-10 w-fit shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to quotations
-        </Link>
+      <div className="mb-6 border-b border-border pb-5">
         <div>
           <p className="studio-kicker mb-2">Sales Operations</p>
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">New quotation</h1>
@@ -74,6 +65,8 @@ export default async function NewQuotationPage() {
         </div>
       </div>
       <QuotationBuilder
+        backHref="/quotations"
+        backLabel="Back to quotations"
         canCreateCustomers={canCreateCustomers}
         canUpdateQuotations={canUpdateQuotations}
         customers={customers.map((customer) => ({

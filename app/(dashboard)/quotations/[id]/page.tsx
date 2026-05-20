@@ -127,15 +127,14 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
       <PageHeader
         title={quotation.quotationNumber ?? "Quotation"}
         description="Review quotation contents, totals, and allowed workflow actions."
+      />
+      <Link
+        href="/quotations"
+        className="mb-4 inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
       >
-        <Link
-          href="/quotations"
-          className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to quotations
-        </Link>
-      </PageHeader>
+        <ArrowLeft className="h-4 w-4" />
+        Back to quotations
+      </Link>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <section className="space-y-6">
@@ -163,39 +162,6 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <DetailRow label="Updated by" value={quotation.updatedBy?.displayName ?? "Unknown"} />
               <DetailRow label="Created" value={formatDate(quotation.createdAt)} />
               <DetailRow label="Updated" value={formatDate(quotation.updatedAt)} />
-            </div>
-          </section>
-
-          <section className="studio-card">
-            <div className="studio-card-header">
-              <p className="studio-kicker">Notes</p>
-              <h2 className="text-sm font-semibold">Quotation notes</h2>
-            </div>
-            <div className="grid gap-3 p-5 md:grid-cols-2">
-              <DetailRow
-                label="Customer-facing notes"
-                value={
-                  quotation.customerNotes ? (
-                    <p className="whitespace-pre-wrap break-words leading-6">
-                      {quotation.customerNotes}
-                    </p>
-                  ) : (
-                    "No notes added."
-                  )
-                }
-              />
-              <DetailRow
-                label="Internal notes"
-                value={
-                  quotation.internalNotes ? (
-                    <p className="whitespace-pre-wrap break-words leading-6">
-                      {quotation.internalNotes}
-                    </p>
-                  ) : (
-                    "No notes added."
-                  )
-                }
-              />
             </div>
           </section>
 
@@ -236,6 +202,39 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
                   ))}
                 </tbody>
               </table>
+            </div>
+          </section>
+
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Notes</p>
+              <h2 className="text-sm font-semibold">Quotation notes</h2>
+            </div>
+            <div className="grid gap-3 p-5 md:grid-cols-2">
+              <DetailRow
+                label="Customer-facing notes"
+                value={
+                  quotation.customerNotes ? (
+                    <p className="whitespace-pre-wrap break-words leading-6">
+                      {quotation.customerNotes}
+                    </p>
+                  ) : (
+                    "No notes added."
+                  )
+                }
+              />
+              <DetailRow
+                label="Internal notes"
+                value={
+                  quotation.internalNotes ? (
+                    <p className="whitespace-pre-wrap break-words leading-6">
+                      {quotation.internalNotes}
+                    </p>
+                  ) : (
+                    "No notes added."
+                  )
+                }
+              />
             </div>
           </section>
         </section>

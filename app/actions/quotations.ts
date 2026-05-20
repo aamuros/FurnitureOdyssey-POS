@@ -5,7 +5,7 @@ import type { DiscountType, QuotationItemType, QuotationStatus } from "@prisma/c
 import { prisma } from "@/lib/prisma";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
-import { convertQuotationToOrderAction } from "@/app/actions/orders";
+import { convertAcceptedQuotationToOrderTx } from "@/app/actions/orders";
 import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
 import { assertValidStatusTransition } from "@/lib/status-transitions";
@@ -15,6 +15,8 @@ type ActionState = {
   ok: boolean;
   message: string;
   quotationId?: string;
+  status?: QuotationStatus;
+  deleted?: boolean;
   intent?: string;
 };
 
@@ -515,52 +517,46 @@ export async function updateQuotationStatusAction(
 
   let successMessage = `Quotation marked ${status}.`;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.quotation.update({
-      where: {
-        id: quotation.id
-      },
-      data: {
-        status: nextStatus,
-        updatedById: actor.id
-      }
-    });
-
-    await tx.activityLog.create({
-      data: {
-        action: "QUOTATION_UPDATED",
-        actorId: actor.id,
-        summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
-        metadata: {
-          entityType: "quotation",
-          entityId: quotation.id,
-          quotationId: quotation.id,
-          oldStatus: quotation.status,
-          newStatus: nextStatus,
-          reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
-          sourceAction: "quotation_status_update"
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.quotation.update({
+        where: {
+          id: quotation.id
+        },
+        data: {
+          status: nextStatus,
+          updatedById: actor.id
         }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "QUOTATION_UPDATED",
+          actorId: actor.id,
+          summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
+          metadata: {
+            entityType: "quotation",
+            entityId: quotation.id,
+            quotationId: quotation.id,
+            oldStatus: quotation.status,
+            newStatus: nextStatus,
+            reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
+            sourceAction: "quotation_status_update"
+          }
+        }
+      });
+
+      if (nextStatus === "ACCEPTED") {
+        await convertAcceptedQuotationToOrderTx(tx, quotation.id, actor.id);
+        successMessage = "Quotation accepted and converted to an order.";
       }
     });
-  });
-
-  if (nextStatus === "ACCEPTED") {
-    const conversionFormData = new FormData();
-    conversionFormData.set("quotationId", quotation.id);
-    const conversion = await convertQuotationToOrderAction({ ok: false, message: "" }, conversionFormData);
-
-    if (!conversion.ok) {
-      revalidatePath("/quotations");
-      revalidatePath(`/quotations/${quotation.id}`);
-      revalidatePath("/orders");
-      return {
-        ok: false,
-        quotationId: quotation.id,
-        message: "Quotation was marked accepted, but the order was not created. Please convert it from Orders when ready."
-      };
-    }
-
-    successMessage = "Quotation accepted and converted to an order.";
+  } catch (error) {
+    return {
+      ok: false,
+      quotationId: quotation.id,
+      message: error instanceof Error ? error.message : "Quotation status update failed."
+    };
   }
 
   revalidatePath("/quotations");
@@ -570,6 +566,89 @@ export async function updateQuotationStatusAction(
   return {
     ok: true,
     quotationId: quotation.id,
+    status: nextStatus,
     message: successMessage
+  };
+}
+
+export async function deleteQuotationAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("QUOTATIONS", "DELETE");
+  const quotationId = String(formData.get("quotationId") ?? "");
+
+  if (!quotationId) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  const quotation = await prisma.quotation.findUnique({
+    where: {
+      id: quotationId
+    },
+    include: {
+      order: {
+        select: {
+          id: true
+        }
+      },
+      customer: {
+        select: {
+          displayName: true
+        }
+      }
+    }
+  });
+
+  if (!quotation) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  if (quotation.order) {
+    return {
+      ok: false,
+      quotationId,
+      message: "Converted quotations cannot be deleted."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.quotation.delete({
+      where: {
+        id: quotation.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "QUOTATION_UPDATED",
+        actorId: actor.id,
+        summary: `Deleted quotation for ${quotation.customer.displayName}.`,
+        metadata: {
+          entityType: "quotation",
+          entityId: quotation.id,
+          quotationId: quotation.id,
+          quotationNumber: quotation.quotationNumber,
+          oldStatus: quotation.status,
+          sourceAction: "quotation_delete"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotation.id}`);
+
+  return {
+    ok: true,
+    quotationId,
+    deleted: true,
+    message: "Quotation deleted."
   };
 }

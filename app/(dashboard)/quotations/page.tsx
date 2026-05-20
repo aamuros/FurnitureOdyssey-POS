@@ -76,7 +76,7 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
     order: {
       is: null
     },
-    status: status ? (status as never) : undefined,
+    status: status ? (status as never) : { not: "ACCEPTED" },
     OR: query
       ? [
           { quotationNumber: { contains: query, mode: "insensitive" } },
@@ -181,6 +181,7 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
         canExportDocuments={hasPermission(user, "DOCUMENTS", "EXPORT")}
         canUpdateQuotations={hasPermission(user, "QUOTATIONS", "UPDATE")}
         canApproveQuotations={hasPermission(user, "QUOTATIONS", "APPROVE")}
+        canDeleteQuotations={hasPermission(user, "QUOTATIONS", "DELETE")}
       />
     </>
   );

@@ -55,6 +55,22 @@ type ActionState = {
 };
 
 type OrderTx = Prisma.TransactionClient;
+type QuotationForOrderConversion = Prisma.QuotationGetPayload<{
+  include: {
+    order: true;
+    customer: {
+      include: {
+        contacts: true;
+        addresses: true;
+      };
+    };
+    items: {
+      include: {
+        images: true;
+      };
+    };
+  };
+}>;
 
 class ActionError extends Error {}
 
@@ -286,25 +302,10 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
   }
 }
 
-export async function convertQuotationToOrderAction(
-  _previousState: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  const actor = await requirePermission("ORDERS", "CREATE");
-  const parsed = convertQuotationToOrderSchema.safeParse({
-    quotationId: formData.get("quotationId")
-  });
-
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message: firstIssue(parsed.error, "Invalid quotation.")
-    };
-  }
-
-  const quotation = await prisma.quotation.findUnique({
+async function findQuotationForOrderConversion(tx: OrderTx, quotationId: string) {
+  return tx.quotation.findUnique({
     where: {
-      id: parsed.data.quotationId
+      id: quotationId
     },
     include: {
       order: true,
@@ -334,6 +335,224 @@ export async function convertQuotationToOrderAction(
       }
     }
   });
+}
+
+async function createOrderFromQuotationTx(
+  tx: OrderTx,
+  quotation: QuotationForOrderConversion,
+  actorId: string
+) {
+  const orderNumber = await generateOrderNumber(tx);
+  const calculatedItems = quotation.items.map((item) =>
+    calculateOrderItem({
+      quotationItemId: item.id,
+      productId: item.productId ?? undefined,
+      itemType: item.itemType,
+      sortOrder: item.sortOrder,
+      snapshotProductCode: item.snapshotProductCode ?? undefined,
+      itemName: item.itemName,
+      description: item.description ?? undefined,
+      specifications: item.specifications ?? undefined,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      unitCostSnapshot: quotationUnitCostSnapshotForOrderItem(item),
+      discountType: item.discountType ?? undefined,
+      discountValue: item.discountValue ? Number(item.discountValue) : undefined,
+      customerNotes: item.customerNotes ?? undefined,
+      internalNotes: item.internalNotes ?? undefined,
+      images: []
+    })
+  );
+  const totalCostAmount = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0));
+  const grossProfitAmount = roundMoney(Number(quotation.totalAmount) - totalCostAmount);
+
+  const created = await tx.order.create({
+    data: {
+      orderNumber,
+      quotationId: quotation.id,
+      customerId: quotation.customerId,
+      inquiryId: quotation.inquiryId,
+      status: "CONFIRMED",
+      paymentStatus: "UNPAID",
+      deliveryStatus: "NOT_SCHEDULED",
+      currency: quotation.currency,
+      customerDisplayNameSnapshot: quotation.customer.displayName,
+      customerTypeSnapshot: quotation.customer.customerType,
+      companyNameSnapshot: quotation.customer.companyName,
+      contactPersonNameSnapshot: quotation.customer.contactPersonName,
+      primaryContactSnapshot: primaryContactSnapshot(quotation.customer.contacts),
+      billingAddressSnapshot: addressSnapshot(quotation.customer.addresses),
+      deliveryAddressSnapshot: addressSnapshot(quotation.customer.addresses),
+      subtotalAmount: quotation.subtotalAmount,
+      itemDiscountTotal: quotation.itemDiscountTotal,
+      orderDiscountType: quotation.quotationDiscountType,
+      orderDiscountValue: quotation.quotationDiscountValue,
+      orderDiscountAmount: quotation.quotationDiscountAmount,
+      totalAmount: quotation.totalAmount,
+      totalCostAmount,
+      grossProfitAmount,
+      paidAmount: 0,
+      balanceAmount: quotation.totalAmount,
+      needsAssembly: quotation.needsAssembly,
+      salesInvoiceRequested: quotation.salesInvoiceRequested,
+      modeOfDelivery: quotation.modeOfDelivery,
+      deliveryMethod: quotation.deliveryMethod,
+      paymentTerms: quotation.paymentTerms,
+      specialInstructions: quotation.specialInstructions,
+      customerNotes: quotation.customerNotes,
+      internalNotes: quotation.internalNotes,
+      sourceType: "QUOTATION",
+      confirmedAt: new Date(),
+      createdById: actorId,
+      updatedById: actorId,
+      items: {
+        create: quotation.items.map((item, index) => ({
+          quotationItemId: item.id,
+          productId: item.productId,
+          itemType: item.itemType,
+          sortOrder: item.sortOrder,
+          snapshotProductCode: item.snapshotProductCode,
+          itemName: item.itemName,
+          description: item.description,
+          specifications: item.specifications,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountType: item.discountType,
+          discountValue: item.discountValue,
+          discountAmount: item.discountAmount,
+          lineSubtotal: item.lineSubtotal,
+          lineTotal: item.lineTotal,
+          unitCostSnapshot: calculatedItems[index].unitCostSnapshot,
+          lineCostTotal: calculatedItems[index].lineCostTotal,
+          lineProfit: calculatedItems[index].lineProfit,
+          customerNotes: item.customerNotes,
+          internalNotes: item.internalNotes,
+          images: item.images.length
+            ? {
+                create: item.images.map((image) => ({
+                  sourceQuotationItemImageId: image.id,
+                  sourceProductImageId: image.sourceProductImageId,
+                  cloudinaryPublicId: image.cloudinaryPublicId,
+                  secureUrl: image.secureUrl,
+                  resourceType: image.resourceType,
+                  format: image.format,
+                  width: image.width,
+                  height: image.height,
+                  bytes: image.bytes,
+                  altText: image.altText,
+                  sortOrder: image.sortOrder,
+                  isPrimary: image.isPrimary
+                }))
+              }
+            : undefined
+        }))
+      }
+    }
+  });
+
+  if (quotation.inquiryId) {
+    await tx.inquiry.update({
+      where: {
+        id: quotation.inquiryId
+      },
+      data: {
+        status: "CONVERTED_TO_ORDER"
+      }
+    });
+  }
+
+  await tx.activityLog.createMany({
+    data: [
+      {
+        action: "QUOTATION_CONVERTED_TO_ORDER",
+        actorId,
+        summary: `Converted quotation for ${quotation.customer.displayName} to an order.`,
+        metadata: {
+          quotationId: quotation.id,
+          orderId: created.id,
+          customerId: quotation.customerId,
+          needsAssembly: quotation.needsAssembly,
+          salesInvoiceRequested: quotation.salesInvoiceRequested,
+          modeOfDelivery: quotation.modeOfDelivery,
+          deliveryMethod: quotation.deliveryMethod,
+          paymentTerms: quotation.paymentTerms
+        }
+      },
+      {
+        action: "ORDER_CREATED",
+        actorId,
+        summary: `Created order for ${quotation.customer.displayName}.`,
+        metadata: {
+          orderId: created.id,
+          orderNumber: created.orderNumber,
+          quotationId: quotation.id,
+          totalAmount: Number(quotation.totalAmount),
+          totalCostAmount,
+          grossProfitAmount,
+          needsAssembly: quotation.needsAssembly,
+          salesInvoiceRequested: quotation.salesInvoiceRequested
+        }
+      }
+    ]
+  });
+
+  return created;
+}
+
+export async function convertAcceptedQuotationToOrderTx(
+  tx: OrderTx,
+  quotationId: string,
+  actorId: string
+) {
+  const quotation = await findQuotationForOrderConversion(tx, quotationId);
+
+  if (!quotation) {
+    throw new ActionError("Quotation was not found.");
+  }
+
+  if (quotation.order) {
+    return quotation.order;
+  }
+
+  if (quotation.status !== "ACCEPTED") {
+    throw new ActionError("Only approved quotations can be converted to orders.");
+  }
+
+  if (quotation.items.length === 0) {
+    throw new ActionError("Quotation needs at least one item before conversion.");
+  }
+
+  return createOrderFromQuotationTx(tx, quotation, actorId);
+}
+
+export async function convertQuotationToOrderAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "CREATE");
+  const parsed = convertQuotationToOrderSchema.safeParse({
+    quotationId: formData.get("quotationId")
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: firstIssue(parsed.error, "Invalid quotation.")
+    };
+  }
+
+  const quotation = await prisma.quotation.findUnique({
+    where: {
+      id: parsed.data.quotationId
+    },
+    include: {
+      customer: {
+        select: {
+          displayName: true
+        }
+      }
+    }
+  });
 
   if (!quotation) {
     return {
@@ -342,184 +561,22 @@ export async function convertQuotationToOrderAction(
     };
   }
 
-  if (quotation.order) {
-    return {
-      ok: true,
-      message: "This quotation already has a converted order."
-    };
-  }
+  let order;
 
-  if (quotation.status !== "ACCEPTED") {
-    return {
-      ok: false,
-      message: "Only approved quotations can be converted to orders."
-    };
-  }
-
-  if (quotation.items.length === 0) {
-    return {
-      ok: false,
-      message: "Quotation needs at least one item before conversion."
-    };
-  }
-
-  const order = await prisma.$transaction(async (tx) => {
-    const orderNumber = await generateOrderNumber(tx);
-    const calculatedItems = quotation.items.map((item) =>
-      calculateOrderItem({
-        quotationItemId: item.id,
-        productId: item.productId ?? undefined,
-        itemType: item.itemType,
-        sortOrder: item.sortOrder,
-        snapshotProductCode: item.snapshotProductCode ?? undefined,
-        itemName: item.itemName,
-        description: item.description ?? undefined,
-        specifications: item.specifications ?? undefined,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        unitCostSnapshot: quotationUnitCostSnapshotForOrderItem(item),
-        discountType: item.discountType ?? undefined,
-        discountValue: item.discountValue ? Number(item.discountValue) : undefined,
-        customerNotes: item.customerNotes ?? undefined,
-        internalNotes: item.internalNotes ?? undefined,
-        images: []
-      })
+  try {
+    order = await prisma.$transaction((tx) =>
+      convertAcceptedQuotationToOrderTx(tx, quotation.id, actor.id)
     );
-    const totalCostAmount = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0));
-    const grossProfitAmount = roundMoney(Number(quotation.totalAmount) - totalCostAmount);
-
-    const created = await tx.order.create({
-      data: {
-        orderNumber,
-        quotationId: quotation.id,
-        customerId: quotation.customerId,
-        inquiryId: quotation.inquiryId,
-        status: "CONFIRMED",
-        paymentStatus: "UNPAID",
-        deliveryStatus: "NOT_SCHEDULED",
-        currency: quotation.currency,
-        customerDisplayNameSnapshot: quotation.customer.displayName,
-        customerTypeSnapshot: quotation.customer.customerType,
-        companyNameSnapshot: quotation.customer.companyName,
-        contactPersonNameSnapshot: quotation.customer.contactPersonName,
-        primaryContactSnapshot: primaryContactSnapshot(quotation.customer.contacts),
-        billingAddressSnapshot: addressSnapshot(quotation.customer.addresses),
-        deliveryAddressSnapshot: addressSnapshot(quotation.customer.addresses),
-        subtotalAmount: quotation.subtotalAmount,
-        itemDiscountTotal: quotation.itemDiscountTotal,
-        orderDiscountType: quotation.quotationDiscountType,
-        orderDiscountValue: quotation.quotationDiscountValue,
-        orderDiscountAmount: quotation.quotationDiscountAmount,
-        totalAmount: quotation.totalAmount,
-        totalCostAmount,
-        grossProfitAmount,
-        paidAmount: 0,
-        balanceAmount: quotation.totalAmount,
-        needsAssembly: quotation.needsAssembly,
-        salesInvoiceRequested: quotation.salesInvoiceRequested,
-        modeOfDelivery: quotation.modeOfDelivery,
-        deliveryMethod: quotation.deliveryMethod,
-        paymentTerms: quotation.paymentTerms,
-        specialInstructions: quotation.specialInstructions,
-        customerNotes: quotation.customerNotes,
-        internalNotes: quotation.internalNotes,
-        sourceType: "QUOTATION",
-        confirmedAt: new Date(),
-        createdById: actor.id,
-        updatedById: actor.id,
-        items: {
-          create: quotation.items.map((item, index) => ({
-            quotationItemId: item.id,
-            productId: item.productId,
-            itemType: item.itemType,
-            sortOrder: item.sortOrder,
-            snapshotProductCode: item.snapshotProductCode,
-            itemName: item.itemName,
-            description: item.description,
-            specifications: item.specifications,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            discountType: item.discountType,
-            discountValue: item.discountValue,
-            discountAmount: item.discountAmount,
-            lineSubtotal: item.lineSubtotal,
-            lineTotal: item.lineTotal,
-            unitCostSnapshot: calculatedItems[index].unitCostSnapshot,
-            lineCostTotal: calculatedItems[index].lineCostTotal,
-            lineProfit: calculatedItems[index].lineProfit,
-            customerNotes: item.customerNotes,
-            internalNotes: item.internalNotes,
-            images: item.images.length
-              ? {
-                  create: item.images.map((image) => ({
-                    sourceQuotationItemImageId: image.id,
-                    sourceProductImageId: image.sourceProductImageId,
-                    cloudinaryPublicId: image.cloudinaryPublicId,
-                    secureUrl: image.secureUrl,
-                    resourceType: image.resourceType,
-                    format: image.format,
-                    width: image.width,
-                    height: image.height,
-                    bytes: image.bytes,
-                    altText: image.altText,
-                    sortOrder: image.sortOrder,
-                    isPrimary: image.isPrimary
-                  }))
-                }
-              : undefined
-          }))
-        }
-      }
-    });
-
-    if (quotation.inquiryId) {
-      await tx.inquiry.update({
-        where: {
-          id: quotation.inquiryId
-        },
-        data: {
-          status: "CONVERTED_TO_ORDER"
-        }
-      });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return {
+        ok: false,
+        message: error.message
+      };
     }
 
-    await tx.activityLog.createMany({
-      data: [
-        {
-          action: "QUOTATION_CONVERTED_TO_ORDER",
-          actorId: actor.id,
-          summary: `Converted quotation for ${quotation.customer.displayName} to an order.`,
-          metadata: {
-            quotationId: quotation.id,
-            orderId: created.id,
-            customerId: quotation.customerId,
-            needsAssembly: quotation.needsAssembly,
-            salesInvoiceRequested: quotation.salesInvoiceRequested,
-            modeOfDelivery: quotation.modeOfDelivery,
-            deliveryMethod: quotation.deliveryMethod,
-            paymentTerms: quotation.paymentTerms
-          }
-        },
-        {
-          action: "ORDER_CREATED",
-          actorId: actor.id,
-          summary: `Created order for ${quotation.customer.displayName}.`,
-          metadata: {
-            orderId: created.id,
-            orderNumber: created.orderNumber,
-            quotationId: quotation.id,
-            totalAmount: Number(quotation.totalAmount),
-            totalCostAmount,
-            grossProfitAmount,
-            needsAssembly: quotation.needsAssembly,
-            salesInvoiceRequested: quotation.salesInvoiceRequested
-          }
-        }
-      ]
-    });
-
-    return created;
-  });
+    throw error;
+  }
 
   revalidatePath("/orders");
   revalidatePath("/quotations");

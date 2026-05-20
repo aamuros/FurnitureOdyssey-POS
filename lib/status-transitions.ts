@@ -22,7 +22,7 @@ type TransitionMap<T extends string> = Record<T, readonly T[]>;
 
 export const quotationStatusTransitions = {
   DRAFT: ["SENT", "ACCEPTED", "CANCELLED"],
-  SENT: ["ACCEPTED", "DECLINED", "CANCELLED"],
+  SENT: ["DRAFT", "ACCEPTED", "DECLINED", "CANCELLED"],
   ACCEPTED: [],
   DECLINED: [],
   CANCELLED: []
