@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   deliveryStatusLabel,
   orderStatusLabel,
+  paymentDueTimingLabel,
   paymentStatusLabel,
   paymentTypeLabel,
   readableLabel,
@@ -61,6 +62,7 @@ type ProductOption = {
 
 type ApprovedQuotationOption = {
   id: string;
+  quotationNumber: string | null;
   customerName: string;
   totalAmount: string;
   itemCount: number;
@@ -208,7 +210,7 @@ type ItemDraft = {
 type ActiveOrderAction = "payment" | "paymentDue" | "delivery" | `deliveryProgress:${string}` | null;
 type OpenOrderAction = Exclude<ActiveOrderAction, null>;
 type NewOrderMode = "choices" | "quotation" | "manual";
-type ManualOrderStep = "customer" | "items" | "terms" | "review";
+type ManualOrderStep = "customer" | "items" | "plan" | "review";
 type OrderDetailTab = "overview" | "items" | "payments" | "deliveries" | "documents" | "notes";
 type OrderCardPrimaryActionKind = "recordPayment" | "scheduleDelivery" | "details";
 type OrderCardPrimaryAction = {
@@ -252,6 +254,10 @@ function money(value: number) {
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function itemCountLabel(count: number) {
+  return `${count} ${count === 1 ? "item" : "items"}`;
 }
 
 function itemSubtotal(item: ItemDraft) {
@@ -1027,7 +1033,7 @@ export function NewOrderLauncher({
             role="dialog"
             aria-modal="true"
             aria-labelledby="new-order-title"
-            className="relative ml-auto flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
+            className="relative ml-auto flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
           >
             <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
               <div className="min-w-0">
@@ -1055,34 +1061,75 @@ export function NewOrderLauncher({
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
               {mode === "choices" ? (
-                <div className="grid max-w-3xl gap-3 md:grid-cols-2">
+                <div className="grid max-w-3xl gap-4 md:grid-cols-2">
                   <button
                     type="button"
-                    className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45 disabled:cursor-not-allowed disabled:opacity-70"
                     onClick={() => setMode("quotation")}
                     disabled={approvedQuotations.length === 0}
                   >
-                    <FileText className="mb-3 h-5 w-5 text-accent" />
-                    <span className="block text-base font-semibold">Convert approved quotation</span>
-                    <span className="mt-2 block text-sm leading-5 text-muted-foreground">
-                      Pull customer, items, and negotiated total from an accepted quotation.
+                    <span className="flex items-start gap-3">
+                      <FileText className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                      <span>
+                        <span className="block text-base font-semibold">Convert approved quotation</span>
+                        <span className="mt-1 block text-sm leading-5 text-muted-foreground">
+                          Start from an accepted quotation with customer and items already set.
+                        </span>
+                      </span>
                     </span>
-                    <span className="mt-3 block text-xs font-semibold uppercase text-muted-foreground">
-                      {approvedQuotations.length} ready
-                    </span>
+                    {approvedQuotations.length > 0 ? (
+                      <span className="mt-4 block space-y-2">
+                        {approvedQuotations.slice(0, 3).map((quotation) => (
+                          <span
+                            key={quotation.id}
+                            className="block rounded-md border border-border bg-panel px-3 py-2 text-sm"
+                          >
+                            <span className="block truncate font-semibold">
+                              {quotation.quotationNumber ?? "No quote number"} · {quotation.customerName}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                              {quotation.totalAmount} · {itemCountLabel(quotation.itemCount)}
+                            </span>
+                          </span>
+                        ))}
+                        {approvedQuotations.length > 3 ? (
+                          <span className="block text-xs font-semibold text-muted-foreground">
+                            +{approvedQuotations.length - 3} more ready
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="mt-4 block rounded-md border border-dashed border-border bg-panel px-3 py-2 text-sm font-medium text-muted-foreground">
+                        No approved quotations ready
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
                     className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45"
                     onClick={() => setMode("manual")}
                   >
-                    <ClipboardList className="mb-3 h-5 w-5 text-accent" />
-                    <span className="block text-base font-semibold">Create manual order</span>
-                    <span className="mt-2 block text-sm leading-5 text-muted-foreground">
-                      Direct order with catalog or custom items, customer terms, and negotiated pricing.
+                    <span className="flex items-start gap-3">
+                      <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+                      <span>
+                        <span className="block text-base font-semibold">Create manual order</span>
+                        <span className="mt-1 block text-sm leading-5 text-muted-foreground">
+                          Build a direct order for negotiated or custom sales.
+                        </span>
+                      </span>
                     </span>
-                    <span className="mt-3 block text-xs font-semibold uppercase text-muted-foreground">
-                      Customer + items + terms
+                    <span className="mt-4 block space-y-2 text-sm">
+                      {[
+                        "Choose customer",
+                        "Add catalog or custom items",
+                        "Set payment and delivery plan",
+                        "Review before creating"
+                      ].map((item) => (
+                        <span key={item} className="flex items-center gap-2 text-muted-foreground">
+                          <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                          {item}
+                        </span>
+                      ))}
                     </span>
                   </button>
                 </div>
@@ -1116,40 +1163,120 @@ function ConvertApprovedQuotationForm({
     convertQuotationToOrderAction,
     initialState
   );
+  const [selectedQuotationId, setSelectedQuotationId] = useState(
+    approvedQuotations.length === 1 ? (approvedQuotations[0]?.id ?? "") : ""
+  );
+  const selectedQuotation =
+    approvedQuotations.find((quotation) => quotation.id === selectedQuotationId) ?? null;
 
   return (
     <form action={convertAction} className="max-w-3xl space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium" htmlFor="quotationId">
-          Approved quotation
-        </label>
-        <Select id="quotationId" name="quotationId" required defaultValue="">
-          <option value="" disabled>
-            Choose approved quotation
-          </option>
-          {approvedQuotations.map((quotation) => (
-            <option key={quotation.id} value={quotation.id}>
-              {quotation.customerName} - {quotation.totalAmount} - {quotation.itemCount} item(s)
-            </option>
-          ))}
-        </Select>
-      </div>
+      <input type="hidden" name="quotationId" value={selectedQuotationId} />
+
+      {approvedQuotations.length > 0 ? (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="space-y-3" role="radiogroup" aria-label="Approved quotations">
+            {approvedQuotations.map((quotation) => {
+              const selected = selectedQuotationId === quotation.id;
+
+              return (
+                <button
+                  key={quotation.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  className={cn(
+                    "w-full rounded-lg border bg-background p-3 text-left transition hover:bg-soft-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                    selected ? "border-primary/50 ring-2 ring-primary/20" : "border-border"
+                  )}
+                  onClick={() => setSelectedQuotationId(quotation.id)}
+                >
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">
+                        {quotation.quotationNumber ?? "No quote number"} · {quotation.customerName}
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {itemCountLabel(quotation.itemCount)}
+                      </span>
+                    </span>
+                    <span className="text-right">
+                      <span className="block whitespace-nowrap text-sm font-semibold">{quotation.totalAmount}</span>
+                      <span
+                        className={cn(
+                          "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                          selected
+                            ? "border-primary/30 bg-primary/15 text-foreground"
+                            : "border-border text-muted-foreground"
+                        )}
+                      >
+                        {selected ? "Selected" : "Select"}
+                      </span>
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <aside className="h-fit rounded-lg border border-border bg-background p-4">
+            <p className="studio-kicker">Confirm</p>
+            <h3 className="mt-1 text-base font-semibold">Quotation summary</h3>
+            {selectedQuotation ? (
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Quotation</span>
+                  <span className="text-right font-medium">
+                    {selectedQuotation.quotationNumber ?? "No quote number"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="text-right font-medium">{selectedQuotation.customerName}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Items</span>
+                  <span className="font-medium">{itemCountLabel(selectedQuotation.itemCount)}</span>
+                </div>
+                <div className="flex justify-between gap-4 border-t border-border pt-3">
+                  <span className="font-semibold">Total</span>
+                  <span className="font-semibold">{selectedQuotation.totalAmount}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-md bg-panel px-3 py-2 text-sm text-muted-foreground">
+                Select an approved quotation to review before creating the order.
+              </p>
+            )}
+          </aside>
+        </div>
+      ) : null}
 
       {approvedQuotations.length === 0 ? (
         <div className="studio-empty px-4 py-4 text-sm">
-          No accepted quotations are waiting to be converted.
+          No approved quotations ready. Approve a quotation before converting it into an order.
         </div>
       ) : null}
 
       {convertState.message ? (
-        <p className={cn("text-sm", convertState.ok ? "text-success" : "text-danger")}>
-          {convertState.message}
-        </p>
+        <div
+          className={cn(
+            "rounded-md px-3 py-2 text-sm",
+            convertState.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+          )}
+        >
+          <p>{convertState.message}</p>
+          {convertState.ok ? (
+            <p className="mt-1 text-muted-foreground">
+              The order will appear in the queue. Record payment or schedule delivery when the next action is ready.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
-      <Button disabled={convertPending || approvedQuotations.length === 0}>
+      <Button disabled={convertPending || !selectedQuotationId}>
         <CalendarClock className="h-4 w-4" />
-        Convert quotation
+        Create order from quotation
       </Button>
     </form>
   );
@@ -1164,14 +1291,24 @@ function ManualOrderForm({
     createManualOrderAction,
     initialState
   );
-  const [items, setItems] = useState<ItemDraft[]>([createCustomItem(0)]);
+  const [items, setItems] = useState<ItemDraft[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
-  const [customerId, setCustomerId] = useState(customers[0]?.id ?? "");
+  const [customerId, setCustomerId] = useState("");
   const [step, setStep] = useState<ManualOrderStep>("customer");
   const [orderDiscountType, setOrderDiscountType] = useState<"" | "FIXED_AMOUNT" | "PERCENTAGE">(
     ""
   );
   const [orderDiscountValue, setOrderDiscountValue] = useState(0);
+  const [needsAssembly, setNeedsAssembly] = useState(false);
+  const [salesInvoiceRequested, setSalesInvoiceRequested] = useState(false);
+  const [paymentDueTiming, setPaymentDueTiming] = useState("");
+  const [paymentDueDate, setPaymentDueDate] = useState("");
+  const [modeOfDelivery, setModeOfDelivery] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState("");
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [customerNotes, setCustomerNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
 
   const totals = useMemo(() => {
     const subtotalAmount = roundMoney(items.reduce((sum, item) => sum + itemSubtotal(item), 0));
@@ -1210,25 +1347,24 @@ function ManualOrderForm({
       return;
     }
 
-    setItems((current) => [
-      ...current,
-      {
-        productId: product.id,
-        itemType: "CATALOG_PRODUCT",
-        sortOrder: current.length,
-        snapshotProductCode: product.code ?? undefined,
-        itemName: product.name,
-        description: product.description ?? "",
-        specifications: product.specifications ?? "",
-        quantity: 1,
-        unitPrice: product.referencePrice ?? 0,
-        unitCostSnapshot: product.referenceCost ?? 0,
-        discountType: "",
-        discountValue: 0,
-        customerNotes: "",
-        internalNotes: ""
-      }
-    ]);
+    const catalogItem: ItemDraft = {
+      productId: product.id,
+      itemType: "CATALOG_PRODUCT",
+      sortOrder: 0,
+      snapshotProductCode: product.code ?? undefined,
+      itemName: product.name,
+      description: product.description ?? "",
+      specifications: product.specifications ?? "",
+      quantity: 1,
+      unitPrice: product.referencePrice ?? 0,
+      unitCostSnapshot: product.referenceCost ?? 0,
+      discountType: "",
+      discountValue: 0,
+      customerNotes: "",
+      internalNotes: ""
+    };
+
+    setItems((current) => [...current, { ...catalogItem, sortOrder: current.length }]);
     setSelectedProductId("");
   }
 
@@ -1249,26 +1385,79 @@ function ManualOrderForm({
   const selectedCustomer = customers.find((customer) => customer.id === customerId);
   const manualSteps: Array<{ key: ManualOrderStep; label: string }> = [
     { key: "customer", label: "Customer" },
-    { key: "items", label: "Items" },
-    { key: "terms", label: "Payment / delivery notes" },
-    { key: "review", label: "Review and save" }
+    { key: "items", label: "Items & pricing" },
+    { key: "plan", label: "Payment & delivery plan" },
+    { key: "review", label: "Review" }
   ];
   const currentStepIndex = manualSteps.findIndex((candidate) => candidate.key === step);
-  const canSave =
-    customers.length > 0 &&
-    items.length > 0 &&
-    items.every((item) => item.itemName.trim() && item.quantity > 0 && item.unitPrice >= 0);
+  const hasSelectedCustomer = Boolean(customerId);
+  const validItems = items.filter((item) => item.itemName.trim() && item.quantity > 0 && item.unitPrice >= 0);
+  const filledItems = items.filter((item) => item.itemName.trim());
+  const invalidItemCount = items.filter(
+    (item) => !item.itemName.trim() || item.quantity <= 0 || item.unitPrice < 0
+  ).length;
+  const hasValidItem = validItems.length > 0;
+  const allItemsValid = items.length > 0 && invalidItemCount === 0;
+  const hasPlanDetails = [
+    needsAssembly,
+    salesInvoiceRequested,
+    paymentDueTiming,
+    paymentDueDate,
+    modeOfDelivery,
+    deliveryMethod,
+    paymentTerms,
+    specialInstructions,
+    customerNotes,
+    internalNotes
+  ].some(Boolean);
+  const canSave = hasSelectedCustomer && allItemsValid;
+  const nextRequired =
+    !hasSelectedCustomer
+      ? "Next required: choose customer."
+      : !hasValidItem
+        ? "Next required: add at least one valid item."
+        : invalidItemCount > 0
+          ? "Next required: finish or remove incomplete item lines."
+          : "Ready to review and create.";
 
   function moveStep(offset: number) {
     const next = manualSteps[Math.min(Math.max(currentStepIndex + offset, 0), manualSteps.length - 1)];
     setStep(next.key);
   }
 
+  function canOpenStep(candidate: ManualOrderStep) {
+    if (candidate === "customer") {
+      return true;
+    }
+
+    if (candidate === "items") {
+      return hasSelectedCustomer;
+    }
+
+    if (candidate === "plan") {
+      return hasSelectedCustomer && allItemsValid;
+    }
+
+    return canSave;
+  }
+
+  function nextDisabled() {
+    if (step === "customer") {
+      return !hasSelectedCustomer;
+    }
+
+    if (step === "items") {
+      return !allItemsValid;
+    }
+
+    return false;
+  }
+
   return (
-    <form action={manualAction} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <form action={manualAction} className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
       <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
 
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-4">
         <div className="flex flex-wrap gap-2">
           {manualSteps.map((candidate, index) => (
             <button
@@ -1278,9 +1467,15 @@ function ManualOrderForm({
                 "inline-flex min-h-9 items-center rounded-full border px-3 text-xs font-semibold transition",
                 step === candidate.key
                   ? "border-primary/30 bg-primary/15 text-foreground"
-                  : "border-border bg-background text-muted-foreground hover:bg-soft-accent/50"
+                  : "border-border bg-background text-muted-foreground hover:bg-soft-accent/50",
+                !canOpenStep(candidate.key) && "cursor-not-allowed opacity-50 hover:bg-background"
               )}
-              onClick={() => setStep(candidate.key)}
+              onClick={() => {
+                if (canOpenStep(candidate.key)) {
+                  setStep(candidate.key);
+                }
+              }}
+              disabled={!canOpenStep(candidate.key)}
             >
               {index + 1}. {candidate.label}
             </button>
@@ -1289,40 +1484,52 @@ function ManualOrderForm({
 
         <section className={cn("space-y-4", step !== "customer" && "hidden")}>
           <div>
-            <p className="studio-kicker">Customer</p>
-            <h3 className="mt-1 text-base font-semibold">Who is this order for?</h3>
+            <p className="studio-kicker">Step 1</p>
+            <h3 className="mt-1 text-base font-semibold">Customer</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Start with the buyer so the order can inherit the current contact and address snapshot.
+            </p>
           </div>
-          {customers.length > 0 ? (
-            <label className="block max-w-xl space-y-2 text-sm font-medium">
-              Customer
-              <Select
-                name="customerId"
-                required
-                value={customerId}
-                onChange={(event) => setCustomerId(event.target.value)}
-              >
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.displayName}
-                    {customer.companyName ? ` - ${customer.companyName}` : ""}
+          <div className="grid gap-3">
+            {customers.length > 0 ? (
+              <label className="max-w-xl space-y-2 text-sm font-medium">
+                Customer
+                <Select
+                  name="customerId"
+                  required
+                  value={customerId}
+                  onChange={(event) => setCustomerId(event.target.value)}
+                >
+                  <option value="" disabled>
+                    Choose customer
                   </option>
-                ))}
-              </Select>
-            </label>
-          ) : (
-            <div className="studio-empty px-4 py-4 text-sm">
-              Add a customer record before creating a manual order.
-            </div>
-          )}
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.displayName}
+                      {customer.companyName ? ` - ${customer.companyName}` : ""}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            ) : (
+              <div className="studio-empty px-4 py-4 text-sm">
+                Add a customer record before creating a manual order.
+              </div>
+            )}
+          </div>
         </section>
 
         <section className={cn("space-y-4", step !== "items" && "hidden")}>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="studio-kicker">Items</p>
-              <h3 className="mt-1 text-base font-semibold">Build the order lines</h3>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto]">
+          <div>
+            <p className="studio-kicker">Step 2</p>
+            <h3 className="mt-1 text-base font-semibold">Items & pricing</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Add catalog items or custom lines, then confirm quantity, price, and discount.
+            </p>
+          </div>
+
+          <div className="grid gap-3">
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Select
                 value={selectedProductId}
                 onChange={(event) => setSelectedProductId(event.target.value)}
@@ -1339,6 +1546,9 @@ function ManualOrderForm({
                 <PackageSearch className="h-4 w-4" />
                 Add catalog item
               </Button>
+            </div>
+
+            <div className="flex justify-end">
               <Button type="button" variant="secondary" onClick={addCustomItem}>
                 <Plus className="h-4 w-4" />
                 Add custom item
@@ -1349,7 +1559,7 @@ function ManualOrderForm({
           <div className="space-y-3">
             {items.map((item, index) => (
               <div key={index} className="rounded-lg border border-border bg-background p-3">
-                <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_96px_130px_180px_130px_auto]">
+                <div className="grid gap-3">
                   <label className="space-y-2 text-sm font-medium">
                     Item name
                     <Input
@@ -1358,71 +1568,77 @@ function ManualOrderForm({
                       placeholder="Item name"
                     />
                   </label>
-                  <label className="space-y-2 text-sm font-medium">
-                    Qty
-                    <Input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={item.quantity}
-                      onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
-                      aria-label="Quantity"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm font-medium">
-                    Unit price
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.unitPrice}
-                      onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
-                      aria-label="Unit price"
-                    />
-                  </label>
-                  <div className="space-y-2 text-sm font-medium">
-                    Discount
-                    <div className="grid gap-2 sm:grid-cols-[1fr_86px]">
-                      <Select
-                        value={item.discountType}
-                        onChange={(event) =>
-                          updateItem(index, {
-                            discountType: event.target.value as ItemDraft["discountType"],
-                            discountValue: event.target.value ? item.discountValue : 0
-                          })
-                        }
-                        aria-label="Discount type"
-                      >
-                        <option value="">None</option>
-                        <option value="FIXED_AMOUNT">Fixed</option>
-                        <option value="PERCENTAGE">%</option>
-                      </Select>
+                  <div className="grid gap-3 sm:grid-cols-[80px_minmax(0,1fr)]">
+                    <label className="space-y-2 text-sm font-medium">
+                      Qty
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={item.quantity}
+                        onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
+                        aria-label="Quantity"
+                        placeholder="Qty"
+                      />
+                    </label>
+                    <label className="space-y-2 text-sm font-medium">
+                      Unit price
                       <Input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={item.discountValue}
-                        disabled={!item.discountType}
-                        onChange={(event) => updateItem(index, { discountValue: Number(event.target.value) })}
-                        aria-label="Discount value"
+                        value={item.unitPrice}
+                        onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                        aria-label="Unit price"
+                        placeholder="Unit price"
                       />
-                    </div>
+                    </label>
                   </div>
-                  <div className="space-y-2 text-sm font-medium">
-                    Line total
-                    <div className="min-h-10 rounded-lg bg-panel px-3 py-2 font-semibold">
-                      {money(itemLineTotal(item))}
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px_auto]">
+                    <div className="space-y-2 text-sm font-medium">
+                      Discount
+                      <div className="grid gap-2 sm:grid-cols-[1fr_76px]">
+                        <Select
+                          value={item.discountType}
+                          onChange={(event) =>
+                            updateItem(index, {
+                              discountType: event.target.value as ItemDraft["discountType"],
+                              discountValue: event.target.value ? item.discountValue : 0
+                            })
+                          }
+                          aria-label="Discount type"
+                        >
+                          <option value="">None</option>
+                          <option value="FIXED_AMOUNT">Fixed</option>
+                          <option value="PERCENTAGE">%</option>
+                        </Select>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.discountValue}
+                          disabled={!item.discountType}
+                          onChange={(event) => updateItem(index, { discountValue: Number(event.target.value) })}
+                          aria-label="Discount value"
+                        />
+                      </div>
                     </div>
+                    <div className="space-y-2 text-sm font-medium">
+                      Line total
+                      <div className="min-h-10 rounded-lg bg-panel px-3 py-2 font-semibold">
+                        {money(itemLineTotal(item))}
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="self-end px-3"
+                      onClick={() => removeItem(index)}
+                      aria-label={`Remove ${item.itemName || "item"}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="self-end px-3"
-                    onClick={() => removeItem(index)}
-                    aria-label={`Remove ${item.itemName || "item"}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
 
                 <details className="mt-3 border-t border-border pt-3">
@@ -1458,7 +1674,7 @@ function ManualOrderForm({
 
           {items.length === 0 ? (
             <div className="studio-empty px-4 py-4 text-sm">
-              Add a catalog item or custom item to continue.
+              No item lines yet. Add a catalog item or custom item to continue.
             </div>
           ) : null}
 
@@ -1469,7 +1685,7 @@ function ManualOrderForm({
                 {items.map((item, index) => (
                   <div
                     key={`${index}-${item.itemName}`}
-                    className="grid gap-3 text-sm md:grid-cols-[minmax(0,1fr)_140px_140px]"
+                    className="grid gap-3 text-sm"
                   >
                     <span className="truncate font-medium">{item.itemName || `Item ${index + 1}`}</span>
                     <label className="space-y-1 text-muted-foreground">
@@ -1494,45 +1710,115 @@ function ManualOrderForm({
           ) : null}
         </section>
 
-        <section className={cn("space-y-4", step !== "terms" && "hidden")}>
+        <section className={cn("space-y-4", step !== "plan" && "hidden")}>
           <div>
-            <p className="studio-kicker">Payment / Delivery</p>
-            <h3 className="mt-1 text-base font-semibold">Add order-level instructions</h3>
+            <p className="studio-kicker">Step 3</p>
+            <h3 className="mt-1 text-base font-semibold">Payment & delivery plan</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              These fields guide the next counter action. They do not create payment or delivery records yet.
+            </p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium">
-              <input type="checkbox" name="needsAssembly" value="true" />
+              <input
+                type="checkbox"
+                name="needsAssembly"
+                value="true"
+                checked={needsAssembly}
+                onChange={(event) => setNeedsAssembly(event.target.checked)}
+              />
               Needs assembly
             </label>
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium">
-              <input type="checkbox" name="salesInvoiceRequested" value="true" />
+              <input
+                type="checkbox"
+                name="salesInvoiceRequested"
+                value="true"
+                checked={salesInvoiceRequested}
+                onChange={(event) => setSalesInvoiceRequested(event.target.checked)}
+              />
               Sales invoice requested
             </label>
             <label className="space-y-2 text-sm font-medium">
+              Payment due timing
+              <Select
+                name="paymentDueTiming"
+                value={paymentDueTiming}
+                onChange={(event) => setPaymentDueTiming(event.target.value)}
+              >
+                <option value="">No timing set</option>
+                <option value="BEFORE_DELIVERY">Before delivery</option>
+                <option value="UPON_DELIVERY">Upon delivery</option>
+                <option value="AFTER_DELIVERY">After delivery</option>
+              </Select>
+            </label>
+            <label className="space-y-2 text-sm font-medium">
+              Payment due date
+              <Input
+                name="paymentDueDate"
+                type="date"
+                value={paymentDueDate}
+                onChange={(event) => setPaymentDueDate(event.target.value)}
+              />
+            </label>
+            <label className="space-y-2 text-sm font-medium">
               Mode of delivery
-              <Input name="modeOfDelivery" placeholder="Pickup, delivery, company-arranged" />
+              <Input
+                name="modeOfDelivery"
+                placeholder="Pickup, delivery, company-arranged"
+                value={modeOfDelivery}
+                onChange={(event) => setModeOfDelivery(event.target.value)}
+              />
             </label>
             <label className="space-y-2 text-sm font-medium">
               Delivery method
-              <Input name="deliveryMethod" placeholder="In-house, third-party, customer pickup" />
+              <Input
+                name="deliveryMethod"
+                placeholder="In-house, third-party, customer pickup"
+                value={deliveryMethod}
+                onChange={(event) => setDeliveryMethod(event.target.value)}
+              />
             </label>
             <label className="space-y-2 text-sm font-medium">
               Payment terms
-              <Textarea name="paymentTerms" placeholder="Downpayment, balance timing, company terms" />
+              <Textarea
+                name="paymentTerms"
+                placeholder="Downpayment, balance timing, company terms"
+                value={paymentTerms}
+                onChange={(event) => setPaymentTerms(event.target.value)}
+              />
             </label>
             <label className="space-y-2 text-sm font-medium">
               Remarks / special instructions
-              <Textarea name="specialInstructions" placeholder="Assembly, access, timing, or client reminders" />
+              <Textarea
+                name="specialInstructions"
+                placeholder="Assembly, access, timing, or client reminders"
+                value={specialInstructions}
+                onChange={(event) => setSpecialInstructions(event.target.value)}
+              />
             </label>
-            <Textarea name="customerNotes" placeholder="Customer-facing order notes" />
-            <Textarea name="internalNotes" placeholder="Internal notes" />
+            <Textarea
+              name="customerNotes"
+              placeholder="Customer-facing order notes"
+              value={customerNotes}
+              onChange={(event) => setCustomerNotes(event.target.value)}
+            />
+            <Textarea
+              name="internalNotes"
+              placeholder="Internal notes"
+              value={internalNotes}
+              onChange={(event) => setInternalNotes(event.target.value)}
+            />
           </div>
         </section>
 
         <section className={cn("space-y-4", step !== "review" && "hidden")}>
           <div>
-            <p className="studio-kicker">Review</p>
-            <h3 className="mt-1 text-base font-semibold">Confirm before saving</h3>
+            <p className="studio-kicker">Step 4</p>
+            <h3 className="mt-1 text-base font-semibold">Review</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Confirm the customer, item pricing, and plan before creating the order.
+            </p>
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-lg bg-background p-3">
@@ -1541,7 +1827,7 @@ function ManualOrderForm({
             </div>
             <div className="rounded-lg bg-background p-3">
               <p className="text-sm text-muted-foreground">Items</p>
-              <p className="mt-1 font-semibold">{items.length} line(s)</p>
+              <p className="mt-1 font-semibold">{itemCountLabel(items.length)}</p>
             </div>
             <div className="rounded-lg bg-background p-3">
               <p className="text-sm text-muted-foreground">Order total</p>
@@ -1550,32 +1836,118 @@ function ManualOrderForm({
           </div>
           <div className="divide-y divide-border rounded-lg border border-border bg-background">
             {items.map((item, index) => (
-              <div key={index} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-sm">
+              <div key={index} className="grid gap-3 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_90px_120px_120px]">
                 <div>
                   <p className="font-medium">{item.itemName || `Item ${index + 1}`}</p>
                   <p className="text-muted-foreground">
-                    {item.quantity} x {money(item.unitPrice)}
-                    {item.discountType ? ` · Discount ${money(itemDiscountAmount(item))}` : ""}
+                    {item.itemType === "CATALOG_PRODUCT" ? item.snapshotProductCode ?? "Catalog item" : "Custom item"}
                   </p>
                 </div>
-                <p className="font-semibold">{money(itemLineTotal(item))}</p>
+                <p className="font-medium md:text-right">Qty {item.quantity}</p>
+                <p className="font-medium md:text-right">{money(item.unitPrice)}</p>
+                <p className="font-semibold md:text-right">{money(itemLineTotal(item))}</p>
+                {item.discountType ? (
+                  <p className="text-xs text-muted-foreground md:col-span-4">
+                    Discount: {item.discountType === "PERCENTAGE" ? `${item.discountValue}%` : money(item.discountValue)}
+                    {" = "}
+                    {money(itemDiscountAmount(item))}
+                  </p>
+                ) : null}
               </div>
             ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-border bg-background p-3 text-sm">
+              <p className="font-semibold">Payment plan</p>
+              <div className="mt-3 space-y-2">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Due timing</span>
+                  <span className="text-right font-medium">
+                    {paymentDueTiming ? paymentDueTimingLabel(paymentDueTiming) : "Not set"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Due date</span>
+                  <span className="font-medium">{paymentDueDate || "Not set"}</span>
+                </div>
+                <p className="border-t border-border pt-2 text-muted-foreground">
+                  {paymentTerms || "No payment terms entered."}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-background p-3 text-sm">
+              <p className="font-semibold">Delivery, assembly, invoice</p>
+              <div className="mt-3 space-y-2">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Assembly</span>
+                  <span className="font-medium">{needsAssembly ? "Needed" : "Not marked"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Sales invoice</span>
+                  <span className="font-medium">{salesInvoiceRequested ? "Requested" : "Not requested"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Mode</span>
+                  <span className="text-right font-medium">{modeOfDelivery || "Not set"}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Method</span>
+                  <span className="text-right font-medium">{deliveryMethod || "Not set"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-background p-3 text-sm">
+            <p className="font-semibold">Notes</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Special instructions</p>
+                <p className="mt-1">{specialInstructions || "Not set"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Customer notes</p>
+                <p className="mt-1">{customerNotes || "Not set"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Internal notes</p>
+                <p className="mt-1">{internalNotes || "Not set"}</p>
+              </div>
+            </div>
           </div>
         </section>
       </div>
 
       <aside className="h-fit rounded-lg border border-border bg-background p-4">
-        <p className="studio-kicker">Order Summary</p>
-        <h3 className="mt-1 text-base font-semibold">Totals</h3>
+        <p className="studio-kicker">Ready check</p>
+        <h3 className="mt-1 text-base font-semibold">Order summary</h3>
         <div className="mt-4 space-y-3 text-sm">
           <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span className="font-medium">{money(totals.subtotalAmount)}</span>
+            <span className="text-muted-foreground">Customer</span>
+            <span className="font-medium">{hasSelectedCustomer ? "Selected" : "Not selected"}</span>
           </div>
           <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Item discounts</span>
-            <span className="font-medium">{money(totals.itemDiscountTotal)}</span>
+            <span className="text-muted-foreground">Item lines</span>
+            <span className="font-medium">{filledItems.length}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Pricing</span>
+            <span className="font-medium">{allItemsValid ? "Ready" : "Needs valid item pricing"}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Payment & delivery plan</span>
+            <span className="font-medium">{hasPlanDetails ? "Added" : "Optional"}</span>
+          </div>
+          <p className="rounded-md bg-panel px-3 py-2 text-xs text-muted-foreground">{nextRequired}</p>
+
+          <div className="border-t border-border pt-3">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="font-medium">{money(totals.subtotalAmount)}</span>
+            </div>
+            <div className="mt-2 flex justify-between gap-4">
+              <span className="text-muted-foreground">Item discounts</span>
+              <span className="font-medium">{money(totals.itemDiscountTotal)}</span>
+            </div>
           </div>
           <div className="grid gap-2">
             <Select
@@ -1619,9 +1991,19 @@ function ManualOrderForm({
             <span className="font-semibold">{money(totals.totalAmount)}</span>
           </div>
           {manualState.message ? (
-            <p className={cn("text-sm", manualState.ok ? "text-success" : "text-danger")}>
-              {manualState.message}
-            </p>
+            <div
+              className={cn(
+                "rounded-md px-3 py-2 text-sm",
+                manualState.ok ? "bg-success/10 text-success" : "bg-danger/10 text-danger"
+              )}
+            >
+              <p>{manualState.message}</p>
+              {manualState.ok ? (
+                <p className="mt-1 text-muted-foreground">
+                  The order is now in the queue. Record payment or schedule delivery from the order card next.
+                </p>
+              ) : null}
+            </div>
           ) : null}
           <div className="flex gap-2 pt-1">
             {currentStepIndex > 0 ? (
@@ -1630,13 +2012,18 @@ function ManualOrderForm({
               </Button>
             ) : null}
             {step !== "review" ? (
-              <Button type="button" onClick={() => moveStep(1)} className="flex-1">
+              <Button
+                type="button"
+                onClick={() => moveStep(1)}
+                disabled={nextDisabled()}
+                className="flex-1"
+              >
                 Next
               </Button>
             ) : (
               <Button disabled={manualPending || !canSave} className="flex-1">
                 <Save className="h-4 w-4" />
-                Save order
+                Create order
               </Button>
             )}
           </div>

@@ -87,6 +87,8 @@ export const createManualOrderSchema = z
     orderDiscountValue: money.optional(),
     needsAssembly: formBoolean.default(false),
     salesInvoiceRequested: formBoolean.default(false),
+    paymentDueTiming: z.enum(["BEFORE_DELIVERY", "UPON_DELIVERY", "AFTER_DELIVERY"]).optional(),
+    paymentDueDate: z.coerce.date().optional(),
     modeOfDelivery: optionalTextMax(255, "Mode of delivery is too long."),
     deliveryMethod: optionalTextMax(255, "Delivery method is too long."),
     paymentTerms: optionalTextMax(1000, "Payment terms must be 1000 characters or fewer."),

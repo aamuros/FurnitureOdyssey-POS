@@ -789,6 +789,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           }))}
           approvedQuotations={approvedQuotations.map((quotation) => ({
             id: quotation.id,
+            quotationNumber: quotation.quotationNumber,
             customerName: quotation.customer.displayName,
             totalAmount: formatMoney(quotation.totalAmount),
             itemCount: quotation._count.items
