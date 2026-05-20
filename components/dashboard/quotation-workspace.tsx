@@ -1,13 +1,16 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   ChevronDown,
   Download,
+  Eye,
   FileText,
   ImagePlus,
+  MoreHorizontal,
   PackageSearch,
   Pencil,
   Plus,
@@ -17,10 +20,15 @@ import {
   ShoppingCart,
   Trash2,
   UserPlus,
-  X
+  X,
+  XCircle
 } from "lucide-react";
 import { createCustomerAction } from "@/app/actions/customer-inquiries";
-import { createQuotationAction, updateQuotationStatusAction } from "@/app/actions/quotations";
+import {
+  createQuotationAction,
+  updateDraftQuotationAction,
+  updateQuotationStatusAction
+} from "@/app/actions/quotations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -61,7 +69,7 @@ type QuotationRow = {
   quotationNumber: string | null;
   customerName: string;
   status: string;
-  itemCount: number;
+  itemSummary: string;
   subtotalAmount: string;
   totalAmount: string;
   createdBy: string | null;
@@ -72,6 +80,22 @@ type QuotationBuilderProps = {
   customers: CustomerOption[];
   products: ProductOption[];
   canCreateCustomers: boolean;
+  canUpdateQuotations?: boolean;
+  mode?: "create" | "edit";
+  initialQuotation?: {
+    id: string;
+    customer: SelectedCustomer;
+    items: ItemDraft[];
+    quotationDiscountValue: number;
+    needsAssembly: boolean;
+    salesInvoiceRequested: boolean;
+    modeOfDelivery: string;
+    deliveryMethod: string;
+    paymentTerms: string;
+    specialInstructions: string;
+    customerNotes: string;
+    internalNotes: string;
+  };
 };
 
 type SelectedCustomer = {
@@ -84,6 +108,25 @@ type QuotationRecordsListProps = {
   quotations: QuotationRow[];
   query?: string;
   status?: string;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+    from: number;
+    to: number;
+  };
+  canExportDocuments: boolean;
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+};
+
+type QuotationDetailActionsProps = {
+  quotationId: string;
+  status: string;
+  canExportDocuments: boolean;
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
 };
 
 type ItemImageDraft = {
@@ -121,6 +164,8 @@ type ActionState = {
   message: string;
   customerId?: string;
   customerDisplayName?: string;
+  quotationId?: string;
+  intent?: string;
 };
 
 const initialState: ActionState = {
@@ -130,6 +175,11 @@ const initialState: ActionState = {
 
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
+const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+
+function normalizeStatusFilter(value: string | undefined) {
+  return quotationStatusFilterOptions.find((option) => option === value) ?? "";
+}
 
 function money(value: number) {
   return new Intl.NumberFormat("en-PH", {
@@ -187,6 +237,114 @@ function parseMoneyInput(value: string) {
   return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
 }
 
+function normalizeQuantity(value: number) {
+  return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : 1;
+}
+
+function parseQuantityInput(value: string) {
+  if (!value.trim()) {
+    return 1;
+  }
+
+  return normalizeQuantity(Number(value));
+}
+
+function MoneyInput({
+  value,
+  onValueChange,
+  max,
+  "aria-label": ariaLabel,
+  placeholder = "0"
+}: {
+  value: number;
+  onValueChange: (value: number) => void;
+  max?: number;
+  "aria-label"?: string;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(numericInputValue(value));
+    }
+  }, [editing, value]);
+
+  return (
+    <Input
+      type="number"
+      min="0"
+      max={max}
+      step="0.01"
+      value={editing ? draft : numericInputValue(value)}
+      onFocus={() => {
+        setEditing(true);
+        setDraft(numericInputValue(value));
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+
+        if (nextValue.trim()) {
+          onValueChange(parseMoneyInput(nextValue));
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        onValueChange(parseMoneyInput(draft));
+      }}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+    />
+  );
+}
+
+function QuantityInput({
+  value,
+  onValueChange,
+  "aria-label": ariaLabel
+}: {
+  value: number;
+  onValueChange: (value: number) => void;
+  "aria-label"?: string;
+}) {
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(String(value));
+    }
+  }, [editing, value]);
+
+  return (
+    <Input
+      type="number"
+      min="1"
+      step="1"
+      value={editing ? draft : String(value)}
+      onFocus={() => {
+        setEditing(true);
+        setDraft(String(value));
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+
+        if (nextValue.trim()) {
+          onValueChange(parseQuantityInput(nextValue));
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        onValueChange(parseQuantityInput(draft));
+      }}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
 function friendlyActionMessage(message: string) {
   if (!message) {
     return "";
@@ -211,6 +369,7 @@ function toActionItems(items: ItemDraft[]) {
   return items.map((item, index) => ({
     ...item,
     sortOrder: index,
+    quantity: normalizeQuantity(item.quantity),
     discountType: item.discountValue > 0 ? "FIXED_AMOUNT" : undefined,
     discountValue: item.discountValue > 0 ? item.discountValue : undefined,
     description: item.description || undefined,
@@ -293,6 +452,18 @@ function customerDetail(customer: CustomerOption) {
   return [customer.companyName, customer.primaryContact].filter(Boolean).join(" - ") || null;
 }
 
+function labelFromEnum(value: string | null | undefined) {
+  if (!value) {
+    return "Not set";
+  }
+
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function InlineCustomerCreate({
   enabled,
   initialName = "",
@@ -307,6 +478,18 @@ function InlineCustomerCreate({
   const router = useRouter();
   const [state, action, pending] = useActionState(createCustomerAction, initialState);
   const [name, setName] = useState(initialName);
+  const [contact, setContact] = useState("");
+  const [source, setSource] = useState("");
+
+  const contacts = contact.trim()
+    ? [
+        {
+          type: "OTHER",
+          value: contact.trim(),
+          isPrimary: true
+        }
+      ]
+    : [];
 
   useEffect(() => {
     if (state.ok && state.customerId && state.customerDisplayName) {
@@ -328,26 +511,44 @@ function InlineCustomerCreate({
   }
 
   return (
-    <form action={action} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+    <form action={action} className="grid gap-3">
       <input type="hidden" name="customerType" value="INDIVIDUAL" />
-      <input type="hidden" name="contacts" value="[]" />
+      <input type="hidden" name="contacts" value={JSON.stringify(contacts)} />
       <label className="sr-only" htmlFor="quick-customer-name">
         Customer name
       </label>
-      <Input
-        id="quick-customer-name"
-        name="displayName"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Customer name"
-        required
-      />
-      <Button disabled={pending || !name.trim()} variant="secondary">
-        <UserPlus className="h-4 w-4" />
-        {submitLabel}
-      </Button>
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px_180px_auto]">
+        <Input
+          id="quick-customer-name"
+          name="displayName"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Customer name"
+          required
+        />
+        <Input
+          value={contact}
+          onChange={(event) => setContact(event.target.value)}
+          placeholder="Phone, Viber, or Facebook"
+        />
+        <Select name="source" value={source} onChange={(event) => setSource(event.target.value)}>
+          <option value="">Source optional</option>
+          <option value="FACEBOOK_MARKETPLACE">Facebook Marketplace</option>
+          <option value="FACEBOOK_PAGE">Facebook Page</option>
+          <option value="MESSENGER">Messenger</option>
+          <option value="VIBER">Viber</option>
+          <option value="WALK_IN">Walk-in</option>
+          <option value="PHONE">Phone</option>
+          <option value="REFERRAL">Referral</option>
+          <option value="OTHER">Other</option>
+        </Select>
+        <Button disabled={pending || !name.trim()} variant="secondary" className="w-full whitespace-nowrap md:w-auto">
+          <UserPlus className="h-4 w-4" />
+          {submitLabel}
+        </Button>
+      </div>
       {state.message ? (
-        <p className={cn("text-sm sm:col-span-2", state.ok ? "text-success" : "text-danger")}>
+        <p className={cn("text-sm", state.ok ? "text-success" : "text-danger")}>
           {friendlyActionMessage(state.message)}
         </p>
       ) : null}
@@ -367,6 +568,7 @@ function CustomerSelector({
   canCreateCustomers: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"existing" | "new">("existing");
   const trimmedQuery = query.trim();
   const filteredCustomers = trimmedQuery
     ? customers
@@ -384,8 +586,8 @@ function CustomerSelector({
   return (
     <section className="space-y-3">
       <div>
-        <p className="studio-kicker">Customer</p>
-        <h2 className="text-sm font-semibold">Select the buyer</h2>
+        <p className="studio-kicker">Customer / Lead</p>
+        <h2 className="text-sm font-semibold">Resolve the buyer record</h2>
       </div>
       <div className="studio-subpanel p-4">
         {selectedCustomer ? (
@@ -409,54 +611,90 @@ function CustomerSelector({
           </div>
         ) : (
           <>
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search customer name or contact"
-                className="pl-9"
-              />
-            </label>
-            {trimmedQuery ? (
-              <div className="mt-2 overflow-hidden rounded-lg border border-border bg-background">
-                {filteredCustomers.map((customer) => (
-                  <button
-                    key={customer.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedCustomer({
-                        id: customer.id,
-                        displayName: customer.displayName,
-                        detail: customerDetail(customer)
-                      })
-                    }
-                    className="block w-full border-b border-border px-3 py-3 text-left text-sm transition last:border-b-0 hover:bg-soft-accent/50"
-                  >
-                    <span className="block font-semibold">{customer.displayName}</span>
-                    <span className="block text-muted-foreground">
-                      {customer.primaryContact ?? customer.companyName ?? "No contact saved"}
-                    </span>
-                  </button>
-                ))}
-                {trimmedQuery && filteredCustomers.length === 0 ? (
-                  <div className="px-3 py-3 text-sm text-muted-foreground">No matching customers.</div>
-                ) : null}
-                {trimmedQuery && !hasExactMatch && canCreateCustomers ? (
-                  <div className="border-t border-border p-3">
-                    <p className="mb-2 text-sm font-medium">
-                      Use &quot;{trimmedQuery}&quot; as customer name
-                    </p>
-                    <InlineCustomerCreate
-                      enabled={canCreateCustomers}
-                      initialName={trimmedQuery}
-                      submitLabel="Use this name"
-                      onCreated={setSelectedCustomer}
-                    />
+            <div className="mb-3 inline-flex rounded-lg border border-border bg-background p-1">
+              <button
+                type="button"
+                onClick={() => setMode("existing")}
+                className={cn(
+                  "rounded-md px-3 py-2 text-sm font-semibold transition",
+                  mode === "existing" ? "bg-soft-accent text-foreground" : "text-muted-foreground"
+                )}
+              >
+                Existing customer
+              </button>
+              {canCreateCustomers ? (
+                <button
+                  type="button"
+                  onClick={() => setMode("new")}
+                  className={cn(
+                    "rounded-md px-3 py-2 text-sm font-semibold transition",
+                    mode === "new" ? "bg-soft-accent text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  New quick customer
+                </button>
+              ) : null}
+            </div>
+            {mode === "existing" ? (
+              <>
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search customer name, company, or contact"
+                    className="pl-9"
+                  />
+                </label>
+                {trimmedQuery ? (
+                  <div className="mt-2 overflow-hidden rounded-lg border border-border bg-background">
+                    {filteredCustomers.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedCustomer({
+                            id: customer.id,
+                            displayName: customer.displayName,
+                            detail: customerDetail(customer)
+                          })
+                        }
+                        className="block w-full border-b border-border px-3 py-3 text-left text-sm transition last:border-b-0 hover:bg-soft-accent/50"
+                      >
+                        <span className="block font-semibold">{customer.displayName}</span>
+                        <span className="block text-muted-foreground">
+                          {customer.primaryContact ?? customer.companyName ?? "No contact saved"}
+                        </span>
+                      </button>
+                    ))}
+                    {trimmedQuery && filteredCustomers.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-muted-foreground">
+                        No matching customers.
+                      </div>
+                    ) : null}
+                    {trimmedQuery && !hasExactMatch && canCreateCustomers ? (
+                      <div className="border-t border-border p-3">
+                        <p className="mb-2 text-sm font-medium">
+                          Create a customer record for &quot;{trimmedQuery}&quot;
+                        </p>
+                        <InlineCustomerCreate
+                          enabled={canCreateCustomers}
+                          initialName={trimmedQuery}
+                          submitLabel="Create & select"
+                          onCreated={setSelectedCustomer}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </div>
-            ) : null}
+              </>
+            ) : (
+              <InlineCustomerCreate
+                enabled={canCreateCustomers}
+                submitLabel="Create & select"
+                onCreated={setSelectedCustomer}
+              />
+            )}
           </>
         )}
       </div>
@@ -568,71 +806,71 @@ function QuotationItemTable({
   updateItem: (index: number, patch: Partial<ItemDraft>) => void;
   removeItem: (index: number) => void;
 }) {
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const editingItem = editingIndex === null ? null : items[editingIndex] ?? null;
+  function confirmRemoveItem(index: number) {
+    const itemName = items[index]?.itemName?.trim() || `item ${index + 1}`;
+
+    if (window.confirm(`Remove ${itemName} from this quotation?`)) {
+      removeItem(index);
+    }
+  }
 
   return (
     <div className="space-y-3">
-      <div className="hidden rounded-lg border border-border bg-panel lg:block">
-        <div className="grid grid-cols-[72px_1.4fr_100px_140px_140px_140px_100px] gap-3 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
-          <span>Image</span>
+      <div className="hidden overflow-hidden rounded-lg border border-border bg-panel lg:block">
+        <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
           <span>Item</span>
-          <span>Qty</span>
-          <span>Unit price</span>
-          <span>Discount</span>
-          <span>Line total</span>
-          <span>Actions</span>
+          <span className="text-left">Qty</span>
+          <span className="text-left">Unit price</span>
+          <span className="text-left">Discount</span>
+          <span className="text-left">Line total</span>
+          <span className="text-center">Actions</span>
         </div>
         {items.map((item, index) => (
           <div key={index} className="border-b border-border last:border-b-0">
-            <div className="grid grid-cols-[72px_1.4fr_100px_140px_140px_140px_100px] items-center gap-3 px-4 py-3">
-              <ItemThumb item={item} />
-              <div className="min-w-0">
-                <Input
-                  value={item.itemName}
-                  onChange={(event) => updateItem(index, { itemName: event.target.value })}
-                  placeholder="Item name"
-                />
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {[item.snapshotProductCode, item.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom"]
-                    .filter(Boolean)
-                    .join(" - ")}
-                </p>
+            <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] items-start gap-4 px-4 py-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <ItemThumb item={item} />
+                <div className="min-w-0 flex-1">
+                  <Input
+                    value={item.itemName}
+                    onChange={(event) => updateItem(index, { itemName: event.target.value })}
+                    placeholder="Item name"
+                  />
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {[item.snapshotProductCode, item.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom"]
+                      .filter(Boolean)
+                      .join(" - ")}
+                  </p>
+                </div>
               </div>
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
+              <QuantityInput
                 value={item.quantity}
-                onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
+                onValueChange={(value) => updateItem(index, { quantity: value })}
                 aria-label="Quantity"
               />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
+              <MoneyInput
                 value={item.unitPrice}
-                onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                onValueChange={(value) => updateItem(index, { unitPrice: value })}
                 aria-label="Unit price"
               />
-              <Input
-                type="number"
-                min="0"
+              <MoneyInput
                 max={itemSubtotal(item)}
-                step="0.01"
-                value={numericInputValue(item.discountValue)}
-                onChange={(event) =>
-                  updateItem(index, { discountValue: parseMoneyInput(event.target.value) })
-                }
+                value={item.discountValue}
+                onValueChange={(value) => updateItem(index, { discountValue: value })}
                 aria-label="Discount"
               />
-              <div className="text-sm font-semibold">{money(lineTotal(item))}</div>
-              <div className="flex items-center gap-1">
-                <Button type="button" variant="ghost" onClick={() => setEditingIndex(index)} className="min-h-9 px-2">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => removeItem(index)} className="min-h-9 px-2">
+              <div className="flex min-h-10 items-center text-sm font-semibold">
+                {money(lineTotal(item))}
+              </div>
+              <div className="flex min-h-10 items-center justify-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => confirmRemoveItem(index)}
+                  className="min-h-9 px-2"
+                >
                   <Trash2 className="h-4 w-4" />
+                  <span className="sr-only">Remove item</span>
                 </Button>
               </div>
             </div>
@@ -655,48 +893,53 @@ function QuotationItemTable({
                   </p>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button type="button" variant="ghost" onClick={() => setEditingIndex(index)} className="min-h-9 px-2">
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => removeItem(index)} className="min-h-9 px-2">
+              <div className="flex shrink-0 items-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => confirmRemoveItem(index)}
+                  className="min-h-9 px-2"
+                >
                   <Trash2 className="h-4 w-4" />
+                  <span className="sr-only">Remove item</span>
                 </Button>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input
-                value={item.itemName}
-                onChange={(event) => updateItem(index, { itemName: event.target.value })}
-                placeholder="Item name"
-              />
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={item.quantity}
-                onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
-                aria-label="Quantity"
-              />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={item.unitPrice}
-                onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
-                aria-label="Unit price"
-              />
-              <Input
-                type="number"
-                min="0"
-                max={itemSubtotal(item)}
-                step="0.01"
-                value={numericInputValue(item.discountValue)}
-                onChange={(event) =>
-                  updateItem(index, { discountValue: parseMoneyInput(event.target.value) })
-                }
-                aria-label="Discount"
-              />
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground sm:col-span-2">
+                Item
+                <Input
+                  value={item.itemName}
+                  onChange={(event) => updateItem(index, { itemName: event.target.value })}
+                  placeholder="Item name"
+                  className="font-normal normal-case"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
+                Qty
+                <QuantityInput
+                  value={item.quantity}
+                  onValueChange={(value) => updateItem(index, { quantity: value })}
+                  aria-label="Quantity"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
+                Unit price
+                <MoneyInput
+                  value={item.unitPrice}
+                  onValueChange={(value) => updateItem(index, { unitPrice: value })}
+                  aria-label="Unit price"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
+                Discount
+                <MoneyInput
+                  max={itemSubtotal(item)}
+                  value={item.discountValue}
+                  onValueChange={(value) => updateItem(index, { discountValue: value })}
+                  aria-label="Discount"
+                />
+              </label>
             </div>
             <div className="mt-3 flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Line total</span>
@@ -705,16 +948,6 @@ function QuotationItemTable({
           </div>
         ))}
       </div>
-      {editingItem && editingIndex !== null ? (
-        <ItemEditModal
-          item={editingItem}
-          onClose={() => setEditingIndex(null)}
-          onSave={(patch) => {
-            updateItem(editingIndex, patch);
-            setEditingIndex(null);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -730,154 +963,43 @@ function ItemThumb({ item }: { item: ItemDraft }) {
   );
 }
 
-function ItemEditModal({
-  item,
-  onClose,
-  onSave
-}: {
-  item: ItemDraft;
-  onClose: () => void;
-  onSave: (patch: Partial<ItemDraft>) => void;
-}) {
-  const [draft, setDraft] = useState<ItemDraft>(item);
-
-  useEffect(() => {
-    setDraft(item);
-  }, [item]);
-
-  const draftSubtotal = itemSubtotal(draft);
-  const draftLineTotal = lineTotal(draft);
-  const canSave =
-    draft.itemName.trim().length > 0 &&
-    draft.quantity > 0 &&
-    draft.unitPrice >= 0 &&
-    draft.discountValue >= 0 &&
-    itemDiscount(draft) <= draftSubtotal;
-
-  function patchDraft(patch: Partial<ItemDraft>) {
-    setDraft((current) => ({ ...current, ...patch }));
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6">
-      <div className="mx-auto flex max-h-[92vh] max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <div>
-            <p className="studio-kicker">Item</p>
-            <h2 className="text-base font-semibold">Edit item</h2>
-          </div>
-          <Button type="button" variant="ghost" onClick={onClose} className="min-h-9 px-2">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="grid gap-4 overflow-y-auto p-5">
-          <div className="flex items-center gap-3 rounded-lg border border-border bg-background p-3">
-            <ItemThumb item={draft} />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{draft.itemName || "Untitled item"}</p>
-              <p className="text-xs text-muted-foreground">
-                {draft.snapshotProductCode ?? (draft.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom")}
-              </p>
-            </div>
-          </div>
-          <label className="grid gap-2 text-sm font-medium">
-            Item name
-            <Input
-              value={draft.itemName}
-              onChange={(event) => patchDraft({ itemName: event.target.value })}
-              placeholder="Item name"
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="grid gap-2 text-sm font-medium">
-              Quantity
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={draft.quantity > 0 ? String(draft.quantity) : ""}
-                onChange={(event) => patchDraft({ quantity: parseMoneyInput(event.target.value) })}
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-medium">
-              Unit price
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={numericInputValue(draft.unitPrice)}
-                onChange={(event) => patchDraft({ unitPrice: parseMoneyInput(event.target.value) })}
-                placeholder="0"
-              />
-            </label>
-            <label className="grid gap-2 text-sm font-medium">
-              Fixed discount
-              <Input
-                type="number"
-                min="0"
-                max={draftSubtotal}
-                step="0.01"
-                value={numericInputValue(draft.discountValue)}
-                onChange={(event) => patchDraft({ discountValue: parseMoneyInput(event.target.value) })}
-                placeholder="0"
-              />
-            </label>
-          </div>
-          <div className="rounded-lg border border-border bg-background p-3 text-sm">
-            <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">Line total</span>
-              <span className="font-semibold">{money(draftLineTotal)}</span>
-            </div>
-            {itemDiscount(draft) > draftSubtotal ? (
-              <p className="mt-2 text-danger">Discount cannot exceed this item subtotal.</p>
-            ) : null}
-          </div>
-          <Textarea
-            value={draft.description}
-            onChange={(event) => patchDraft({ description: event.target.value })}
-            placeholder="Optional description"
-          />
-          <Textarea
-            value={draft.specifications}
-            onChange={(event) => patchDraft({ specifications: event.target.value })}
-            placeholder="Optional specifications"
-          />
-          <Textarea
-            value={draft.customerNotes}
-            onChange={(event) => patchDraft({ customerNotes: event.target.value })}
-            placeholder="Optional customer note"
-          />
-          <Textarea
-            value={draft.internalNotes}
-            onChange={(event) => patchDraft({ internalNotes: event.target.value })}
-            placeholder="Optional internal note"
-          />
-        </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-border p-5">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={!canSave} onClick={() => onSave(draft)}>
-            <Save className="h-4 w-4" />
-            Save item
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function QuotationBuilder({
   customers,
   products,
-  canCreateCustomers
+  canCreateCustomers,
+  canUpdateQuotations = true,
+  mode = "create",
+  initialQuotation
 }: QuotationBuilderProps) {
-  const [state, action, pending] = useActionState(createQuotationAction, initialState);
-  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
-  const [items, setItems] = useState<ItemDraft[]>([]);
+  const router = useRouter();
+  const [state, action, pending] = useActionState(
+    mode === "edit" ? updateDraftQuotationAction : createQuotationAction,
+    initialState
+  );
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
+    initialQuotation?.customer ?? null
+  );
+  const [items, setItems] = useState<ItemDraft[]>(
+    () =>
+      initialQuotation?.items.map((item) => ({
+        ...item,
+        quantity: normalizeQuantity(item.quantity)
+      })) ?? []
+  );
   const [productPickerOpen, setProductPickerOpen] = useState(false);
-  const [additionalDiscount, setAdditionalDiscount] = useState(0);
+  const [additionalDiscount, setAdditionalDiscount] = useState(
+    initialQuotation?.quotationDiscountValue ?? 0
+  );
   const [noteOpen, setNoteOpen] = useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [customerNotes, setCustomerNotes] = useState(initialQuotation?.customerNotes ?? "");
+
+  useEffect(() => {
+    if (state.ok && state.quotationId) {
+      router.push(`/quotations/${state.quotationId}`);
+      router.refresh();
+    }
+  }, [router, state.ok, state.quotationId]);
 
   const totals = useMemo(() => {
     const subtotalAmount = roundMoney(items.reduce((sum, item) => sum + itemSubtotal(item), 0));
@@ -909,6 +1031,10 @@ export function QuotationBuilder({
     items.forEach((item, index) => {
       if (!item.itemName.trim()) {
         messages.push(`Item ${index + 1} needs a name.`);
+      }
+
+      if (!Number.isInteger(item.quantity) || item.quantity < 1) {
+        messages.push(`Item ${index + 1} quantity must be a whole number of at least 1.`);
       }
 
       if (item.discountValue < 0) {
@@ -951,7 +1077,9 @@ export function QuotationBuilder({
 
       if (existingIndex >= 0) {
         return current.map((item, index) =>
-          index === existingIndex ? { ...item, quantity: roundMoney(item.quantity + 1) } : item
+          index === existingIndex
+            ? { ...item, quantity: normalizeQuantity(item.quantity + 1) }
+            : item
         );
       }
 
@@ -961,7 +1089,16 @@ export function QuotationBuilder({
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {
     setItems((current) =>
-      current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              ...patch,
+              quantity:
+                patch.quantity === undefined ? item.quantity : normalizeQuantity(patch.quantity)
+            }
+          : item
+      )
     );
   }
 
@@ -969,7 +1106,7 @@ export function QuotationBuilder({
     setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
-  const canSubmit = validationMessages.length === 0;
+  const showClientValidation = hasAttemptedSubmit && validationMessages.length > 0;
 
   return (
     <>
@@ -987,7 +1124,14 @@ export function QuotationBuilder({
           canCreateCustomers={canCreateCustomers}
         />
       </div>
-      <form action={action} className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]">
+      <form
+        action={action}
+        onSubmit={() => setHasAttemptedSubmit(true)}
+        className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]"
+      >
+        {initialQuotation?.id ? (
+          <input type="hidden" name="quotationId" value={initialQuotation.id} />
+        ) : null}
         <input type="hidden" name="customerId" value={selectedCustomer?.id ?? ""} />
         <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
         <input
@@ -996,6 +1140,25 @@ export function QuotationBuilder({
           value={additionalDiscount > 0 ? "FIXED_AMOUNT" : ""}
         />
         <input type="hidden" name="quotationDiscountValue" value={additionalDiscount} />
+        <input
+          type="hidden"
+          name="needsAssembly"
+          value={initialQuotation?.needsAssembly ? "true" : "false"}
+        />
+        <input
+          type="hidden"
+          name="salesInvoiceRequested"
+          value={initialQuotation?.salesInvoiceRequested ? "true" : "false"}
+        />
+        <input type="hidden" name="modeOfDelivery" value={initialQuotation?.modeOfDelivery ?? ""} />
+        <input type="hidden" name="deliveryMethod" value={initialQuotation?.deliveryMethod ?? ""} />
+        <input type="hidden" name="paymentTerms" value={initialQuotation?.paymentTerms ?? ""} />
+        <input
+          type="hidden"
+          name="specialInstructions"
+          value={initialQuotation?.specialInstructions ?? ""}
+        />
+        <input type="hidden" name="internalNotes" value={initialQuotation?.internalNotes ?? ""} />
 
         <section className="space-y-5">
           <section className="studio-card">
@@ -1049,6 +1212,8 @@ export function QuotationBuilder({
             <div className="border-t border-border p-5">
               <Textarea
                 name="customerNotes"
+                value={customerNotes}
+                onChange={(event) => setCustomerNotes(event.target.value)}
                 placeholder="Optional note for this quotation"
                 className="min-h-24"
               />
@@ -1060,25 +1225,26 @@ export function QuotationBuilder({
           <section className="studio-card">
             <div className="studio-card-header">
               <p className="studio-kicker">Summary</p>
-              <h2 className="text-sm font-semibold">Cart total</h2>
+              <h2 className="text-sm font-semibold">Quotation summary</h2>
             </div>
-            <div className="space-y-4 p-5 text-sm">
-              {selectedCustomer ? (
-                <div className="rounded-lg border border-border bg-background p-3">
-                  <p className="font-semibold">{selectedCustomer.displayName}</p>
-                  {selectedCustomer.detail ? (
-                    <p className="text-muted-foreground">{selectedCustomer.detail}</p>
-                  ) : null}
+            <div className="p-5 text-sm">
+              <div className="border-b border-border pb-4">
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Customer</span>
+                  <span className="text-right font-semibold">
+                    {selectedCustomer?.displayName ?? "Not selected"}
+                  </span>
                 </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-border bg-background p-3 text-muted-foreground">
-                  No customer selected
-                </div>
-              )}
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {selectedCustomer?.detail ? (
+                  <p className="mt-1 text-right text-xs text-muted-foreground">
+                    {selectedCustomer.detail}
+                  </p>
+                ) : null}
+              </div>
+              <div className="max-h-64 overflow-y-auto border-b border-border py-2">
                 {items.map((item, index) => (
-                  <div key={index} className="rounded-md bg-background px-3 py-2">
-                    <div className="flex justify-between gap-3">
+                  <div key={index} className="py-2">
+                    <div className="flex justify-between gap-4">
                       <div className="min-w-0">
                         <p className="truncate font-medium">
                           {item.quantity} x {item.itemName || `Item ${index + 1}`}
@@ -1091,69 +1257,84 @@ export function QuotationBuilder({
                     </div>
                     {itemDiscount(item) > 0 ? (
                       <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground">
-                        <span>Item discount</span>
+                        <span>Discount</span>
                         <span>-{money(itemDiscount(item))}</span>
                       </div>
                     ) : null}
                   </div>
                 ))}
                 {!items.length ? (
-                  <div className="studio-empty px-3 py-4 text-muted-foreground">No items added yet.</div>
+                  <div className="py-4 text-muted-foreground">No items added yet.</div>
                 ) : null}
               </div>
-              <div className="space-y-2 border-t border-border pt-3">
+              <div className="space-y-3 py-4">
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{money(totals.subtotalAmount)}</span>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Item discounts</span>
-                  <span className="font-medium">-{money(totals.itemDiscountTotal)}</span>
-                </div>
-                <label className="block space-y-2 font-medium">
-                  Additional discount
-                  <Input
-                    type="number"
-                    min="0"
+                {totals.itemDiscountTotal > 0 ? (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Item discounts</span>
+                    <span className="font-medium">-{money(totals.itemDiscountTotal)}</span>
+                  </div>
+                ) : null}
+                <label className="grid gap-2 font-medium">
+                  <span className="text-muted-foreground">Additional discount</span>
+                  <MoneyInput
                     max={totals.postItemDiscountTotal}
-                    step="0.01"
-                    value={numericInputValue(additionalDiscount)}
-                    onChange={(event) => setAdditionalDiscount(parseMoneyInput(event.target.value))}
-                    placeholder="0"
+                    value={additionalDiscount}
+                    onValueChange={setAdditionalDiscount}
+                    aria-label="Additional discount"
                   />
                 </label>
                 <div className="flex justify-between gap-4">
                   <span className="text-muted-foreground">Total discount</span>
                   <span className="font-medium">-{money(totals.totalDiscount)}</span>
                 </div>
-                <div className="flex justify-between gap-4 rounded-lg bg-soft-accent/70 px-3 py-3 text-base">
+                <div className="flex justify-between gap-4 border-t border-border pt-4 text-base">
                   <span className="font-semibold">Final total</span>
                   <span className="text-lg font-semibold">{money(totals.totalAmount)}</span>
                 </div>
               </div>
-              {validationMessages.length ? (
+              {showClientValidation ? (
                 <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-danger">
                   {validationMessages[0]}
                 </div>
               ) : null}
-              {state.message ? (
+              {state.message && (state.ok || !showClientValidation) ? (
                 <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>
                   {friendlyActionMessage(state.message)}
                 </p>
               ) : null}
-              <div className="grid gap-2">
-                <Button disabled={pending || !canSubmit}>
+              <div className="mt-4 grid gap-2 border-t border-border pt-4">
+                <Button
+                  disabled={pending || state.ok}
+                  name="intent"
+                  value="save_draft"
+                >
                   <Save className="h-4 w-4" />
-                  Save draft
+                  {mode === "edit" ? "Update draft" : "Save draft"}
                 </Button>
-                <Button variant="secondary" disabled={pending || !canSubmit}>
+                <Button
+                  variant="secondary"
+                  disabled={pending || state.ok}
+                  name="intent"
+                  value="save_preview"
+                >
                   <FileText className="h-4 w-4" />
-                  Save and preview
+                  Save draft & preview
                 </Button>
-                <Button variant="secondary" disabled={pending || !canSubmit}>
-                  <Send className="h-4 w-4" />
-                  Save and send
-                </Button>
+                {canUpdateQuotations ? (
+                  <Button
+                    variant="secondary"
+                    disabled={pending || state.ok}
+                    name="intent"
+                    value="save_mark_sent"
+                  >
+                    <Send className="h-4 w-4" />
+                    Save draft & mark sent
+                  </Button>
+                ) : null}
               </div>
             </div>
           </section>
@@ -1165,9 +1346,14 @@ export function QuotationBuilder({
               <p className="text-xs text-muted-foreground">Final total</p>
               <p className="font-semibold">{money(totals.totalAmount)}</p>
             </div>
-            <Button disabled={pending || !canSubmit} className="min-h-10">
+            <Button
+              disabled={pending || state.ok}
+              name="intent"
+              value="save_draft"
+              className="min-h-10"
+            >
               <Save className="h-4 w-4" />
-              Save draft
+              {mode === "edit" ? "Update draft" : "Save draft"}
             </Button>
           </div>
         </div>
@@ -1176,11 +1362,259 @@ export function QuotationBuilder({
   );
 }
 
-export function QuotationRecordsList({ quotations, query = "", status = "" }: QuotationRecordsListProps) {
+function QuotationRecordActions({
+  quotation,
+  action,
+  pending,
+  canUpdateQuotations,
+  canApproveQuotations
+}: {
+  quotation: QuotationRow;
+  action: (formData: FormData) => void;
+  pending: boolean;
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+}) {
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const isOpen = menuPosition !== null;
+
+  const canShowMenu =
+    (quotation.status === "DRAFT" && canUpdateQuotations) ||
+    (quotation.status === "SENT" && (canApproveQuotations || canUpdateQuotations));
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuPosition(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuPosition(null);
+        buttonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function toggleMenu() {
+    if (isOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const menuWidth = 192;
+    const estimatedHeight = 188;
+    const hasRoomBelow = rect.bottom + estimatedHeight + 12 < window.innerHeight;
+    setMenuPosition({
+      left: Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.right - menuWidth)),
+      top: hasRoomBelow ? rect.bottom + 8 : rect.top - 8,
+      placement: hasRoomBelow ? "below" : "above"
+    });
+  }
+
+  if (!canShowMenu) {
+    return null;
+  }
+
+  return (
+    <form action={action} className="contents">
+      <input type="hidden" name="quotationId" value={quotation.id} />
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={toggleMenu}
+        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-panel px-2 text-sm font-semibold text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+        <span className="sr-only">Quotation actions</span>
+      </button>
+      {isOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[80] grid min-w-48 gap-1 rounded-lg border border-border bg-panel p-2 shadow-xl"
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            transform: menuPosition.placement === "above" ? "translateY(-100%)" : undefined
+          }}
+        >
+          {quotation.status === "DRAFT" && canUpdateQuotations ? (
+            <a
+              href={`/quotations/${quotation.id}/edit`}
+              role="menuitem"
+              className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold hover:bg-soft-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              onClick={() => setMenuPosition(null)}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit draft
+            </a>
+          ) : null}
+          {quotation.status === "DRAFT" && canUpdateQuotations ? (
+            <Button
+              type="submit"
+              name="status"
+              value="SENT"
+              variant="ghost"
+              disabled={pending}
+              role="menuitem"
+              onClick={() => setMenuPosition(null)}
+              className="min-h-9 justify-start rounded-md px-3"
+            >
+              <Send className="h-4 w-4" />
+              Mark as sent
+            </Button>
+          ) : null}
+          {quotation.status === "SENT" && canApproveQuotations ? (
+            <Button
+              type="submit"
+              name="status"
+              value="ACCEPTED"
+              variant="ghost"
+              disabled={pending}
+              role="menuitem"
+              onClick={() => setMenuPosition(null)}
+              className="min-h-9 justify-start rounded-md px-3"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Accept
+            </Button>
+          ) : null}
+          {quotation.status === "SENT" && canApproveQuotations ? (
+            <Button
+              type="submit"
+              name="status"
+              value="DECLINED"
+              variant="ghost"
+              disabled={pending}
+              role="menuitem"
+              onClick={() => setMenuPosition(null)}
+              className="min-h-9 justify-start rounded-md px-3"
+            >
+              <XCircle className="h-4 w-4" />
+              Decline
+            </Button>
+          ) : null}
+          {(quotation.status === "DRAFT" || quotation.status === "SENT") && canUpdateQuotations ? (
+            <Button
+              type="submit"
+              name="status"
+              value="CANCELLED"
+              variant="ghost"
+              disabled={pending}
+              role="menuitem"
+              onClick={() => setMenuPosition(null)}
+              className="min-h-9 justify-start rounded-md px-3"
+            >
+              <X className="h-4 w-4" />
+              Cancel
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+export function QuotationRecordsList({
+  quotations,
+  query = "",
+  status = "",
+  pagination,
+  canExportDocuments,
+  canUpdateQuotations,
+  canApproveQuotations
+}: QuotationRecordsListProps) {
+  const router = useRouter();
+  const normalizedStatus = normalizeStatusFilter(status);
+  const [searchQuery, setSearchQuery] = useState(query);
+  const [selectedStatus, setSelectedStatus] = useState(normalizedStatus);
   const [statusState, statusAction, statusPending] = useActionState(
     updateQuotationStatusAction,
     initialState
   );
+
+  useEffect(() => {
+    setSearchQuery(query);
+  }, [query]);
+
+  useEffect(() => {
+    setSelectedStatus(normalizedStatus);
+  }, [normalizedStatus]);
+
+  useEffect(() => {
+    if (statusState.ok) {
+      router.refresh();
+    }
+  }, [router, statusState.ok]);
+
+  function quotationHref(nextQuery: string, nextStatus: string, page?: number) {
+    const params = new URLSearchParams();
+    const safeStatus = normalizeStatusFilter(nextStatus);
+    const safeQuery = nextQuery.trim();
+
+    if (safeQuery) {
+      params.set("q", safeQuery);
+    }
+
+    if (safeStatus) {
+      params.set("status", safeStatus);
+    }
+
+    if (page && page > 1) {
+      params.set("page", String(page));
+    }
+
+    const queryString = params.toString();
+    return queryString ? `/quotations?${queryString}` : "/quotations";
+  }
+
+  function applyFilters(nextQuery = searchQuery, nextStatus = selectedStatus) {
+    router.push(quotationHref(nextQuery, nextStatus));
+  }
+
+  function pageHref(page: number) {
+    return quotationHref(query, normalizedStatus, page);
+  }
+
+  const emptyStatusLabel = normalizedStatus ? labelFromEnum(normalizedStatus) : "selected";
+  const hasActiveFilters = Boolean(query || normalizedStatus);
+  const emptyRecordMessage = hasActiveFilters
+    ? normalizedStatus && query
+      ? `No ${emptyStatusLabel.toLowerCase()} quotation records match "${query}".`
+      : normalizedStatus
+        ? `No ${emptyStatusLabel.toLowerCase()} quotation records are currently saved.`
+        : `No quotation records match "${query}".`
+    : "Created quotation records will appear here after staff save a draft.";
 
   return (
     <section className="studio-card">
@@ -1193,9 +1627,29 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
               Search drafts and sent quotations without opening the builder.
             </p>
           </div>
-          <form className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_160px_auto]" action="/quotations">
-            <Input name="q" defaultValue={query} placeholder="Search quotations" />
-            <Select name="status" defaultValue={status} aria-label="Status filter">
+          <form
+            className="grid w-full gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_112px] lg:w-auto lg:grid-cols-[260px_180px_112px]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              applyFilters();
+            }}
+          >
+            <Input
+              name="q"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search quotations"
+            />
+            <Select
+              name="status"
+              value={selectedStatus}
+              aria-label="Status filter"
+              onChange={(event) => {
+                const nextStatus = event.target.value;
+                setSelectedStatus(nextStatus);
+                applyFilters(searchQuery, nextStatus);
+              }}
+            >
               <option value="">All statuses</option>
               <option value="DRAFT">Draft</option>
               <option value="SENT">Sent</option>
@@ -1216,7 +1670,7 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
         ) : null}
       </div>
       <div className="overflow-x-auto">
-        <table className="studio-table w-full min-w-[860px] text-left text-sm">
+        <table className="studio-table w-full min-w-[1040px] text-left text-sm">
           <thead className="border-b border-border text-xs uppercase text-muted-foreground">
             <tr>
               <th className="px-5 py-3 font-medium">Quotation</th>
@@ -1230,69 +1684,203 @@ export function QuotationRecordsList({ quotations, query = "", status = "" }: Qu
               <th className="px-5 py-3 font-medium">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
-            {quotations.map((quotation) => (
-              <tr key={quotation.id}>
-                <td className="px-5 py-3 font-medium">{quotation.quotationNumber ?? "Not assigned"}</td>
-                <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
-                <td className="px-5 py-3">
-                  <StatusPill tone={statusTone(quotation.status)}>{quotation.status}</StatusPill>
-                </td>
-                <td className="px-5 py-3 text-muted-foreground">{quotation.itemCount}</td>
-                <td className="px-5 py-3 text-muted-foreground">{quotation.subtotalAmount}</td>
-                <td className="px-5 py-3 font-medium">{quotation.totalAmount}</td>
-                <td className="px-5 py-3 text-muted-foreground">{quotation.createdBy ?? "Unknown"}</td>
-                <td className="px-5 py-3 text-muted-foreground">{quotation.updatedAt}</td>
-                <td className="px-5 py-3">
-                  <form action={statusAction} className="flex flex-wrap gap-2">
-                    <input type="hidden" name="quotationId" value={quotation.id} />
-                    <a href={`/api/documents/quotation/${quotation.id}`} className={pdfLinkClass}>
-                      <Download className="h-4 w-4" />
-                      PDF
+          {quotations.length > 0 ? (
+            <tbody className="divide-y divide-border">
+              {quotations.map((quotation) => (
+                <tr key={quotation.id}>
+                  <td className="px-5 py-3 font-medium">
+                    <a href={`/quotations/${quotation.id}`} className="text-primary hover:underline">
+                      {quotation.quotationNumber ?? "Not assigned"}
                     </a>
-                    {quotation.status === "DRAFT" ? (
-                      <Button
-                        type="submit"
-                        name="status"
-                        value="SENT"
-                        variant="secondary"
-                        disabled={statusPending}
-                        className="min-h-9 px-2"
-                      >
-                        <Send className="h-4 w-4" />
-                        Sent
-                      </Button>
-                    ) : null}
-                    {quotation.status !== "ACCEPTED" ? (
-                      <Button
-                        type="submit"
-                        name="status"
-                        value="ACCEPTED"
-                        variant="secondary"
-                        disabled={statusPending}
-                        className="min-h-9 px-2"
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        Accept
-                      </Button>
-                    ) : null}
-                  </form>
-                </td>
-              </tr>
-            ))}
-            {quotations.length === 0 ? (
-              <tr>
-                <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={9}>
-                  <div className="studio-empty flex items-center gap-3 px-4 py-4">
-                    <FileText className="h-5 w-5 text-accent" />
-                    <span>No quotations found.</span>
-                  </div>
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
+                  </td>
+                  <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
+                  <td className="px-5 py-3">
+                    <StatusPill tone={statusTone(quotation.status)}>
+                      {labelFromEnum(quotation.status)}
+                    </StatusPill>
+                  </td>
+                  <td className="max-w-[260px] px-5 py-3 text-muted-foreground">
+                    <span className="line-clamp-2">{quotation.itemSummary}</span>
+                  </td>
+                  <td className="px-5 py-3 text-muted-foreground">{quotation.subtotalAmount}</td>
+                  <td className="px-5 py-3 font-medium">{quotation.totalAmount}</td>
+                  <td className="px-5 py-3 text-muted-foreground">{quotation.createdBy ?? "Unknown"}</td>
+                  <td className="px-5 py-3 text-muted-foreground">{quotation.updatedAt}</td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <a href={`/quotations/${quotation.id}`} className={pdfLinkClass}>
+                        <Eye className="h-4 w-4" />
+                        View
+                      </a>
+                      {canExportDocuments ? (
+                        <a href={`/api/documents/quotation/${quotation.id}`} className={pdfLinkClass}>
+                          <Download className="h-4 w-4" />
+                          PDF
+                        </a>
+                      ) : null}
+                      <QuotationRecordActions
+                        quotation={quotation}
+                        action={statusAction}
+                        pending={statusPending}
+                        canUpdateQuotations={canUpdateQuotations}
+                        canApproveQuotations={canApproveQuotations}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          ) : null}
         </table>
       </div>
+      {quotations.length === 0 ? (
+        <div className="border-t border-border px-5 py-12 text-center">
+          <div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-3">
+            <p className="text-sm font-semibold text-foreground">
+              {hasActiveFilters ? "No matching quotations" : "No quotations yet"}
+            </p>
+            <p className="text-sm text-muted-foreground">{emptyRecordMessage}</p>
+            {hasActiveFilters ? (
+              <Link href="/quotations" className="text-sm font-semibold text-accent hover:underline">
+                Clear filters
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          {pagination.totalCount > 0
+            ? `Showing ${pagination.from}-${pagination.to} of ${pagination.totalCount}`
+            : "Showing 0 of 0"}
+        </p>
+        <div className="flex items-center gap-2">
+          <a
+            href={pageHref(Math.max(1, pagination.page - 1))}
+            aria-disabled={pagination.page <= 1}
+            className={cn(
+              pdfLinkClass,
+              pagination.page <= 1 && "pointer-events-none opacity-50"
+            )}
+          >
+            Previous
+          </a>
+          <span className="px-2">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <a
+            href={pageHref(Math.min(pagination.totalPages, pagination.page + 1))}
+            aria-disabled={pagination.page >= pagination.totalPages}
+            className={cn(
+              pdfLinkClass,
+              pagination.page >= pagination.totalPages && "pointer-events-none opacity-50"
+            )}
+          >
+            Next
+          </a>
+        </div>
+      </div>
     </section>
+  );
+}
+
+export function QuotationDetailActions({
+  quotationId,
+  status,
+  canExportDocuments,
+  canUpdateQuotations,
+  canApproveQuotations
+}: QuotationDetailActionsProps) {
+  const router = useRouter();
+  const [state, action, pending] = useActionState(updateQuotationStatusAction, initialState);
+
+  useEffect(() => {
+    if (state.ok) {
+      router.refresh();
+    }
+  }, [router, state.ok]);
+
+  return (
+    <div className="space-y-3">
+      <form action={action} className="grid gap-2">
+        <input type="hidden" name="quotationId" value={quotationId} />
+        {canExportDocuments ? (
+          <a href={`/api/documents/quotation/${quotationId}`} className={cn(pdfLinkClass, "w-full justify-start px-3")}>
+            <Download className="h-4 w-4" />
+            Download PDF
+          </a>
+        ) : null}
+        {status === "DRAFT" && canUpdateQuotations ? (
+          <a href={`/quotations/${quotationId}/edit`} className={cn(pdfLinkClass, "w-full justify-start px-3")}>
+            <Pencil className="h-4 w-4" />
+            Edit draft
+          </a>
+        ) : null}
+        {status === "DRAFT" && canUpdateQuotations ? (
+          <Button
+            type="submit"
+            name="status"
+            value="SENT"
+            variant="secondary"
+            disabled={pending}
+            className="w-full justify-start"
+          >
+            <Send className="h-4 w-4" />
+            Mark as sent
+          </Button>
+        ) : null}
+        {status === "SENT" && canApproveQuotations ? (
+          <Button
+            type="submit"
+            name="status"
+            value="ACCEPTED"
+            variant="secondary"
+            disabled={pending}
+            className="w-full justify-start"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            Accept
+          </Button>
+        ) : null}
+        {status === "SENT" && canApproveQuotations ? (
+          <Button
+            type="submit"
+            name="status"
+            value="DECLINED"
+            variant="secondary"
+            disabled={pending}
+            className="w-full justify-start"
+          >
+            <XCircle className="h-4 w-4" />
+            Decline
+          </Button>
+        ) : null}
+        {(status === "DRAFT" || status === "SENT") && canUpdateQuotations ? (
+          <Button
+            type="submit"
+            name="status"
+            value="CANCELLED"
+            variant="secondary"
+            disabled={pending}
+            className="w-full justify-start"
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </Button>
+        ) : null}
+      </form>
+      {state.message ? (
+        <p
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            state.ok
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger"
+          )}
+        >
+          {state.message}
+        </p>
+      ) : null}
+    </div>
   );
 }

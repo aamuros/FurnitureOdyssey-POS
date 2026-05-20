@@ -7,11 +7,13 @@ import { requirePermission } from "@/lib/auth/server";
 import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
 import { assertValidStatusTransition } from "@/lib/status-transitions";
-import { createQuotationSchema } from "@/lib/validation/quotations";
+import { createQuotationSchema, type CreateQuotationInput } from "@/lib/validation/quotations";
 
 type ActionState = {
   ok: boolean;
   message: string;
+  quotationId?: string;
+  intent?: string;
 };
 
 function parseItems(value: FormDataEntryValue | null) {
@@ -43,12 +45,8 @@ function friendlyValidationMessage(message: string | undefined, fallback: string
   return message;
 }
 
-export async function createQuotationAction(
-  _previousState: ActionState,
-  formData: FormData
-): Promise<ActionState> {
-  const actor = await requirePermission("QUOTATIONS", "CREATE");
-  const parsed = createQuotationSchema.safeParse({
+function parseQuotationInput(formData: FormData) {
+  return createQuotationSchema.safeParse({
     customerId: formData.get("customerId"),
     inquiryId: formData.get("inquiryId"),
     quotationDiscountType: formData.get("quotationDiscountType") || undefined,
@@ -63,21 +61,13 @@ export async function createQuotationAction(
     internalNotes: formData.get("internalNotes"),
     items: parseItems(formData.get("items"))
   });
+}
 
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message: friendlyValidationMessage(
-        parsed.error.issues[0]?.message,
-        "Invalid quotation details."
-      )
-    };
-  }
-
+async function validateQuotationReferences(input: CreateQuotationInput) {
   const [customer, inquiry] = await Promise.all([
     prisma.customer.findFirst({
       where: {
-        id: parsed.data.customerId,
+        id: input.customerId,
         archivedAt: null
       },
       select: {
@@ -85,11 +75,11 @@ export async function createQuotationAction(
         displayName: true
       }
     }),
-    parsed.data.inquiryId
+    input.inquiryId
       ? prisma.inquiry.findFirst({
           where: {
-            id: parsed.data.inquiryId,
-            customerId: parsed.data.customerId
+            id: input.inquiryId,
+            customerId: input.customerId
           },
           select: {
             id: true
@@ -100,19 +90,19 @@ export async function createQuotationAction(
 
   if (!customer) {
     return {
-      ok: false,
+      ok: false as const,
       message: "Customer was not found."
     };
   }
 
-  if (parsed.data.inquiryId && !inquiry) {
+  if (input.inquiryId && !inquiry) {
     return {
-      ok: false,
+      ok: false as const,
       message: "Inquiry was not found for the selected customer."
     };
   }
 
-  const productIds = parsed.data.items
+  const productIds = input.items
     .filter((item) => item.itemType === "CATALOG_PRODUCT")
     .map((item) => item.productId)
     .filter((productId): productId is string => Boolean(productId));
@@ -134,10 +124,84 @@ export async function createQuotationAction(
 
     if (missingProduct) {
       return {
-        ok: false,
+        ok: false as const,
         message: "One selected catalog product is inactive or no longer available."
       };
     }
+  }
+
+  return {
+    ok: true as const,
+    customer,
+    inquiry
+  };
+}
+
+function quotationItemCreateData(item: CreateQuotationInput["items"][number], index: number) {
+  const calculatedItem = calculateQuotationItem(item);
+
+  return {
+    productId: item.productId,
+    itemType: item.itemType as QuotationItemType,
+    sortOrder: item.sortOrder ?? index,
+    snapshotProductCode: item.snapshotProductCode,
+    itemName: item.itemName,
+    description: item.description,
+    specifications: item.specifications,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    discountType: item.discountType as DiscountType | undefined,
+    discountValue: item.discountValue,
+    discountAmount: calculatedItem.discountAmount,
+    lineSubtotal: calculatedItem.lineSubtotal,
+    lineTotal: calculatedItem.lineTotal,
+    customerNotes: item.customerNotes,
+    internalNotes: item.internalNotes,
+    images: item.images.length
+      ? {
+          create: item.images.map((image, imageIndex) => ({
+            sourceProductImageId: image.sourceProductImageId,
+            cloudinaryPublicId: image.cloudinaryPublicId,
+            secureUrl: image.secureUrl,
+            resourceType: image.resourceType,
+            format: image.format,
+            width: image.width,
+            height: image.height,
+            bytes: image.bytes,
+            altText: image.altText,
+            sortOrder: image.sortOrder ?? imageIndex,
+            isPrimary: image.isPrimary || imageIndex === 0
+          }))
+        }
+      : undefined
+  };
+}
+
+export async function createQuotationAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("QUOTATIONS", "CREATE");
+  const intent = String(formData.get("intent") ?? "save_draft");
+  if (intent === "save_mark_sent") {
+    await requirePermission("QUOTATIONS", "UPDATE");
+  }
+  const parsed = parseQuotationInput(formData);
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: friendlyValidationMessage(
+        parsed.error.issues[0]?.message,
+        "Invalid quotation details."
+      )
+    };
+  }
+
+  const references = await validateQuotationReferences(parsed.data);
+
+  if (!references.ok) {
+    return references;
   }
 
   let totals;
@@ -153,12 +217,13 @@ export async function createQuotationAction(
 
   const quotation = await prisma.$transaction(async (tx) => {
     const quotationNumber = await generateQuotationNumber(tx);
+    const nextStatus = intent === "save_mark_sent" ? "SENT" : "DRAFT";
     const created = await tx.quotation.create({
       data: {
         quotationNumber,
         customerId: parsed.data.customerId,
         inquiryId: parsed.data.inquiryId,
-        status: "DRAFT",
+        status: nextStatus,
         currency: "PHP",
         subtotalAmount: totals.subtotalAmount,
         itemDiscountTotal: totals.itemDiscountTotal,
@@ -177,45 +242,7 @@ export async function createQuotationAction(
         createdById: actor.id,
         updatedById: actor.id,
         items: {
-          create: parsed.data.items.map((item, index) => {
-            const calculatedItem = calculateQuotationItem(item);
-
-            return {
-              productId: item.productId,
-              itemType: item.itemType as QuotationItemType,
-              sortOrder: item.sortOrder ?? index,
-              snapshotProductCode: item.snapshotProductCode,
-              itemName: item.itemName,
-              description: item.description,
-              specifications: item.specifications,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              discountType: item.discountType as DiscountType | undefined,
-              discountValue: item.discountValue,
-              discountAmount: calculatedItem.discountAmount,
-              lineSubtotal: calculatedItem.lineSubtotal,
-              lineTotal: calculatedItem.lineTotal,
-              customerNotes: item.customerNotes,
-              internalNotes: item.internalNotes,
-              images: item.images.length
-                ? {
-                    create: item.images.map((image, imageIndex) => ({
-                      sourceProductImageId: image.sourceProductImageId,
-                      cloudinaryPublicId: image.cloudinaryPublicId,
-                      secureUrl: image.secureUrl,
-                      resourceType: image.resourceType,
-                      format: image.format,
-                      width: image.width,
-                      height: image.height,
-                      bytes: image.bytes,
-                      altText: image.altText,
-                      sortOrder: image.sortOrder ?? imageIndex,
-                      isPrimary: image.isPrimary || imageIndex === 0
-                    }))
-                  }
-                : undefined
-            };
-          })
+          create: parsed.data.items.map(quotationItemCreateData)
         }
       }
     });
@@ -235,11 +262,11 @@ export async function createQuotationAction(
       data: {
         action: "QUOTATION_CREATED",
         actorId: actor.id,
-        summary: `Created draft quotation for ${customer.displayName}.`,
+        summary: `Created ${nextStatus.toLowerCase()} quotation for ${references.customer.displayName}.`,
         metadata: {
           quotationId: created.id,
           quotationNumber: created.quotationNumber,
-          customerId: customer.id,
+          customerId: references.customer.id,
           inquiryId: parsed.data.inquiryId ?? "",
           totalAmount: totals.totalAmount,
           needsAssembly: parsed.data.needsAssembly,
@@ -255,14 +282,160 @@ export async function createQuotationAction(
   });
 
   revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotation.id}`);
   revalidatePath("/inquiries");
 
   return {
     ok: true,
-    message: `Draft quotation saved for ${customer.displayName}: ${quotation.quotationNumber ?? quotation.id}. PHP ${Number(quotation.totalAmount).toLocaleString("en-PH", {
+    quotationId: quotation.id,
+    intent,
+    message: `Quotation saved for ${references.customer.displayName}: ${quotation.quotationNumber ?? quotation.id}. PHP ${Number(quotation.totalAmount).toLocaleString("en-PH", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     })}.`
+  };
+}
+
+export async function updateDraftQuotationAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("QUOTATIONS", "UPDATE");
+  const quotationId = String(formData.get("quotationId") ?? "");
+  const intent = String(formData.get("intent") ?? "save_draft");
+  const parsed = parseQuotationInput(formData);
+
+  if (!quotationId) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: friendlyValidationMessage(
+        parsed.error.issues[0]?.message,
+        "Invalid quotation details."
+      )
+    };
+  }
+
+  const existing = await prisma.quotation.findUnique({
+    where: {
+      id: quotationId
+    },
+    include: {
+      customer: {
+        select: {
+          displayName: true
+        }
+      }
+    }
+  });
+
+  if (!existing) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  if (existing.status !== "DRAFT") {
+    return {
+      ok: false,
+      message: "Only draft quotations can be edited."
+    };
+  }
+
+  const references = await validateQuotationReferences(parsed.data);
+
+  if (!references.ok) {
+    return references;
+  }
+
+  let totals;
+
+  try {
+    totals = calculateQuotationTotals(parsed.data);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Quotation totals are invalid."
+    };
+  }
+
+  const nextStatus = intent === "save_mark_sent" ? "SENT" : "DRAFT";
+
+  try {
+    assertValidStatusTransition("quotation", existing.status, nextStatus);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "Invalid quotation status transition."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.quotation.update({
+      where: {
+        id: existing.id
+      },
+      data: {
+        customerId: parsed.data.customerId,
+        inquiryId: parsed.data.inquiryId,
+        status: nextStatus,
+        subtotalAmount: totals.subtotalAmount,
+        itemDiscountTotal: totals.itemDiscountTotal,
+        quotationDiscountType: parsed.data.quotationDiscountType as DiscountType | undefined,
+        quotationDiscountValue: parsed.data.quotationDiscountValue,
+        quotationDiscountAmount: totals.quotationDiscountAmount,
+        totalAmount: totals.totalAmount,
+        needsAssembly: parsed.data.needsAssembly,
+        salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+        modeOfDelivery: parsed.data.modeOfDelivery,
+        deliveryMethod: parsed.data.deliveryMethod,
+        paymentTerms: parsed.data.paymentTerms,
+        specialInstructions: parsed.data.specialInstructions,
+        customerNotes: parsed.data.customerNotes,
+        internalNotes: parsed.data.internalNotes,
+        updatedById: actor.id,
+        items: {
+          deleteMany: {},
+          create: parsed.data.items.map(quotationItemCreateData)
+        }
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "QUOTATION_UPDATED",
+        actorId: actor.id,
+        summary: `Updated draft quotation for ${references.customer.displayName}.`,
+        metadata: {
+          entityType: "quotation",
+          entityId: existing.id,
+          quotationId: existing.id,
+          quotationNumber: existing.quotationNumber,
+          customerId: references.customer.id,
+          oldStatus: existing.status,
+          newStatus: nextStatus,
+          totalAmount: totals.totalAmount,
+          sourceAction: "draft_quotation_update"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotationId}`);
+
+  return {
+    ok: true,
+    quotationId,
+    intent,
+    message: `Draft quotation updated: ${existing.quotationNumber ?? existing.id}.`
   };
 }
 
@@ -270,7 +443,6 @@ export async function updateQuotationStatusAction(
   _previousState: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const actor = await requirePermission("QUOTATIONS", "APPROVE");
   const quotationId = String(formData.get("quotationId") ?? "");
   const status = String(formData.get("status") ?? "");
 
@@ -280,6 +452,12 @@ export async function updateQuotationStatusAction(
       message: "Invalid quotation status update."
     };
   }
+
+  const nextStatus = status as QuotationStatus;
+  const actor = await requirePermission(
+    "QUOTATIONS",
+    nextStatus === "ACCEPTED" || nextStatus === "DECLINED" ? "APPROVE" : "UPDATE"
+  );
 
   const quotation = await prisma.quotation.findUnique({
     where: {
@@ -312,8 +490,6 @@ export async function updateQuotationStatusAction(
       message: "Quotation needs at least one item before approval."
     };
   }
-
-  const nextStatus = status as QuotationStatus;
 
   try {
     assertValidStatusTransition("quotation", quotation.status, nextStatus);
@@ -354,10 +530,12 @@ export async function updateQuotationStatusAction(
   });
 
   revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotation.id}`);
   revalidatePath("/orders");
 
   return {
     ok: true,
+    quotationId: quotation.id,
     message: `Quotation marked ${status}.`
   };
 }

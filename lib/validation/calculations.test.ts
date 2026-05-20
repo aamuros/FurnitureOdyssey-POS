@@ -66,6 +66,14 @@ test("createQuotationSchema rejects missing customer, catalog product, invalid q
     }).success,
     false
   );
+
+  assert.equal(
+    createQuotationSchema.safeParse({
+      customerId,
+      items: [{ ...validQuotationItem, quantity: "1.5" }]
+    }).success,
+    false
+  );
 });
 
 test("createQuotationSchema enforces payment terms and special instructions max lengths", () => {

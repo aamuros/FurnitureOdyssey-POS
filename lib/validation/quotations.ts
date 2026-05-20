@@ -35,7 +35,8 @@ const quantity = z.coerce
   .number({
     invalid_type_error: "Enter a valid quantity."
   })
-  .gt(0, "Quantity must be greater than zero.");
+  .int("Quantity must be a whole number.")
+  .min(1, "Quantity must be at least 1.");
 
 export const quotationImageSchema = z.object({
   sourceProductImageId: optionalText,

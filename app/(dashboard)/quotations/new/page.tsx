@@ -4,10 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 export default async function NewQuotationPage() {
   const user = await requirePermission("QUOTATIONS", "CREATE");
   const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
+  const canUpdateQuotations = hasPermission(user, "QUOTATIONS", "UPDATE");
 
   const [customers, products] = await Promise.all([
     prisma.customer.findMany({
@@ -60,16 +62,17 @@ export default async function NewQuotationPage() {
         title="New quotation"
         description="Build a simple quotation cart for a customer using products, custom items, quantities, fixed discounts, and totals."
       >
-        <a
+        <Link
           href="/quotations"
           className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to quotations
-        </a>
+        </Link>
       </PageHeader>
       <QuotationBuilder
         canCreateCustomers={canCreateCustomers}
+        canUpdateQuotations={canUpdateQuotations}
         customers={customers.map((customer) => ({
           id: customer.id,
           displayName: customer.displayName,
