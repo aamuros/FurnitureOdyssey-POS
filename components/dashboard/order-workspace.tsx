@@ -38,6 +38,7 @@ import {
   readableLabel,
   statusTone
 } from "@/lib/orders/status-labels";
+import type { StatusTone } from "@/lib/orders/status-labels";
 import { getAllowedNextStatuses } from "@/lib/status-transitions";
 import { cn } from "@/lib/utils";
 
@@ -706,45 +707,193 @@ function DocumentLinks({
   );
 }
 
-function nextOrderAction(
-  order: OrderRow,
-  canViewPayments: boolean,
-  canViewDeliveries: boolean,
-  canExportDocuments: boolean
-) {
-  if (canViewPayments && order.balanceAmountValue > 0) {
-    return "Collect or record balance";
-  }
+function hasBalanceDue(order: OrderRow) {
+  return order.balanceAmountValue > 0;
+}
 
-  if (canViewDeliveries && order.deliveryStatus === "NOT_SCHEDULED") {
-    return "Schedule delivery";
-  }
+function hasRemainingDeliveryQuantity(order: OrderRow) {
+  return order.items.some((item) => item.remainingQuantity > 0);
+}
 
-  if (canViewDeliveries && order.nextDeliveryDate) {
-    return "Prepare delivery";
-  }
+function isTerminalOrder(order: OrderRow) {
+  return ["CANCELLED", "COMPLETED"].includes(order.status);
+}
 
-  if (canExportDocuments && order.salesInvoiceRequested) {
-    return "Download invoice PDF";
-  }
+function isDeliveryComplete(order: OrderRow) {
+  return order.deliveryStatus === "DELIVERED";
+}
 
-  if (order.salesInvoiceRequested) {
-    return "Review invoice request";
+function isDeliveryPartiallyDelivered(order: OrderRow) {
+  return order.deliveryStatus === "PARTIALLY_DELIVERED";
+}
+
+function isDeliveryScheduled(order: OrderRow) {
+  return ["SCHEDULED", "SCHEDULED_FOR_DELIVERY", "IN_TRANSIT"].includes(order.deliveryStatus);
+}
+
+function isPaymentPaid(order: OrderRow) {
+  return order.paymentStatus === "PAID" || !hasBalanceDue(order);
+}
+
+function isPaymentDueBeforeDelivery(order: OrderRow) {
+  return order.paymentDueTiming === "BEFORE_DELIVERY" || !order.paymentDueTiming;
+}
+
+function isPaymentDueWithOrAfterDelivery(order: OrderRow) {
+  return order.paymentDueTiming === "UPON_DELIVERY" || order.paymentDueTiming === "AFTER_DELIVERY";
+}
+
+function canScheduleByPaymentState(order: OrderRow) {
+  return isPaymentPaid(order) || isPaymentDueWithOrAfterDelivery(order);
+}
+
+function isReadyToScheduleDelivery(order: OrderRow) {
+  return (
+    order.deliveryStatus === "NOT_SCHEDULED" &&
+    hasRemainingDeliveryQuantity(order) &&
+    canScheduleByPaymentState(order)
+  );
+}
+
+function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
+  if (order.status === "CANCELLED") {
+    return "Cancelled";
   }
 
   if (order.status === "COMPLETED") {
-    return "No open action";
+    return "Completed";
+  }
+
+  if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && hasBalanceDue(order)) {
+    return "Collect balance";
+  }
+
+  if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && isPaymentPaid(order)) {
+    return "Ready to complete";
+  }
+
+  if (canViewDeliveries && isDeliveryPartiallyDelivered(order)) {
+    return "In delivery";
+  }
+
+  if (canViewDeliveries && isDeliveryScheduled(order)) {
+    return "Scheduled";
+  }
+
+  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    return "Awaiting payment";
+  }
+
+  if (canViewDeliveries && isReadyToScheduleDelivery(order)) {
+    return "Ready to schedule";
   }
 
   return "Review order";
+}
+
+function workflowStageTone(stage: string): StatusTone {
+  if (["Completed", "Ready to complete"].includes(stage)) {
+    return "success";
+  }
+
+  if (["Ready to schedule", "Scheduled", "In delivery"].includes(stage)) {
+    return "teal";
+  }
+
+  if (["Collect balance", "Awaiting payment"].includes(stage)) {
+    return "warning";
+  }
+
+  if (stage === "Cancelled") {
+    return "danger";
+  }
+
+  return "neutral";
+}
+
+function nextActionLabel(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
+  if (isTerminalOrder(order)) {
+    return "No open action";
+  }
+
+  if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && hasBalanceDue(order)) {
+    return "Collect delivery balance";
+  }
+
+  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    return "Balance due";
+  }
+
+  if (canViewDeliveries && isReadyToScheduleDelivery(order)) {
+    return "Ready to schedule";
+  }
+
+  if (canViewDeliveries && (isDeliveryScheduled(order) || isDeliveryPartiallyDelivered(order))) {
+    return "Delivery scheduled";
+  }
+
+  if (canViewDeliveries && isDeliveryComplete(order) && (!canViewPayments || isPaymentPaid(order))) {
+    return "Review details";
+  }
+
+  return "Review details";
+}
+
+function nextOrderAction(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
+  return nextActionLabel(order, canViewPayments, canViewDeliveries);
+}
+
+function paymentSummaryLabel(order: OrderRow) {
+  if (!hasBalanceDue(order)) {
+    return "Paid in full";
+  }
+
+  return `${order.balanceAmount} due`;
+}
+
+function deliverySummaryLabel(order: OrderRow) {
+  if (!order.nextDeliveryDate) {
+    return "No schedule";
+  }
+
+  return [order.nextDeliveryDate, order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : null]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function staffDisplayName(name: string | null) {
+  if (!name) {
+    return null;
+  }
+
+  if (name === "Furniture Odyssey Admin") {
+    return "Admin";
+  }
+
+  return name;
+}
+
+function compactUpdatedAtLabel(value: string) {
+  return value.replace(/, \d{4}/, "");
+}
+
+function orderMetaLine(order: OrderRow) {
+  return [
+    readableLabel(order.sourceType),
+    staffDisplayName(order.assignedStaff),
+    `Updated ${compactUpdatedAtLabel(order.updatedAt)}`
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function canScheduleDelivery(order: OrderRow, canViewDeliveries: boolean, canCreateDeliveries: boolean) {
   return (
     canViewDeliveries &&
     canCreateDeliveries &&
+    !isTerminalOrder(order) &&
     !["DELIVERED", "CANCELLED"].includes(order.deliveryStatus) &&
-    order.items.some((item) => item.remainingQuantity > 0)
+    isReadyToScheduleDelivery(order)
   );
 }
 
@@ -755,7 +904,15 @@ function orderCardPrimaryAction(
   canViewDeliveries: boolean,
   canCreateDeliveries: boolean
 ): OrderCardPrimaryActionKind {
-  if (canViewPayments && canCreatePayments && order.balanceAmountValue > 0) {
+  if (isTerminalOrder(order)) {
+    return "details";
+  }
+
+  if (canViewPayments && canCreatePayments && isDeliveryComplete(order) && hasBalanceDue(order)) {
+    return "recordPayment";
+  }
+
+  if (canViewPayments && canCreatePayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
     return "recordPayment";
   }
 
@@ -801,7 +958,7 @@ function getPrimaryOrderAction({
     return {
       kind,
       label: "Record payment",
-      nextLabel: "Next: collect balance",
+      nextLabel: nextActionLabel(order, canViewPayments, canViewDeliveries),
       onClick: onRecordPayment
     };
   }
@@ -810,7 +967,7 @@ function getPrimaryOrderAction({
     return {
       kind,
       label: "Schedule",
-      nextLabel: "Next: schedule delivery",
+      nextLabel: nextActionLabel(order, canViewPayments, canViewDeliveries),
       onClick: onScheduleDelivery
     };
   }
@@ -818,7 +975,7 @@ function getPrimaryOrderAction({
   return {
     kind,
     label: isDetailsOpen ? "Hide" : "Details",
-    nextLabel: "Next: review details",
+    nextLabel: nextActionLabel(order, canViewPayments, canViewDeliveries),
     onClick: isDetailsOpen ? onHideDetails : onDetails
   };
 }
@@ -1570,7 +1727,7 @@ export function OrderWorkspace({
           canCreateDeliveries={canCreateDeliveries}
           canUpdateDeliveries={canUpdateDeliveries}
           canExportDocuments={canExportDocuments}
-          actionLabel={nextOrderAction(selectedOrder, canViewPayments, canViewDeliveries, canExportDocuments)}
+          actionLabel={nextOrderAction(selectedOrder, canViewPayments, canViewDeliveries)}
           onClose={() => setSelectedOrderId(null)}
           onTabChange={setActiveDetailTab}
           onOpenAction={(action, tab) => openAction(selectedOrder.id, action, tab)}
@@ -1619,8 +1776,9 @@ function OrderCard({
   onRecordPayment: () => void;
   onScheduleDelivery: () => void;
 }) {
-  const showPaymentAction = canViewPayments && canCreatePayments && order.balanceAmountValue > 0;
+  const showPaymentAction = canViewPayments && canCreatePayments && !isTerminalOrder(order) && hasBalanceDue(order);
   const showDeliveryAction = canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries);
+  const workflowStage = workflowStageLabel(order, canViewPayments, canViewDeliveries);
   const primaryAction = getPrimaryOrderAction({
     order,
     canViewPayments,
@@ -1633,11 +1791,6 @@ function OrderCard({
     onRecordPayment,
     onScheduleDelivery
   });
-  const deliverySummary = order.nextDeliveryDate
-    ? [order.nextDeliveryDate, order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : null]
-        .filter(Boolean)
-        .join(" · ")
-    : "None";
 
   return (
     <article className="bg-panel px-4 py-3 transition hover:bg-muted/25">
@@ -1655,17 +1808,13 @@ function OrderCard({
           <h2 className="truncate text-sm font-semibold">
             {order.displayId} · {order.customerName}
           </h2>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {order.assignedStaff ? <span>Staff: {order.assignedStaff}</span> : null}
-            <span>Updated {order.updatedAt}</span>
-            <span>{readableLabel(order.sourceType)}</span>
-          </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{orderMetaLine(order)}</p>
         </div>
 
         {canViewPayments ? (
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
-            <p className="mt-1 truncate font-semibold tabular-nums">{order.balanceAmount} balance</p>
+            <p className="mt-1 truncate font-semibold tabular-nums">{paymentSummaryLabel(order)}</p>
             <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
               <StatusPill tone={statusTone(order.paymentStatus)}>
                 {paymentStatusLabel(order.paymentStatus)}
@@ -1677,7 +1826,7 @@ function OrderCard({
         {canViewDeliveries ? (
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
-            <p className="mt-1 truncate font-semibold">{deliverySummary}</p>
+            <p className="mt-1 truncate font-semibold">{deliverySummaryLabel(order)}</p>
             <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
               <StatusPill tone={statusTone(order.deliveryStatus)}>
                 {deliveryStatusLabel(order.deliveryStatus)}
@@ -1687,20 +1836,20 @@ function OrderCard({
         ) : null}
 
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order status</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stage</p>
           <div className="mt-1.5 [&_span]:px-2 [&_span]:py-0.5">
-            <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
+            <StatusPill tone={workflowStageTone(workflowStage)}>{workflowStage}</StatusPill>
           </div>
         </div>
 
         <div className="min-w-0 md:col-span-2 lg:col-span-1 lg:text-right">
           <p className="truncate whitespace-nowrap text-[11px] font-medium text-muted-foreground">
-            {primaryAction.nextLabel}
+            Next: {primaryAction.nextLabel}
           </p>
           <div className="mt-2 flex items-center gap-1.5 lg:justify-end">
             <Button
               type="button"
-              className="min-h-8 shrink-0 whitespace-nowrap px-2.5 text-xs"
+              className="h-8 w-32 shrink-0 justify-center whitespace-nowrap px-3 text-xs"
               onClick={primaryAction.onClick}
             >
               {primaryAction.kind === "recordPayment" ? <ReceiptText className="h-3.5 w-3.5" /> : null}
