@@ -168,6 +168,39 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
 
           <section className="studio-card">
             <div className="studio-card-header">
+              <p className="studio-kicker">Notes</p>
+              <h2 className="text-sm font-semibold">Quotation notes</h2>
+            </div>
+            <div className="grid gap-3 p-5 md:grid-cols-2">
+              <DetailRow
+                label="Customer-facing notes"
+                value={
+                  quotation.customerNotes ? (
+                    <p className="whitespace-pre-wrap break-words leading-6">
+                      {quotation.customerNotes}
+                    </p>
+                  ) : (
+                    "No notes added."
+                  )
+                }
+              />
+              <DetailRow
+                label="Internal notes"
+                value={
+                  quotation.internalNotes ? (
+                    <p className="whitespace-pre-wrap break-words leading-6">
+                      {quotation.internalNotes}
+                    </p>
+                  ) : (
+                    "No notes added."
+                  )
+                }
+              />
+            </div>
+          </section>
+
+          <section className="studio-card">
+            <div className="studio-card-header">
               <p className="studio-kicker">Items</p>
               <h2 className="text-sm font-semibold">Quoted items</h2>
             </div>

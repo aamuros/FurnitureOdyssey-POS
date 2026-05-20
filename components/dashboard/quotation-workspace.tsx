@@ -8,7 +8,6 @@ import {
   ChevronDown,
   Download,
   Eye,
-  FileText,
   ImagePlus,
   MoreHorizontal,
   PackageSearch,
@@ -51,6 +50,7 @@ type ProductOption = {
   description: string | null;
   specifications: string | null;
   referencePrice: number | null;
+  referenceCost: number | null;
   primaryImage: {
     id: string;
     cloudinaryPublicId: string;
@@ -154,6 +154,7 @@ type ItemDraft = {
   specifications: string;
   quantity: number;
   unitPrice: number;
+  unitCostSnapshot: number;
   discountValue: number;
   customerNotes: string;
   internalNotes: string;
@@ -205,6 +206,14 @@ function lineTotal(item: ItemDraft) {
   return roundMoney(Math.max(itemSubtotal(item) - itemDiscount(item), 0));
 }
 
+function lineCostTotal(item: ItemDraft) {
+  return roundMoney(item.quantity * Math.max(item.unitCostSnapshot || 0, 0));
+}
+
+function lineProfit(item: ItemDraft) {
+  return roundMoney(lineTotal(item) - lineCostTotal(item));
+}
+
 function createCustomItem(sortOrder: number): ItemDraft {
   return {
     itemType: "CUSTOM_ITEM",
@@ -214,6 +223,7 @@ function createCustomItem(sortOrder: number): ItemDraft {
     specifications: "",
     quantity: 1,
     unitPrice: 0,
+    unitCostSnapshot: 0,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -442,6 +452,7 @@ function createCatalogItem(product: ProductOption, sortOrder: number): ItemDraft
     specifications: product.specifications ?? "",
     quantity: 1,
     unitPrice: product.referencePrice ?? 0,
+    unitCostSnapshot: product.referenceCost ?? 0,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -463,6 +474,112 @@ function labelFromEnum(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+const compactStatusOptions = ["DRAFT", "SENT", "ACCEPTED"] as const;
+
+function canPickQuotationStatus({
+  currentStatus,
+  nextStatus,
+  canUpdateQuotations,
+  canApproveQuotations
+}: {
+  currentStatus: string;
+  nextStatus: (typeof compactStatusOptions)[number];
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+}) {
+  if (currentStatus === nextStatus) {
+    return true;
+  }
+
+  if (nextStatus === "ACCEPTED" && !canApproveQuotations) {
+    return false;
+  }
+
+  if ((nextStatus === "DRAFT" || nextStatus === "SENT") && !canUpdateQuotations) {
+    return false;
+  }
+
+  if (currentStatus === "DRAFT") {
+    return nextStatus === "SENT" || nextStatus === "ACCEPTED";
+  }
+
+  if (currentStatus === "SENT") {
+    return nextStatus === "ACCEPTED";
+  }
+
+  return false;
+}
+
+function QuotationStatusSelect({
+  quotation,
+  action,
+  pending,
+  canUpdateQuotations,
+  canApproveQuotations
+}: {
+  quotation: QuotationRow;
+  action: (formData: FormData) => void;
+  pending: boolean;
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const canUseCompactStatus = compactStatusOptions.includes(
+    quotation.status as (typeof compactStatusOptions)[number]
+  );
+  const hasAnyStatusPermission = canUpdateQuotations || canApproveQuotations;
+
+  if (!canUseCompactStatus || !hasAnyStatusPermission) {
+    return (
+      <StatusPill tone={statusTone(quotation.status)}>
+        {labelFromEnum(quotation.status)}
+      </StatusPill>
+    );
+  }
+
+  return (
+    <form
+      ref={formRef}
+      action={action}
+      onClick={(event) => event.stopPropagation()}
+      className="inline-flex"
+    >
+      <input type="hidden" name="quotationId" value={quotation.id} />
+      <select
+        name="status"
+        defaultValue={quotation.status}
+        disabled={pending}
+        aria-label={`Update status for ${quotation.quotationNumber ?? quotation.customerName}`}
+        onChange={() => formRef.current?.requestSubmit()}
+        className={cn(
+          "min-h-9 cursor-pointer rounded-full border px-3 text-xs font-semibold uppercase tracking-normal transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60",
+          quotation.status === "ACCEPTED" &&
+            "border-success/30 bg-success/10 text-success",
+          quotation.status === "SENT" && "border-warning/30 bg-soft-accent text-warning",
+          quotation.status === "DRAFT" && "border-border bg-muted/60 text-muted-foreground"
+        )}
+      >
+        {compactStatusOptions.map((option) => (
+          <option
+            key={option}
+            value={option}
+            disabled={
+              !canPickQuotationStatus({
+                currentStatus: quotation.status,
+                nextStatus: option,
+                canUpdateQuotations,
+                canApproveQuotations
+              })
+            }
+          >
+            {labelFromEnum(option)}
+          </option>
+        ))}
+      </select>
+    </form>
+  );
 }
 
 function InlineCustomerCreate({
@@ -721,13 +838,37 @@ function ProductPicker({
     )
   );
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
   if (!open) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6">
-      <div className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl">
+    <div
+      className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6"
+      onMouseDown={onClose}
+    >
+      <div
+        className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <p className="studio-kicker">Products</p>
@@ -817,18 +958,20 @@ function QuotationItemTable({
 
   return (
     <div className="space-y-3">
-      <div className="hidden overflow-hidden rounded-lg border border-border bg-panel lg:block">
-        <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-panel lg:block">
+        <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
           <span>Item</span>
           <span className="text-left">Qty</span>
           <span className="text-left">Unit price</span>
           <span className="text-left">Discount</span>
           <span className="text-left">Line total</span>
+          <span className="text-left">Cost</span>
+          <span className="text-left">Profit</span>
           <span className="text-center">Actions</span>
         </div>
         {items.map((item, index) => (
           <div key={index} className="border-b border-border last:border-b-0">
-            <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] items-start gap-4 px-4 py-4">
+            <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] items-start gap-4 px-4 py-4">
               <div className="flex min-w-0 items-start gap-3">
                 <ItemThumb item={item} />
                 <div className="min-w-0 flex-1">
@@ -862,6 +1005,14 @@ function QuotationItemTable({
               />
               <div className="flex min-h-10 items-center text-sm font-semibold">
                 {money(lineTotal(item))}
+              </div>
+              <MoneyInput
+                value={item.unitCostSnapshot}
+                onValueChange={(value) => updateItem(index, { unitCostSnapshot: value })}
+                aria-label="Cost"
+              />
+              <div className="flex min-h-10 items-center text-sm font-semibold">
+                {money(lineProfit(item))}
               </div>
               <div className="flex min-h-10 items-center justify-center">
                 <Button
@@ -941,10 +1092,24 @@ function QuotationItemTable({
                   aria-label="Discount"
                 />
               </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
+                Cost
+                <MoneyInput
+                  value={item.unitCostSnapshot}
+                  onValueChange={(value) => updateItem(index, { unitCostSnapshot: value })}
+                  aria-label="Cost"
+                />
+              </label>
             </div>
-            <div className="mt-3 flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Line total</span>
-              <span className="font-semibold">{money(lineTotal(item))}</span>
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Line total</span>
+                <span className="font-semibold">{money(lineTotal(item))}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Profit</span>
+                <span className="font-semibold">{money(lineProfit(item))}</span>
+              </div>
             </div>
           </div>
         ))}
@@ -968,11 +1133,9 @@ export function QuotationBuilder({
   customers,
   products,
   canCreateCustomers,
-  canUpdateQuotations = true,
   mode = "create",
   initialQuotation
 }: QuotationBuilderProps) {
-  const isSentEdit = mode === "edit" && initialQuotation?.status === "SENT";
   const router = useRouter();
   const [state, action, pending] = useActionState(
     mode === "edit" ? updateDraftQuotationAction : createQuotationAction,
@@ -1248,9 +1411,14 @@ export function QuotationBuilder({
                   <div key={index} className="py-2">
                     <div className="flex justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="truncate font-medium">
+                        <p className="whitespace-normal break-words font-medium leading-5">
                           {item.quantity} x {item.itemName || `Item ${index + 1}`}
                         </p>
+                        {item.description ? (
+                          <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
+                            {item.description}
+                          </p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground">
                           {money(item.unitPrice)} each
                         </p>
@@ -1308,7 +1476,14 @@ export function QuotationBuilder({
                   {friendlyActionMessage(state.message)}
                 </p>
               ) : null}
-              <div className="mt-4 grid gap-2 border-t border-border pt-4">
+              <div className="mt-4 grid gap-2 border-t border-border pt-4 sm:grid-cols-[auto_1fr]">
+                <Link
+                  href={mode === "edit" && initialQuotation?.id ? `/quotations/${initialQuotation.id}` : "/quotations"}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-semibold text-danger transition hover:bg-danger/15"
+                >
+                  <X className="h-4 w-4" />
+                  Discard
+                </Link>
                 <Button
                   disabled={pending || state.ok}
                   name="intent"
@@ -1317,26 +1492,6 @@ export function QuotationBuilder({
                   <Save className="h-4 w-4" />
                   {mode === "edit" ? "Update quotation" : "Save draft"}
                 </Button>
-                <Button
-                  variant="secondary"
-                  disabled={pending || state.ok}
-                  name="intent"
-                  value="save_preview"
-                >
-                  <FileText className="h-4 w-4" />
-                  {mode === "edit" ? "Update & preview" : "Save draft & preview"}
-                </Button>
-                {canUpdateQuotations && !isSentEdit ? (
-                  <Button
-                    variant="secondary"
-                    disabled={pending || state.ok}
-                    name="intent"
-                    value="save_mark_sent"
-                  >
-                    <Send className="h-4 w-4" />
-                    Save draft & mark sent
-                  </Button>
-                ) : null}
               </div>
             </div>
           </section>
@@ -1570,10 +1725,10 @@ export function QuotationRecordsList({
   }, [normalizedStatus]);
 
   useEffect(() => {
-    if (statusState.ok) {
+    if (statusState.message) {
       router.refresh();
     }
-  }, [router, statusState.ok]);
+  }, [router, statusState.message]);
 
   function quotationHref(nextQuery: string, nextStatus: string, page?: number) {
     const params = new URLSearchParams();
@@ -1604,6 +1759,10 @@ export function QuotationRecordsList({
     return quotationHref(query, normalizedStatus, page);
   }
 
+  function openQuotation(quotationId: string) {
+    router.push(`/quotations/${quotationId}`);
+  }
+
   const emptyStatusLabel = normalizedStatus ? labelFromEnum(normalizedStatus) : "selected";
   const hasActiveFilters = Boolean(query || normalizedStatus);
   const emptyRecordMessage = hasActiveFilters
@@ -1622,7 +1781,7 @@ export function QuotationRecordsList({
             <p className="studio-kicker">Records</p>
             <h2 className="text-sm font-semibold">Quotation records</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search drafts and sent quotations without opening the builder.
+              Search active quotations and update their workflow status without opening the builder.
             </p>
           </div>
           <form
@@ -1685,17 +1844,37 @@ export function QuotationRecordsList({
           {quotations.length > 0 ? (
             <tbody className="divide-y divide-border">
               {quotations.map((quotation) => (
-                <tr key={quotation.id}>
+                <tr
+                  key={quotation.id}
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => openQuotation(quotation.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openQuotation(quotation.id);
+                    }
+                  }}
+                  className="cursor-pointer transition hover:bg-soft-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
                   <td className="px-5 py-3 font-medium">
-                    <a href={`/quotations/${quotation.id}`} className="text-primary hover:underline">
+                    <a
+                      href={`/quotations/${quotation.id}`}
+                      onClick={(event) => event.stopPropagation()}
+                      className="text-primary hover:underline"
+                    >
                       {quotation.quotationNumber ?? "Not assigned"}
                     </a>
                   </td>
                   <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
-                  <td className="px-5 py-3">
-                    <StatusPill tone={statusTone(quotation.status)}>
-                      {labelFromEnum(quotation.status)}
-                    </StatusPill>
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
+                    <QuotationStatusSelect
+                      quotation={quotation}
+                      action={statusAction}
+                      pending={statusPending}
+                      canUpdateQuotations={canUpdateQuotations}
+                      canApproveQuotations={canApproveQuotations}
+                    />
                   </td>
                   <td className="max-w-[260px] px-5 py-3 text-muted-foreground">
                     <span className="line-clamp-2">{quotation.itemSummary}</span>
@@ -1704,14 +1883,22 @@ export function QuotationRecordsList({
                   <td className="px-5 py-3 font-medium">{quotation.totalAmount}</td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.createdBy ?? "Unknown"}</td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.updatedAt}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center gap-2">
-                      <a href={`/quotations/${quotation.id}`} className={pdfLinkClass}>
+                      <a
+                        href={`/quotations/${quotation.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className={pdfLinkClass}
+                      >
                         <Eye className="h-4 w-4" />
                         View
                       </a>
                       {canExportDocuments ? (
-                        <a href={`/api/documents/quotation/${quotation.id}`} className={pdfLinkClass}>
+                        <a
+                          href={`/api/documents/quotation/${quotation.id}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className={pdfLinkClass}
+                        >
                           <Download className="h-4 w-4" />
                           PDF
                         </a>
@@ -1793,10 +1980,10 @@ export function QuotationDetailActions({
   const [state, action, pending] = useActionState(updateQuotationStatusAction, initialState);
 
   useEffect(() => {
-    if (state.ok) {
+    if (state.message) {
       router.refresh();
     }
-  }, [router, state.ok]);
+  }, [router, state.message]);
 
   return (
     <div className="space-y-3">

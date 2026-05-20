@@ -10,6 +10,7 @@ import {
 
 test("allows quotation lifecycle transitions", () => {
   assert.equal(canTransitionStatus("quotation", "DRAFT", "SENT"), true);
+  assert.equal(canTransitionStatus("quotation", "DRAFT", "ACCEPTED"), true);
   assert.equal(canTransitionStatus("quotation", "SENT", "ACCEPTED"), true);
   assert.equal(canTransitionStatus("quotation", "SENT", "DECLINED"), true);
   assert.equal(canTransitionStatus("quotation", "DRAFT", "CANCELLED"), true);

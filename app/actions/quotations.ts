@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import type { DiscountType, QuotationItemType, QuotationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
+import { convertQuotationToOrderAction } from "@/app/actions/orders";
 import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
 import { assertValidStatusTransition } from "@/lib/status-transitions";
@@ -155,6 +157,9 @@ function quotationItemCreateData(item: CreateQuotationInput["items"][number], in
     discountAmount: calculatedItem.discountAmount,
     lineSubtotal: calculatedItem.lineSubtotal,
     lineTotal: calculatedItem.lineTotal,
+    unitCostSnapshot: calculatedItem.unitCostSnapshot,
+    lineCostTotal: calculatedItem.lineCostTotal,
+    lineProfit: calculatedItem.lineProfit,
     customerNotes: item.customerNotes,
     internalNotes: item.internalNotes,
     images: item.images.length
@@ -446,7 +451,7 @@ export async function updateQuotationStatusAction(
   const quotationId = String(formData.get("quotationId") ?? "");
   const status = String(formData.get("status") ?? "");
 
-  if (!quotationId || !["ACCEPTED", "DECLINED", "CANCELLED", "SENT"].includes(status)) {
+  if (!quotationId || !["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"].includes(status)) {
     return {
       ok: false,
       message: "Invalid quotation status update."
@@ -458,6 +463,14 @@ export async function updateQuotationStatusAction(
     "QUOTATIONS",
     nextStatus === "ACCEPTED" || nextStatus === "DECLINED" ? "APPROVE" : "UPDATE"
   );
+
+  if (nextStatus === "ACCEPTED" && !hasPermission(actor, "ORDERS", "CREATE")) {
+    return {
+      ok: false,
+      quotationId,
+      message: "Accepting a quotation creates an order. Ask an admin to grant order creation access or convert it from Orders."
+    };
+  }
 
   const quotation = await prisma.quotation.findUnique({
     where: {
@@ -500,6 +513,8 @@ export async function updateQuotationStatusAction(
     };
   }
 
+  let successMessage = `Quotation marked ${status}.`;
+
   await prisma.$transaction(async (tx) => {
     await tx.quotation.update({
       where: {
@@ -529,6 +544,25 @@ export async function updateQuotationStatusAction(
     });
   });
 
+  if (nextStatus === "ACCEPTED") {
+    const conversionFormData = new FormData();
+    conversionFormData.set("quotationId", quotation.id);
+    const conversion = await convertQuotationToOrderAction({ ok: false, message: "" }, conversionFormData);
+
+    if (!conversion.ok) {
+      revalidatePath("/quotations");
+      revalidatePath(`/quotations/${quotation.id}`);
+      revalidatePath("/orders");
+      return {
+        ok: false,
+        quotationId: quotation.id,
+        message: "Quotation was marked accepted, but the order was not created. Please convert it from Orders when ready."
+      };
+    }
+
+    successMessage = "Quotation accepted and converted to an order.";
+  }
+
   revalidatePath("/quotations");
   revalidatePath(`/quotations/${quotation.id}`);
   revalidatePath("/orders");
@@ -536,6 +570,6 @@ export async function updateQuotationStatusAction(
   return {
     ok: true,
     quotationId: quotation.id,
-    message: `Quotation marked ${status}.`
+    message: successMessage
   };
 }

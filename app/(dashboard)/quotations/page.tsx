@@ -73,6 +73,9 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
   const where: Prisma.QuotationWhereInput = {
+    order: {
+      is: null
+    },
     status: status ? (status as never) : undefined,
     OR: query
       ? [

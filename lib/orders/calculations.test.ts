@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateOrderItem, calculateOrderTotals, orderStatusFromProgress } from "@/lib/orders/calculations";
+import {
+  calculateOrderItem,
+  calculateOrderTotals,
+  orderStatusFromProgress,
+  quotationUnitCostSnapshotForOrderItem
+} from "@/lib/orders/calculations";
 
 const baseOrderItem = {
   itemType: "CUSTOM_ITEM" as const,
@@ -159,6 +164,15 @@ test("calculateOrderTotals snapshots unit cost instead of later product referenc
   assert.equal(totals.items[0].unitCostSnapshot, 350);
   assert.equal(totals.items[0].lineCostTotal, 700);
   assert.equal(totals.items[0].lineProfit, 1300);
+});
+
+test("quotation conversion uses the saved quotation unit cost snapshot", () => {
+  assert.equal(
+    quotationUnitCostSnapshotForOrderItem({
+      unitCostSnapshot: "275.50"
+    }),
+    275.5
+  );
 });
 
 test("calculateOrderItem permits negative profit", () => {

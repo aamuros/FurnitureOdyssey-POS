@@ -535,6 +535,9 @@ model QuotationItem {
   discountAmount      Decimal              @default(0) @db.Decimal(12, 2)
   lineSubtotal        Decimal              @default(0) @db.Decimal(12, 2)
   lineTotal           Decimal              @default(0) @db.Decimal(12, 2)
+  unitCostSnapshot    Decimal              @default(0) @db.Decimal(12, 2)
+  lineCostTotal       Decimal              @default(0) @db.Decimal(12, 2)
+  lineProfit          Decimal              @default(0) @db.Decimal(12, 2)
   customerNotes       String?
   internalNotes       String?
   createdAt           DateTime             @default(now())

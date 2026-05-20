@@ -21,7 +21,7 @@ export type EntityStatus<T extends StatusEntityType> = T extends "quotation"
 type TransitionMap<T extends string> = Record<T, readonly T[]>;
 
 export const quotationStatusTransitions = {
-  DRAFT: ["SENT", "CANCELLED"],
+  DRAFT: ["SENT", "ACCEPTED", "CANCELLED"],
   SENT: ["ACCEPTED", "DECLINED", "CANCELLED"],
   ACCEPTED: [],
   DECLINED: [],

@@ -23,15 +23,22 @@ function discountAmount(
 export function calculateQuotationItem(item: QuotationItemInput) {
   const lineSubtotal = roundMoney(item.quantity * item.unitPrice);
   const itemDiscountAmount = discountAmount(lineSubtotal, item.discountType, item.discountValue);
+  const unitCostSnapshot = roundMoney(item.unitCostSnapshot ?? item.unitCost ?? 0);
+  const lineCostTotal = roundMoney(item.quantity * unitCostSnapshot);
 
   if (itemDiscountAmount > lineSubtotal) {
     throw new Error(`Discount exceeds subtotal for ${item.itemName}.`);
   }
 
+  const lineTotal = roundMoney(Math.max(lineSubtotal - itemDiscountAmount, 0));
+
   return {
     lineSubtotal,
     discountAmount: itemDiscountAmount,
-    lineTotal: roundMoney(Math.max(lineSubtotal - itemDiscountAmount, 0))
+    lineTotal,
+    unitCostSnapshot,
+    lineCostTotal,
+    lineProfit: roundMoney(lineTotal - lineCostTotal)
   };
 }
 

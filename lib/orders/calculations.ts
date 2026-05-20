@@ -44,6 +44,12 @@ export function calculateOrderItem(item: OrderItemInput) {
   };
 }
 
+export function quotationUnitCostSnapshotForOrderItem(item: { unitCostSnapshot?: unknown }) {
+  const parsed = Number(item.unitCostSnapshot ?? 0);
+
+  return roundMoney(Number.isFinite(parsed) ? parsed : 0);
+}
+
 export function calculateOrderTotals(
   input: Pick<CreateManualOrderInput, "items" | "orderDiscountType" | "orderDiscountValue">
 ) {

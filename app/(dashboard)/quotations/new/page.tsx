@@ -1,4 +1,3 @@
-import { PageHeader } from "@/components/dashboard/page-header";
 import { QuotationBuilder } from "@/components/dashboard/quotation-workspace";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
@@ -58,18 +57,22 @@ export default async function NewQuotationPage() {
 
   return (
     <>
-      <PageHeader
-        title="New quotation"
-        description="Build a simple quotation cart for a customer using products, custom items, quantities, fixed discounts, and totals."
-      >
+      <div className="mb-6 flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start">
         <Link
           href="/quotations"
-          className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+          className="inline-flex min-h-10 w-fit shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to quotations
         </Link>
-      </PageHeader>
+        <div>
+          <p className="studio-kicker mb-2">Sales Operations</p>
+          <h1 className="text-2xl font-semibold tracking-normal text-foreground">New quotation</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            Build a simple quotation cart for a customer using products, custom items, quantities, fixed discounts, and totals.
+          </p>
+        </div>
+      </div>
       <QuotationBuilder
         canCreateCustomers={canCreateCustomers}
         canUpdateQuotations={canUpdateQuotations}
@@ -92,6 +95,7 @@ export default async function NewQuotationPage() {
             description: product.description,
             specifications: product.specifications,
             referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
+            referenceCost: product.referenceCost ? Number(product.referenceCost) : null,
             primaryImage: primaryImage
               ? {
                   id: primaryImage.id,

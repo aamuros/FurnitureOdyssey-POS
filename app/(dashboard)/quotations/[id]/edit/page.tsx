@@ -164,6 +164,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             specifications: item.specifications ?? "",
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
+            unitCostSnapshot: Number(item.unitCostSnapshot ?? 0),
             discountValue: Number(item.discountValue ?? item.discountAmount ?? 0),
             customerNotes: item.customerNotes ?? "",
             internalNotes: item.internalNotes ?? "",
@@ -201,6 +202,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             description: product.description,
             specifications: product.specifications,
             referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
+            referenceCost: product.referenceCost ? Number(product.referenceCost) : null,
             primaryImage: primaryImage
               ? {
                   id: primaryImage.id,

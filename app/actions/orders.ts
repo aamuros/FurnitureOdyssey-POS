@@ -22,7 +22,8 @@ import {
 } from "@/lib/numbering";
 import {
   calculateOrderItem,
-  calculateOrderTotals
+  calculateOrderTotals,
+  quotationUnitCostSnapshotForOrderItem
 } from "@/lib/orders/calculations";
 import {
   assertDeliveryPlanDoesNotExceedOrdered,
@@ -324,11 +325,6 @@ export async function convertQuotationToOrderAction(
           sortOrder: "asc"
         },
         include: {
-          product: {
-            select: {
-              referenceCost: true
-            }
-          },
           images: {
             orderBy: {
               sortOrder: "asc"
@@ -381,7 +377,7 @@ export async function convertQuotationToOrderAction(
         specifications: item.specifications ?? undefined,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
-        unitCostSnapshot: Number(item.product?.referenceCost ?? 0),
+        unitCostSnapshot: quotationUnitCostSnapshotForOrderItem(item),
         discountType: item.discountType ?? undefined,
         discountValue: item.discountValue ? Number(item.discountValue) : undefined,
         customerNotes: item.customerNotes ?? undefined,
