@@ -9,6 +9,10 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
 import { readableLabel } from "@/lib/orders/status-labels";
+import {
+  canCompleteOrder as canCompleteOrderWorkflow,
+  canScheduleOrderDelivery
+} from "@/lib/orders/status";
 import { timeQuery } from "@/lib/query-timing";
 import { cn } from "@/lib/utils";
 
@@ -416,11 +420,7 @@ function needsActionWhere(
     return undefined;
   }
 
-  const clauses: Prisma.OrderWhereInput[] = [
-    {
-      salesInvoiceRequested: true
-    }
-  ];
+  const clauses: Prisma.OrderWhereInput[] = [];
 
   if (canViewPayments) {
     clauses.push(
@@ -468,6 +468,12 @@ function needsActionWhere(
       },
       salesInvoiceRequested: true
     });
+  }
+
+  if (clauses.length === 0) {
+    return {
+      id: "00000000-0000-0000-0000-000000000000"
+    };
   }
 
   return {
@@ -531,7 +537,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const orderStatus = enumValue(orderStatuses, params.orderStatus);
   const requestedPaymentStatus = enumValue(paymentStatuses, params.paymentStatus);
   const requestedDeliveryStatus = enumValue(deliveryStatuses, params.deliveryStatus);
-  const assignedStaffId = clean(params.assignedStaffId);
+  const assignedStaffId = uuid(params.assignedStaffId);
   const selectedOrderId = uuid(params.orderId);
   const from = parseDate(params.from);
   const to = parseDate(params.to, true);
@@ -737,21 +743,19 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             discountAmount: true,
             customerNotes: true,
             internalNotes: true,
-            deliveryItems: canViewDeliveries
-              ? {
-                  where: {
-                    delivery: {
-                      status: {
-                        notIn: ["CANCELLED", "FAILED"]
-                      }
-                    }
-                  },
-                  select: {
-                    quantityPlanned: true,
-                    quantityDelivered: true
+            deliveryItems: {
+              where: {
+                delivery: {
+                  status: {
+                    notIn: ["CANCELLED", "FAILED"]
                   }
                 }
-              : false
+              },
+              select: {
+                quantityPlanned: true,
+                quantityDelivered: true
+              }
+            }
           }
         },
         payments: canViewPayments
@@ -865,7 +869,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     orderStatus,
     paymentStatus,
     deliveryStatus,
-    assignedStaffId: params.assignedStaffId,
+    assignedStaffId,
     from: params.from,
     to: params.to,
     hasBalance: canViewPayments ? hasBalance : undefined,
@@ -875,7 +879,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     orderStatus ||
       paymentStatus ||
       deliveryStatus ||
-      params.assignedStaffId ||
+      assignedStaffId ||
       params.from ||
       params.to ||
       (canViewPayments && params.hasBalance) ||
@@ -990,7 +994,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 ))}
               </Select>
             ) : null}
-            <Select name="assignedStaffId" defaultValue={params.assignedStaffId ?? ""}>
+            <Select name="assignedStaffId" defaultValue={assignedStaffId ?? ""}>
               <option value="">All staff</option>
               {staff.map((member) => (
                 <option key={member.id} value={member.id}>
@@ -1045,6 +1049,27 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             deliveries.find((delivery) => delivery.assignedStaff)?.assignedStaff?.displayName ??
             order.createdBy?.displayName ??
             null;
+          const orderItemsForDeliveryState = order.items.map((item) => ({
+            quantity: item.quantity,
+            deliveryItems: item.deliveryItems.map((deliveryItem) => ({
+              quantityPlanned: deliveryItem.quantityPlanned
+            }))
+          }));
+          const canScheduleDelivery = canScheduleOrderDelivery({
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            balanceAmount: order.balanceAmount,
+            paymentDueTiming: order.paymentDueTiming,
+            deliveryStatus: order.deliveryStatus,
+            items: orderItemsForDeliveryState
+          });
+          const canCompleteOrder = canCompleteOrderWorkflow({
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            balanceAmount: order.balanceAmount,
+            paymentDueTiming: order.paymentDueTiming,
+            deliveryStatus: order.deliveryStatus
+          });
 
           return {
             id: order.id,
@@ -1061,6 +1086,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             paymentDueTiming: order.paymentDueTiming,
             paymentDueDate: formatOptionalInputDate(order.paymentDueDate),
             deliveryStatus: order.deliveryStatus,
+            canScheduleDelivery,
+            canCompleteOrder,
             needsAssembly: order.needsAssembly,
             salesInvoiceRequested: order.salesInvoiceRequested,
             modeOfDelivery: order.modeOfDelivery,

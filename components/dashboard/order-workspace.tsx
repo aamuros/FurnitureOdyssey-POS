@@ -5,6 +5,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import Link from "next/link";
 import type { DeliveryStatus } from "@prisma/client";
 import {
+  CheckCircle2,
   ArrowLeft,
   CalendarClock,
   Download,
@@ -19,6 +20,7 @@ import {
   X
 } from "lucide-react";
 import {
+  completeOrderAction,
   convertQuotationToOrderAction,
   createDeliveryAction,
   createManualOrderAction,
@@ -101,6 +103,8 @@ type OrderRow = {
   paymentDueTiming: string | null;
   paymentDueDate: string;
   deliveryStatus: string;
+  canScheduleDelivery: boolean;
+  canCompleteOrder: boolean;
   needsAssembly: boolean;
   salesInvoiceRequested: boolean;
   modeOfDelivery: string | null;
@@ -608,6 +612,23 @@ function DeliveryForm({ order }: { order: OrderRow }) {
   );
 }
 
+function CompleteOrderForm({ order }: { order: OrderRow }) {
+  const [state, action, pending] = useActionState(completeOrderAction, initialState);
+
+  return (
+    <form action={action} className="inline-flex flex-wrap items-center gap-2">
+      <input type="hidden" name="orderId" value={order.id} />
+      <Button type="submit" variant="secondary" disabled={pending || !order.canCompleteOrder}>
+        <CheckCircle2 className="h-4 w-4" />
+        Complete order
+      </Button>
+      {state.message ? (
+        <span className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</span>
+      ) : null}
+    </form>
+  );
+}
+
 type DeliveryRow = OrderRow["deliveries"][number];
 
 function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
@@ -762,10 +783,6 @@ function hasBalanceDue(order: OrderRow) {
   return order.balanceAmountValue > 0;
 }
 
-function hasRemainingDeliveryQuantity(order: OrderRow) {
-  return order.items.some((item) => item.remainingQuantity > 0);
-}
-
 function isTerminalOrder(order: OrderRow) {
   return ["CANCELLED", "COMPLETED"].includes(order.status);
 }
@@ -790,20 +807,8 @@ function isPaymentDueBeforeDelivery(order: OrderRow) {
   return order.paymentDueTiming === "BEFORE_DELIVERY" || !order.paymentDueTiming;
 }
 
-function isPaymentDueWithOrAfterDelivery(order: OrderRow) {
-  return order.paymentDueTiming === "UPON_DELIVERY" || order.paymentDueTiming === "AFTER_DELIVERY";
-}
-
-function canScheduleByPaymentState(order: OrderRow) {
-  return isPaymentPaid(order) || isPaymentDueWithOrAfterDelivery(order);
-}
-
 function isReadyToScheduleDelivery(order: OrderRow) {
-  return (
-    order.deliveryStatus === "NOT_SCHEDULED" &&
-    hasRemainingDeliveryQuantity(order) &&
-    canScheduleByPaymentState(order)
-  );
+  return order.canScheduleDelivery;
 }
 
 function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
@@ -819,7 +824,7 @@ function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDe
     return "Collect balance";
   }
 
-  if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && isPaymentPaid(order)) {
+  if (canViewDeliveries && order.canCompleteOrder) {
     return "Ready to complete";
   }
 
@@ -906,6 +911,10 @@ function workflowStageDescription(order: OrderRow, stage: string, canViewPayment
 function nextActionLabel(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
   if (isTerminalOrder(order)) {
     return "No open action";
+  }
+
+  if (canViewDeliveries && order.canCompleteOrder) {
+    return "Complete order";
   }
 
   if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && hasBalanceDue(order)) {
@@ -1015,13 +1024,7 @@ function orderMetaLine(order: OrderRow) {
 }
 
 function canScheduleDelivery(order: OrderRow, canViewDeliveries: boolean, canCreateDeliveries: boolean) {
-  return (
-    canViewDeliveries &&
-    canCreateDeliveries &&
-    !isTerminalOrder(order) &&
-    !["DELIVERED", "CANCELLED"].includes(order.deliveryStatus) &&
-    isReadyToScheduleDelivery(order)
-  );
+  return canViewDeliveries && canCreateDeliveries && order.canScheduleDelivery;
 }
 
 function orderCardPrimaryAction(
@@ -3087,6 +3090,7 @@ function OrderDetailPanel({
                 Schedule delivery
               </Button>
             ) : null}
+            {canUpdateOrders && order.canCompleteOrder ? <CompleteOrderForm order={order} /> : null}
             {canExportDocuments ? (
               <>
                 <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
@@ -3252,7 +3256,7 @@ function OrderActionPanel({
           {action === "paymentDue" && canUpdateOrders && canViewPayments ? (
             <PaymentDueTimingForm order={order} />
           ) : null}
-          {action === "delivery" && canViewDeliveries && canCreateDeliveries ? (
+          {action === "delivery" && canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries) ? (
             <DeliveryForm order={order} />
           ) : null}
           {delivery && canViewDeliveries && canUpdateDeliveries ? (
@@ -3263,6 +3267,9 @@ function OrderActionPanel({
           ) : null}
           {action === "delivery" && (!canViewDeliveries || !canCreateDeliveries) ? (
             <RestrictedPanel title="delivery actions" />
+          ) : null}
+          {action === "delivery" && canViewDeliveries && canCreateDeliveries && !order.canScheduleDelivery ? (
+            <EmptyPanel message="Delivery cannot be scheduled until the order is eligible." />
           ) : null}
           {action.startsWith("deliveryProgress:") && (!delivery || !canViewDeliveries || !canUpdateDeliveries) ? (
             <RestrictedPanel title="delivery progress" />
@@ -3575,7 +3582,7 @@ function DeliverySection({
         </div>
       </div>
 
-      {canCreateDeliveries ? (
+      {canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries) ? (
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
