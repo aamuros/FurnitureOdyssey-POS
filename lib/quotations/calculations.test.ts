@@ -53,6 +53,7 @@ test("calculateQuotationItem applies quantity times unit price and fixed item di
     ...baseItem,
     quantity: 3,
     unitPrice: 999.99,
+    unitCostSnapshot: 400,
     discountType: "FIXED_AMOUNT",
     discountValue: 250
   });
@@ -60,6 +61,9 @@ test("calculateQuotationItem applies quantity times unit price and fixed item di
   assert.equal(item.lineSubtotal, 2999.97);
   assert.equal(item.discountAmount, 250);
   assert.equal(item.lineTotal, 2749.97);
+  assert.equal(item.unitCostSnapshot, 400);
+  assert.equal(item.lineCostTotal, 1200);
+  assert.equal(item.lineProfit, 1549.97);
 });
 
 test("calculateQuotationTotals applies percentage quotation discounts after item discounts", () => {
@@ -91,7 +95,8 @@ test("calculateQuotationTotals applies fixed quotation discounts and zero discou
       {
         ...baseItem,
         quantity: 2,
-        unitPrice: 1000
+        unitPrice: 1000,
+        unitCostSnapshot: 600
       }
     ]
   });
@@ -99,6 +104,8 @@ test("calculateQuotationTotals applies fixed quotation discounts and zero discou
   assert.equal(totals.itemDiscountTotal, 0);
   assert.equal(totals.quotationDiscountAmount, 300);
   assert.equal(totals.totalAmount, 1700);
+  assert.equal(totals.totalCostAmount, 1200);
+  assert.equal(totals.grossProfitAmount, 500);
 });
 
 test("calculateQuotationTotals rejects discounts larger than subtotal", () => {

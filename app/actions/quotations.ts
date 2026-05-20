@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import type { DiscountType, QuotationItemType, QuotationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
+import { convertAcceptedQuotationToOrderTx } from "@/app/actions/orders";
 import { generateQuotationNumber } from "@/lib/numbering";
 import { calculateQuotationItem, calculateQuotationTotals } from "@/lib/quotations/calculations";
 import { assertValidStatusTransition } from "@/lib/status-transitions";
@@ -13,6 +15,8 @@ type ActionState = {
   ok: boolean;
   message: string;
   quotationId?: string;
+  status?: QuotationStatus;
+  deleted?: boolean;
   intent?: string;
 };
 
@@ -155,6 +159,9 @@ function quotationItemCreateData(item: CreateQuotationInput["items"][number], in
     discountAmount: calculatedItem.discountAmount,
     lineSubtotal: calculatedItem.lineSubtotal,
     lineTotal: calculatedItem.lineTotal,
+    unitCostSnapshot: calculatedItem.unitCostSnapshot,
+    lineCostTotal: calculatedItem.lineCostTotal,
+    lineProfit: calculatedItem.lineProfit,
     customerNotes: item.customerNotes,
     internalNotes: item.internalNotes,
     images: item.images.length
@@ -446,7 +453,7 @@ export async function updateQuotationStatusAction(
   const quotationId = String(formData.get("quotationId") ?? "");
   const status = String(formData.get("status") ?? "");
 
-  if (!quotationId || !["ACCEPTED", "DECLINED", "CANCELLED", "SENT"].includes(status)) {
+  if (!quotationId || !["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"].includes(status)) {
     return {
       ok: false,
       message: "Invalid quotation status update."
@@ -458,6 +465,14 @@ export async function updateQuotationStatusAction(
     "QUOTATIONS",
     nextStatus === "ACCEPTED" || nextStatus === "DECLINED" ? "APPROVE" : "UPDATE"
   );
+
+  if (nextStatus === "ACCEPTED" && !hasPermission(actor, "ORDERS", "CREATE")) {
+    return {
+      ok: false,
+      quotationId,
+      message: "Accepting a quotation creates an order. Ask an admin to grant order creation access or convert it from Orders."
+    };
+  }
 
   const quotation = await prisma.quotation.findUnique({
     where: {
@@ -500,34 +515,49 @@ export async function updateQuotationStatusAction(
     };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.quotation.update({
-      where: {
-        id: quotation.id
-      },
-      data: {
-        status: nextStatus,
-        updatedById: actor.id
-      }
-    });
+  let successMessage = `Quotation marked ${status}.`;
 
-    await tx.activityLog.create({
-      data: {
-        action: "QUOTATION_UPDATED",
-        actorId: actor.id,
-        summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
-        metadata: {
-          entityType: "quotation",
-          entityId: quotation.id,
-          quotationId: quotation.id,
-          oldStatus: quotation.status,
-          newStatus: nextStatus,
-          reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
-          sourceAction: "quotation_status_update"
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.quotation.update({
+        where: {
+          id: quotation.id
+        },
+        data: {
+          status: nextStatus,
+          updatedById: actor.id
         }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "QUOTATION_UPDATED",
+          actorId: actor.id,
+          summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
+          metadata: {
+            entityType: "quotation",
+            entityId: quotation.id,
+            quotationId: quotation.id,
+            oldStatus: quotation.status,
+            newStatus: nextStatus,
+            reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
+            sourceAction: "quotation_status_update"
+          }
+        }
+      });
+
+      if (nextStatus === "ACCEPTED") {
+        await convertAcceptedQuotationToOrderTx(tx, quotation.id, actor.id);
+        successMessage = "Quotation accepted and converted to an order.";
       }
     });
-  });
+  } catch (error) {
+    return {
+      ok: false,
+      quotationId: quotation.id,
+      message: error instanceof Error ? error.message : "Quotation status update failed."
+    };
+  }
 
   revalidatePath("/quotations");
   revalidatePath(`/quotations/${quotation.id}`);
@@ -536,6 +566,89 @@ export async function updateQuotationStatusAction(
   return {
     ok: true,
     quotationId: quotation.id,
-    message: `Quotation marked ${status}.`
+    status: nextStatus,
+    message: successMessage
+  };
+}
+
+export async function deleteQuotationAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("QUOTATIONS", "DELETE");
+  const quotationId = String(formData.get("quotationId") ?? "");
+
+  if (!quotationId) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  const quotation = await prisma.quotation.findUnique({
+    where: {
+      id: quotationId
+    },
+    include: {
+      order: {
+        select: {
+          id: true
+        }
+      },
+      customer: {
+        select: {
+          displayName: true
+        }
+      }
+    }
+  });
+
+  if (!quotation) {
+    return {
+      ok: false,
+      message: "Quotation was not found."
+    };
+  }
+
+  if (quotation.order) {
+    return {
+      ok: false,
+      quotationId,
+      message: "Converted quotations cannot be deleted."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.quotation.delete({
+      where: {
+        id: quotation.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "QUOTATION_UPDATED",
+        actorId: actor.id,
+        summary: `Deleted quotation for ${quotation.customer.displayName}.`,
+        metadata: {
+          entityType: "quotation",
+          entityId: quotation.id,
+          quotationId: quotation.id,
+          quotationNumber: quotation.quotationNumber,
+          oldStatus: quotation.status,
+          sourceAction: "quotation_delete"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotation.id}`);
+
+  return {
+    ok: true,
+    quotationId,
+    deleted: true,
+    message: "Quotation deleted."
   };
 }

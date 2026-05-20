@@ -1,6 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { QuotationBuilder } from "@/components/dashboard/quotation-workspace";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -117,17 +115,11 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
       <PageHeader
         title={`Edit ${quotation.quotationNumber ?? "quotation"}`}
         description="Draft and sent quotations can be updated before they are accepted, declined, or cancelled."
-      >
-        <Link
-          href={`/quotations/${quotation.id}`}
-          className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to quotation
-        </Link>
-      </PageHeader>
+      />
       <QuotationBuilder
         mode="edit"
+        backHref={`/quotations/${quotation.id}`}
+        backLabel="Back to quotation"
         canCreateCustomers={canCreateCustomers}
         canUpdateQuotations
         initialQuotation={{
@@ -164,6 +156,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             specifications: item.specifications ?? "",
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
+            unitCostSnapshot: Number(item.unitCostSnapshot ?? 0),
             discountValue: Number(item.discountValue ?? item.discountAmount ?? 0),
             customerNotes: item.customerNotes ?? "",
             internalNotes: item.internalNotes ?? "",
@@ -201,6 +194,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             description: product.description,
             specifications: product.specifications,
             referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
+            referenceCost: product.referenceCost ? Number(product.referenceCost) : null,
             primaryImage: primaryImage
               ? {
                   id: primaryImage.id,

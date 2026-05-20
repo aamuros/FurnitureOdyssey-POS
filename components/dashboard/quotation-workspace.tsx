@@ -1,14 +1,15 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { QuotationStatus } from "@prisma/client";
 import {
+  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   Download,
   Eye,
-  FileText,
   ImagePlus,
   MoreHorizontal,
   PackageSearch,
@@ -26,13 +27,14 @@ import {
 import { createCustomerAction } from "@/app/actions/customer-inquiries";
 import {
   createQuotationAction,
+  deleteQuotationAction,
   updateDraftQuotationAction,
   updateQuotationStatusAction
 } from "@/app/actions/quotations";
+import { convertQuotationToOrderAction } from "@/app/actions/orders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +53,7 @@ type ProductOption = {
   description: string | null;
   specifications: string | null;
   referencePrice: number | null;
+  referenceCost: number | null;
   primaryImage: {
     id: string;
     cloudinaryPublicId: string;
@@ -74,6 +77,8 @@ type QuotationRow = {
   totalAmount: string;
   createdBy: string | null;
   updatedAt: string;
+  orderId?: string | null;
+  orderNumber?: string | null;
 };
 
 type QuotationBuilderProps = {
@@ -81,6 +86,8 @@ type QuotationBuilderProps = {
   products: ProductOption[];
   canCreateCustomers: boolean;
   canUpdateQuotations?: boolean;
+  backHref?: string;
+  backLabel?: string;
   mode?: "create" | "edit";
   initialQuotation?: {
     id: string;
@@ -109,6 +116,7 @@ type QuotationRecordsListProps = {
   quotations: QuotationRow[];
   query?: string;
   status?: string;
+  view?: string;
   pagination: {
     page: number;
     pageSize: number;
@@ -120,6 +128,7 @@ type QuotationRecordsListProps = {
   canExportDocuments: boolean;
   canUpdateQuotations: boolean;
   canApproveQuotations: boolean;
+  canDeleteQuotations: boolean;
 };
 
 type QuotationDetailActionsProps = {
@@ -128,6 +137,11 @@ type QuotationDetailActionsProps = {
   canExportDocuments: boolean;
   canUpdateQuotations: boolean;
   canApproveQuotations: boolean;
+  canCreateOrders: boolean;
+  order?: {
+    id: string;
+    orderNumber: string | null;
+  } | null;
 };
 
 type ItemImageDraft = {
@@ -154,6 +168,7 @@ type ItemDraft = {
   specifications: string;
   quantity: number;
   unitPrice: number;
+  unitCostSnapshot: number;
   discountValue: number;
   customerNotes: string;
   internalNotes: string;
@@ -166,7 +181,11 @@ type ActionState = {
   customerId?: string;
   customerDisplayName?: string;
   quotationId?: string;
+  status?: QuotationStatus;
+  deleted?: boolean;
   intent?: string;
+  orderId?: string;
+  orderNumber?: string | null;
 };
 
 const initialState: ActionState = {
@@ -177,9 +196,14 @@ const initialState: ActionState = {
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
 const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const quotationViewOptions = ["active", "converted", "all"] as const;
 
 function normalizeStatusFilter(value: string | undefined) {
   return quotationStatusFilterOptions.find((option) => option === value) ?? "";
+}
+
+function normalizeQuotationView(value: string | undefined) {
+  return quotationViewOptions.find((option) => option === value) ?? "active";
 }
 
 function money(value: number) {
@@ -205,6 +229,14 @@ function lineTotal(item: ItemDraft) {
   return roundMoney(Math.max(itemSubtotal(item) - itemDiscount(item), 0));
 }
 
+function lineCostTotal(item: ItemDraft) {
+  return roundMoney(item.quantity * Math.max(item.unitCostSnapshot || 0, 0));
+}
+
+function lineProfit(item: ItemDraft) {
+  return roundMoney(lineTotal(item) - lineCostTotal(item));
+}
+
 function createCustomItem(sortOrder: number): ItemDraft {
   return {
     itemType: "CUSTOM_ITEM",
@@ -214,6 +246,7 @@ function createCustomItem(sortOrder: number): ItemDraft {
     specifications: "",
     quantity: 1,
     unitPrice: 0,
+    unitCostSnapshot: 0,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -389,20 +422,16 @@ function toActionItems(items: ItemDraft[]) {
   }));
 }
 
-function statusTone(status: string) {
-  if (status === "ACCEPTED") {
-    return "success" as const;
-  }
-
-  if (status === "DECLINED" || status === "CANCELLED") {
-    return "danger" as const;
-  }
-
-  if (status === "SENT") {
-    return "warning" as const;
-  }
-
-  return "neutral" as const;
+function quotationStatusBadgeClass(status: string) {
+  return cn(
+    "inline-flex h-7 w-fit items-center rounded-full border px-2.5 py-1 text-xs font-semibold leading-none tracking-normal",
+    status === "ACCEPTED" && "border-success/25 bg-success/15 text-success",
+    status === "SENT" && "border-warning/25 bg-soft-accent text-warning",
+    status === "DECLINED" || status === "CANCELLED"
+      ? "border-danger/25 bg-danger/10 text-danger"
+      : undefined,
+    status === "DRAFT" && "border-border bg-muted/55 text-muted-foreground"
+  );
 }
 
 function productImageStyle(product: ProductOption) {
@@ -442,6 +471,7 @@ function createCatalogItem(product: ProductOption, sortOrder: number): ItemDraft
     specifications: product.specifications ?? "",
     quantity: 1,
     unitPrice: product.referencePrice ?? 0,
+    unitCostSnapshot: product.referenceCost ?? 0,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -463,6 +493,210 @@ function labelFromEnum(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function orderHref(orderId: string) {
+  return `/orders?orderId=${encodeURIComponent(orderId)}`;
+}
+
+const compactStatusOptions = ["DRAFT", "SENT", "ACCEPTED"] as const;
+
+function canPickQuotationStatus({
+  currentStatus,
+  nextStatus,
+  canUpdateQuotations,
+  canApproveQuotations
+}: {
+  currentStatus: string;
+  nextStatus: (typeof compactStatusOptions)[number];
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+}) {
+  if (currentStatus === nextStatus) {
+    return true;
+  }
+
+  if (nextStatus === "ACCEPTED" && !canApproveQuotations) {
+    return false;
+  }
+
+  if ((nextStatus === "DRAFT" || nextStatus === "SENT") && !canUpdateQuotations) {
+    return false;
+  }
+
+  if (currentStatus === "DRAFT") {
+    return nextStatus === "SENT" || nextStatus === "ACCEPTED";
+  }
+
+  if (currentStatus === "SENT") {
+    return nextStatus === "DRAFT" || nextStatus === "ACCEPTED";
+  }
+
+  return false;
+}
+
+function QuotationStatusSelect({
+  quotation,
+  action,
+  pending,
+  canUpdateQuotations,
+  canApproveQuotations
+}: {
+  quotation: QuotationRow;
+  action: (formData: FormData) => void;
+  pending: boolean;
+  canUpdateQuotations: boolean;
+  canApproveQuotations: boolean;
+}) {
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [isSubmitting, startStatusTransition] = useTransition();
+  const isOpen = menuPosition !== null;
+  const isBusy = pending || isSubmitting;
+  const canUseCompactStatus = compactStatusOptions.includes(
+    quotation.status as (typeof compactStatusOptions)[number]
+  );
+  const hasAnyStatusPermission = canUpdateQuotations || canApproveQuotations;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuPosition(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuPosition(null);
+        buttonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function toggleMenu() {
+    if (isBusy) {
+      return;
+    }
+
+    if (isOpen) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const menuWidth = 152;
+    const estimatedHeight = 136;
+    const hasRoomBelow = rect.bottom + estimatedHeight + 12 < window.innerHeight;
+    setMenuPosition({
+      left: Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.left)),
+      top: hasRoomBelow ? rect.bottom + 8 : rect.top - 8,
+      placement: hasRoomBelow ? "below" : "above"
+    });
+  }
+
+  function submitStatusUpdate(nextStatus: (typeof compactStatusOptions)[number]) {
+    const formData = new FormData();
+    formData.set("quotationId", quotation.id);
+    formData.set("status", nextStatus);
+
+    setMenuPosition(null);
+    startStatusTransition(() => {
+      action(formData);
+    });
+  }
+
+  if (!canUseCompactStatus || !hasAnyStatusPermission) {
+    return (
+      <span className={quotationStatusBadgeClass(quotation.status)}>{labelFromEnum(quotation.status)}</span>
+    );
+  }
+
+  return (
+    <div
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+      className="contents"
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        disabled={isBusy}
+        onClick={toggleMenu}
+        className={cn(
+          quotationStatusBadgeClass(quotation.status),
+          "cursor-pointer transition hover:bg-soft-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+        )}
+      >
+        {labelFromEnum(quotation.status)}
+      </button>
+      {isOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[80] grid min-w-36 gap-1 rounded-lg border border-border bg-panel p-2 shadow-xl"
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            transform: menuPosition.placement === "above" ? "translateY(-100%)" : undefined
+          }}
+        >
+          {compactStatusOptions.map((option) => {
+            const allowed = canPickQuotationStatus({
+              currentStatus: quotation.status,
+              nextStatus: option,
+              canUpdateQuotations,
+              canApproveQuotations
+            });
+
+            return (
+              <Button
+                key={option}
+                type="button"
+                variant="ghost"
+                disabled={isBusy || !allowed}
+                role="menuitem"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  submitStatusUpdate(option);
+                }}
+                className="min-h-8 justify-start rounded-md px-2"
+              >
+                <span className={quotationStatusBadgeClass(option)}>{labelFromEnum(option)}</span>
+              </Button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function InlineCustomerCreate({
@@ -721,13 +955,37 @@ function ProductPicker({
     )
   );
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose, open]);
+
   if (!open) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6">
-      <div className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl">
+    <div
+      className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6"
+      onMouseDown={onClose}
+    >
+      <div
+        className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <p className="studio-kicker">Products</p>
@@ -801,11 +1059,13 @@ function ProductPicker({
 function QuotationItemTable({
   items,
   updateItem,
-  removeItem
+  removeItem,
+  finalTotal
 }: {
   items: ItemDraft[];
   updateItem: (index: number, patch: Partial<ItemDraft>) => void;
   removeItem: (index: number) => void;
+  finalTotal: number;
 }) {
   function confirmRemoveItem(index: number) {
     const itemName = items[index]?.itemName?.trim() || `item ${index + 1}`;
@@ -817,18 +1077,20 @@ function QuotationItemTable({
 
   return (
     <div className="space-y-3">
-      <div className="hidden overflow-hidden rounded-lg border border-border bg-panel lg:block">
-        <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+      <div className="hidden overflow-x-auto rounded-lg border border-border bg-panel lg:block">
+        <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
           <span>Item</span>
           <span className="text-left">Qty</span>
-          <span className="text-left">Unit price</span>
+          <span className="text-left">Cost</span>
+          <span className="text-left">Unit Price</span>
+          <span className="text-left">Profit</span>
           <span className="text-left">Discount</span>
-          <span className="text-left">Line total</span>
+          <span className="text-left">Line Total</span>
           <span className="text-center">Actions</span>
         </div>
         {items.map((item, index) => (
           <div key={index} className="border-b border-border last:border-b-0">
-            <div className="grid grid-cols-[minmax(360px,1fr)_112px_160px_148px_140px_84px] items-start gap-4 px-4 py-4">
+            <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] items-start gap-4 px-4 py-4">
               <div className="flex min-w-0 items-start gap-3">
                 <ItemThumb item={item} />
                 <div className="min-w-0 flex-1">
@@ -850,10 +1112,18 @@ function QuotationItemTable({
                 aria-label="Quantity"
               />
               <MoneyInput
+                value={item.unitCostSnapshot}
+                onValueChange={(value) => updateItem(index, { unitCostSnapshot: value })}
+                aria-label="Cost"
+              />
+              <MoneyInput
                 value={item.unitPrice}
                 onValueChange={(value) => updateItem(index, { unitPrice: value })}
                 aria-label="Unit price"
               />
+              <div className="flex min-h-10 items-center text-sm font-semibold">
+                {money(lineProfit(item))}
+              </div>
               <MoneyInput
                 max={itemSubtotal(item)}
                 value={item.discountValue}
@@ -925,13 +1195,25 @@ function QuotationItemTable({
                 />
               </label>
               <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
-                Unit price
+                Cost
+                <MoneyInput
+                  value={item.unitCostSnapshot}
+                  onValueChange={(value) => updateItem(index, { unitCostSnapshot: value })}
+                  aria-label="Cost"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
+                Unit Price
                 <MoneyInput
                   value={item.unitPrice}
                   onValueChange={(value) => updateItem(index, { unitPrice: value })}
                   aria-label="Unit price"
                 />
               </label>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-soft-accent/30 px-3 py-2 text-sm">
+                <span className="text-xs font-semibold uppercase text-muted-foreground">Profit</span>
+                <span className="font-semibold">{money(lineProfit(item))}</span>
+              </div>
               <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground">
                 Discount
                 <MoneyInput
@@ -942,14 +1224,56 @@ function QuotationItemTable({
                 />
               </label>
             </div>
-            <div className="mt-3 flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Line total</span>
-              <span className="font-semibold">{money(lineTotal(item))}</span>
+            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Line total</span>
+                <span className="font-semibold">{money(lineTotal(item))}</span>
+              </div>
             </div>
           </div>
         ))}
       </div>
+
+      <QuotationItemCostProfitSummary items={items} finalTotal={finalTotal} />
     </div>
+  );
+}
+
+function QuotationItemCostProfitSummary({
+  items,
+  finalTotal
+}: {
+  items: ItemDraft[];
+  finalTotal: number;
+}) {
+  const totalCost = roundMoney(items.reduce((sum, item) => sum + lineCostTotal(item), 0));
+  const grossProfit = roundMoney(finalTotal - totalCost);
+
+  return (
+    <>
+      <div className="hidden overflow-x-auto lg:block">
+        <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] gap-4 rounded-lg border border-border bg-soft-accent/45 px-4 py-3 text-sm">
+          <div className="col-start-3">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Total cost</p>
+            <p className="mt-1 font-semibold text-foreground">{money(totalCost)}</p>
+          </div>
+          <div className="col-start-5">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Gross profit</p>
+            <p className="mt-1 font-semibold text-foreground">{money(grossProfit)}</p>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 rounded-lg border border-border bg-soft-accent/45 p-4 text-sm sm:grid-cols-2 lg:hidden">
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Total cost</p>
+          <p className="mt-1 font-semibold text-foreground">{money(totalCost)}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Gross profit</p>
+          <p className="mt-1 font-semibold text-foreground">{money(grossProfit)}</p>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -968,11 +1292,11 @@ export function QuotationBuilder({
   customers,
   products,
   canCreateCustomers,
-  canUpdateQuotations = true,
+  backHref,
+  backLabel,
   mode = "create",
   initialQuotation
 }: QuotationBuilderProps) {
-  const isSentEdit = mode === "edit" && initialQuotation?.status === "SENT";
   const router = useRouter();
   const [state, action, pending] = useActionState(
     mode === "edit" ? updateDraftQuotationAction : createQuotationAction,
@@ -995,6 +1319,17 @@ export function QuotationBuilder({
   const [noteOpen, setNoteOpen] = useState(false);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [customerNotes, setCustomerNotes] = useState(initialQuotation?.customerNotes ?? "");
+  const [needsAssembly, setNeedsAssembly] = useState(initialQuotation?.needsAssembly ?? false);
+  const [salesInvoiceRequested, setSalesInvoiceRequested] = useState(
+    initialQuotation?.salesInvoiceRequested ?? false
+  );
+  const [modeOfDelivery, setModeOfDelivery] = useState(initialQuotation?.modeOfDelivery ?? "");
+  const [deliveryMethod, setDeliveryMethod] = useState(initialQuotation?.deliveryMethod ?? "");
+  const [paymentTerms, setPaymentTerms] = useState(initialQuotation?.paymentTerms ?? "");
+  const [specialInstructions, setSpecialInstructions] = useState(
+    initialQuotation?.specialInstructions ?? ""
+  );
+  const [internalNotes, setInternalNotes] = useState(initialQuotation?.internalNotes ?? "");
 
   useEffect(() => {
     if (state.ok && state.quotationId) {
@@ -1119,6 +1454,15 @@ export function QuotationBuilder({
         onAdd={addProduct}
       />
       <div className="space-y-6">
+        {backHref && backLabel ? (
+          <Link
+            href={backHref}
+            className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {backLabel}
+          </Link>
+        ) : null}
         <CustomerSelector
           customers={customers}
           selectedCustomer={selectedCustomer}
@@ -1145,22 +1489,13 @@ export function QuotationBuilder({
         <input
           type="hidden"
           name="needsAssembly"
-          value={initialQuotation?.needsAssembly ? "true" : "false"}
+          value={needsAssembly ? "true" : "false"}
         />
         <input
           type="hidden"
           name="salesInvoiceRequested"
-          value={initialQuotation?.salesInvoiceRequested ? "true" : "false"}
+          value={salesInvoiceRequested ? "true" : "false"}
         />
-        <input type="hidden" name="modeOfDelivery" value={initialQuotation?.modeOfDelivery ?? ""} />
-        <input type="hidden" name="deliveryMethod" value={initialQuotation?.deliveryMethod ?? ""} />
-        <input type="hidden" name="paymentTerms" value={initialQuotation?.paymentTerms ?? ""} />
-        <input
-          type="hidden"
-          name="specialInstructions"
-          value={initialQuotation?.specialInstructions ?? ""}
-        />
-        <input type="hidden" name="internalNotes" value={initialQuotation?.internalNotes ?? ""} />
 
         <section className="space-y-5">
           <section className="studio-card">
@@ -1182,7 +1517,12 @@ export function QuotationBuilder({
             </div>
             <div className="p-5">
               {items.length ? (
-                <QuotationItemTable items={items} updateItem={updateItem} removeItem={removeItem} />
+                <QuotationItemTable
+                  items={items}
+                  updateItem={updateItem}
+                  removeItem={removeItem}
+                  finalTotal={totals.totalAmount}
+                />
               ) : (
                 <div className="studio-empty flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
                   <ShoppingCart className="h-7 w-7 text-accent" />
@@ -1221,6 +1561,85 @@ export function QuotationBuilder({
               />
             </div>
           </details>
+
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Terms</p>
+              <h2 className="text-sm font-semibold">Terms, delivery, and instructions</h2>
+            </div>
+            <div className="grid gap-4 p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={needsAssembly}
+                    onChange={(event) => setNeedsAssembly(event.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Needs assembly
+                </label>
+                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={salesInvoiceRequested}
+                    onChange={(event) => setSalesInvoiceRequested(event.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Sales invoice requested
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-medium">
+                  <span className="text-muted-foreground">Mode of delivery</span>
+                  <Input
+                    name="modeOfDelivery"
+                    value={modeOfDelivery}
+                    onChange={(event) => setModeOfDelivery(event.target.value)}
+                    placeholder="Delivery, pickup, third-party courier"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-medium">
+                  <span className="text-muted-foreground">Delivery method</span>
+                  <Input
+                    name="deliveryMethod"
+                    value={deliveryMethod}
+                    onChange={(event) => setDeliveryMethod(event.target.value)}
+                    placeholder="Furniture Odyssey truck, client pickup"
+                  />
+                </label>
+              </div>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Payment terms</span>
+                <Textarea
+                  name="paymentTerms"
+                  value={paymentTerms}
+                  onChange={(event) => setPaymentTerms(event.target.value)}
+                  placeholder="Downpayment, balance timing, installment notes"
+                  className="min-h-24"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Special instructions</span>
+                <Textarea
+                  name="specialInstructions"
+                  value={specialInstructions}
+                  onChange={(event) => setSpecialInstructions(event.target.value)}
+                  placeholder="Delivery access, assembly notes, customer requests"
+                  className="min-h-24"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Internal notes</span>
+                <Textarea
+                  name="internalNotes"
+                  value={internalNotes}
+                  onChange={(event) => setInternalNotes(event.target.value)}
+                  placeholder="Staff-only quotation notes"
+                  className="min-h-24"
+                />
+              </label>
+            </div>
+          </section>
         </section>
 
         <aside className="xl:sticky xl:top-6 xl:self-start">
@@ -1248,12 +1667,14 @@ export function QuotationBuilder({
                   <div key={index} className="py-2">
                     <div className="flex justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="truncate font-medium">
+                        <p className="whitespace-normal break-words font-medium leading-5">
                           {item.quantity} x {item.itemName || `Item ${index + 1}`}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {money(item.unitPrice)} each
-                        </p>
+                        {item.description ? (
+                          <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
+                            {item.description}
+                          </p>
+                        ) : null}
                       </div>
                       <span className="shrink-0 font-semibold">{money(lineTotal(item))}</span>
                     </div>
@@ -1308,7 +1729,14 @@ export function QuotationBuilder({
                   {friendlyActionMessage(state.message)}
                 </p>
               ) : null}
-              <div className="mt-4 grid gap-2 border-t border-border pt-4">
+              <div className="mt-4 grid gap-2 border-t border-border pt-4 sm:grid-cols-[auto_1fr]">
+                <Link
+                  href={mode === "edit" && initialQuotation?.id ? `/quotations/${initialQuotation.id}` : "/quotations"}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-semibold text-danger transition hover:bg-danger/15"
+                >
+                  <X className="h-4 w-4" />
+                  Discard
+                </Link>
                 <Button
                   disabled={pending || state.ok}
                   name="intent"
@@ -1317,26 +1745,6 @@ export function QuotationBuilder({
                   <Save className="h-4 w-4" />
                   {mode === "edit" ? "Update quotation" : "Save draft"}
                 </Button>
-                <Button
-                  variant="secondary"
-                  disabled={pending || state.ok}
-                  name="intent"
-                  value="save_preview"
-                >
-                  <FileText className="h-4 w-4" />
-                  {mode === "edit" ? "Update & preview" : "Save draft & preview"}
-                </Button>
-                {canUpdateQuotations && !isSentEdit ? (
-                  <Button
-                    variant="secondary"
-                    disabled={pending || state.ok}
-                    name="intent"
-                    value="save_mark_sent"
-                  >
-                    <Send className="h-4 w-4" />
-                    Save draft & mark sent
-                  </Button>
-                ) : null}
               </div>
             </div>
           </section>
@@ -1366,16 +1774,20 @@ export function QuotationBuilder({
 
 function QuotationRecordActions({
   quotation,
-  action,
+  statusAction,
+  deleteAction,
   pending,
   canUpdateQuotations,
-  canApproveQuotations
+  canApproveQuotations,
+  canDeleteQuotations
 }: {
   quotation: QuotationRow;
-  action: (formData: FormData) => void;
+  statusAction: (formData: FormData) => void;
+  deleteAction: (formData: FormData) => void;
   pending: boolean;
   canUpdateQuotations: boolean;
   canApproveQuotations: boolean;
+  canDeleteQuotations: boolean;
 }) {
   const [menuPosition, setMenuPosition] = useState<{
     left: number;
@@ -1384,11 +1796,14 @@ function QuotationRecordActions({
   } | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const [isSubmitting, startActionTransition] = useTransition();
   const isOpen = menuPosition !== null;
+  const isBusy = pending || isSubmitting;
 
   const canShowMenu =
-    (quotation.status === "DRAFT" && canUpdateQuotations) ||
-    (quotation.status === "SENT" && (canApproveQuotations || canUpdateQuotations));
+    ((quotation.status === "DRAFT" || quotation.status === "SENT") &&
+      (canApproveQuotations || canUpdateQuotations)) ||
+    canDeleteQuotations;
 
   useEffect(() => {
     if (!isOpen) {
@@ -1421,6 +1836,10 @@ function QuotationRecordActions({
   }, [isOpen]);
 
   function toggleMenu() {
+    if (isBusy) {
+      return;
+    }
+
     if (isOpen) {
       setMenuPosition(null);
       return;
@@ -1441,20 +1860,41 @@ function QuotationRecordActions({
     });
   }
 
+  function submitStatusUpdate(nextStatus: QuotationStatus) {
+    const formData = new FormData();
+    formData.set("quotationId", quotation.id);
+    formData.set("status", nextStatus);
+
+    setMenuPosition(null);
+    startActionTransition(() => {
+      statusAction(formData);
+    });
+  }
+
+  function submitDelete() {
+    const formData = new FormData();
+    formData.set("quotationId", quotation.id);
+
+    setMenuPosition(null);
+    startActionTransition(() => {
+      deleteAction(formData);
+    });
+  }
+
   if (!canShowMenu) {
     return null;
   }
 
   return (
-    <form action={action} className="contents">
-      <input type="hidden" name="quotationId" value={quotation.id} />
+    <div className="contents">
       <button
         ref={buttonRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={isOpen}
+        disabled={isBusy}
         onClick={toggleMenu}
-        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-panel px-2 text-sm font-semibold text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-panel px-2 text-sm font-semibold text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <MoreHorizontal className="h-4 w-4" />
         <span className="sr-only">Quotation actions</span>
@@ -1475,71 +1915,74 @@ function QuotationRecordActions({
               href={`/quotations/${quotation.id}/edit`}
               role="menuitem"
               className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold hover:bg-soft-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-              onClick={() => setMenuPosition(null)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuPosition(null);
+              }}
             >
               <Pencil className="h-4 w-4" />
               Edit quotation
             </a>
           ) : null}
-          {quotation.status === "DRAFT" && canUpdateQuotations ? (
+          {(quotation.status === "DRAFT" || quotation.status === "SENT") && canApproveQuotations ? (
             <Button
-              type="submit"
-              name="status"
-              value="SENT"
+              type="button"
               variant="ghost"
-              disabled={pending}
+              disabled={isBusy}
               role="menuitem"
-              className="min-h-9 justify-start rounded-md px-3"
-            >
-              <Send className="h-4 w-4" />
-              Mark as sent
-            </Button>
-          ) : null}
-          {quotation.status === "SENT" && canApproveQuotations ? (
-            <Button
-              type="submit"
-              name="status"
-              value="ACCEPTED"
-              variant="ghost"
-              disabled={pending}
-              role="menuitem"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                submitStatusUpdate("ACCEPTED");
+              }}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <CheckCircle2 className="h-4 w-4" />
               Accept
             </Button>
           ) : null}
-          {quotation.status === "SENT" && canApproveQuotations ? (
-            <Button
-              type="submit"
-              name="status"
-              value="DECLINED"
-              variant="ghost"
-              disabled={pending}
-              role="menuitem"
-              className="min-h-9 justify-start rounded-md px-3"
-            >
-              <XCircle className="h-4 w-4" />
-              Decline
-            </Button>
-          ) : null}
           {(quotation.status === "DRAFT" || quotation.status === "SENT") && canUpdateQuotations ? (
             <Button
-              type="submit"
-              name="status"
-              value="CANCELLED"
+              type="button"
               variant="ghost"
-              disabled={pending}
+              disabled={isBusy}
               role="menuitem"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                submitStatusUpdate("CANCELLED");
+              }}
               className="min-h-9 justify-start rounded-md px-3"
             >
               <X className="h-4 w-4" />
               Cancel
             </Button>
           ) : null}
+          {canDeleteQuotations ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isBusy}
+              role="menuitem"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (!window.confirm(`Delete ${quotation.quotationNumber ?? "this quotation"}?`)) {
+                  return;
+                }
+
+                submitDelete();
+              }}
+              className="min-h-9 justify-start rounded-md px-3 text-danger hover:bg-danger/10"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          ) : null}
         </div>
       ) : null}
-    </form>
+    </div>
   );
 }
 
@@ -1547,17 +1990,26 @@ export function QuotationRecordsList({
   quotations,
   query = "",
   status = "",
+  view = "active",
   pagination,
   canExportDocuments,
   canUpdateQuotations,
-  canApproveQuotations
+  canApproveQuotations,
+  canDeleteQuotations
 }: QuotationRecordsListProps) {
   const router = useRouter();
   const normalizedStatus = normalizeStatusFilter(status);
+  const normalizedView = normalizeQuotationView(view);
+  const [rows, setRows] = useState<QuotationRow[]>(quotations);
   const [searchQuery, setSearchQuery] = useState(query);
   const [selectedStatus, setSelectedStatus] = useState(normalizedStatus);
+  const [selectedView, setSelectedView] = useState(normalizedView);
   const [statusState, statusAction, statusPending] = useActionState(
     updateQuotationStatusAction,
+    initialState
+  );
+  const [deleteState, deleteAction, deletePending] = useActionState(
+    deleteQuotationAction,
     initialState
   );
 
@@ -1566,22 +2018,55 @@ export function QuotationRecordsList({
   }, [query]);
 
   useEffect(() => {
+    setRows(quotations);
+  }, [quotations]);
+
+  useEffect(() => {
     setSelectedStatus(normalizedStatus);
   }, [normalizedStatus]);
 
   useEffect(() => {
-    if (statusState.ok) {
+    setSelectedView(normalizedView);
+  }, [normalizedView]);
+
+  useEffect(() => {
+    if (statusState.message) {
+      if (statusState.ok && statusState.quotationId && statusState.status) {
+        setRows((current) =>
+          current.map((quotation) =>
+            quotation.id === statusState.quotationId
+              ? { ...quotation, status: statusState.status ?? quotation.status }
+              : quotation
+          )
+        );
+      }
+
       router.refresh();
     }
-  }, [router, statusState.ok]);
+  }, [router, statusState.message, statusState.ok, statusState.quotationId, statusState.status]);
 
-  function quotationHref(nextQuery: string, nextStatus: string, page?: number) {
+  useEffect(() => {
+    if (deleteState.message) {
+      if (deleteState.ok && deleteState.quotationId) {
+        setRows((current) => current.filter((quotation) => quotation.id !== deleteState.quotationId));
+      }
+
+      router.refresh();
+    }
+  }, [deleteState.message, deleteState.ok, deleteState.quotationId, router]);
+
+  function quotationHref(nextQuery: string, nextStatus: string, nextView: string, page?: number) {
     const params = new URLSearchParams();
     const safeStatus = normalizeStatusFilter(nextStatus);
+    const safeView = normalizeQuotationView(nextView);
     const safeQuery = nextQuery.trim();
 
     if (safeQuery) {
       params.set("q", safeQuery);
+    }
+
+    if (safeView !== "active") {
+      params.set("view", safeView);
     }
 
     if (safeStatus) {
@@ -1596,16 +2081,24 @@ export function QuotationRecordsList({
     return queryString ? `/quotations?${queryString}` : "/quotations";
   }
 
-  function applyFilters(nextQuery = searchQuery, nextStatus = selectedStatus) {
-    router.push(quotationHref(nextQuery, nextStatus));
+  function applyFilters(
+    nextQuery = searchQuery,
+    nextStatus = selectedStatus,
+    nextView = selectedView
+  ) {
+    router.push(quotationHref(nextQuery, nextStatus, nextView));
   }
 
   function pageHref(page: number) {
-    return quotationHref(query, normalizedStatus, page);
+    return quotationHref(query, normalizedStatus, normalizedView, page);
+  }
+
+  function openQuotation(quotationId: string) {
+    router.push(`/quotations/${quotationId}`);
   }
 
   const emptyStatusLabel = normalizedStatus ? labelFromEnum(normalizedStatus) : "selected";
-  const hasActiveFilters = Boolean(query || normalizedStatus);
+  const hasActiveFilters = Boolean(query || normalizedStatus || normalizedView !== "active");
   const emptyRecordMessage = hasActiveFilters
     ? normalizedStatus && query
       ? `No ${emptyStatusLabel.toLowerCase()} quotation records match "${query}".`
@@ -1622,11 +2115,11 @@ export function QuotationRecordsList({
             <p className="studio-kicker">Records</p>
             <h2 className="text-sm font-semibold">Quotation records</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search drafts and sent quotations without opening the builder.
+              Search quotation records and update their workflow status without opening the builder.
             </p>
           </div>
           <form
-            className="grid w-full gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_112px] lg:w-auto lg:grid-cols-[260px_180px_112px]"
+            className="grid w-full gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_180px_112px] lg:w-auto lg:grid-cols-[260px_150px_180px_112px]"
             onSubmit={(event) => {
               event.preventDefault();
               applyFilters();
@@ -1638,6 +2131,20 @@ export function QuotationRecordsList({
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search quotations"
             />
+            <Select
+              name="view"
+              value={selectedView}
+              aria-label="Quotation view"
+              onChange={(event) => {
+                const nextView = normalizeQuotationView(event.target.value);
+                setSelectedView(nextView);
+                applyFilters(searchQuery, selectedStatus, nextView);
+              }}
+            >
+              <option value="active">Active</option>
+              <option value="converted">Converted</option>
+              <option value="all">All</option>
+            </Select>
             <Select
               name="status"
               value={selectedStatus}
@@ -1661,9 +2168,19 @@ export function QuotationRecordsList({
             </Button>
           </form>
         </div>
-        {statusState.message ? (
-          <p className={statusState.ok ? "mt-2 text-sm text-success" : "mt-2 text-sm text-danger"}>
-            {statusState.message}
+        {statusState.message || deleteState.message ? (
+          <p
+            className={
+              statusState.message
+                ? statusState.ok
+                  ? "mt-2 text-sm text-success"
+                  : "mt-2 text-sm text-danger"
+                : deleteState.ok
+                  ? "mt-2 text-sm text-success"
+                  : "mt-2 text-sm text-danger"
+            }
+          >
+            {statusState.message || deleteState.message}
           </p>
         ) : null}
       </div>
@@ -1682,20 +2199,52 @@ export function QuotationRecordsList({
               <th className="px-5 py-3 font-medium">Actions</th>
             </tr>
           </thead>
-          {quotations.length > 0 ? (
+          {rows.length > 0 ? (
             <tbody className="divide-y divide-border">
-              {quotations.map((quotation) => (
-                <tr key={quotation.id}>
+              {rows.map((quotation) => (
+                <tr
+                  key={quotation.id}
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => openQuotation(quotation.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openQuotation(quotation.id);
+                    }
+                  }}
+                  className="cursor-pointer transition hover:bg-soft-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
                   <td className="px-5 py-3 font-medium">
-                    <a href={`/quotations/${quotation.id}`} className="text-primary hover:underline">
+                    <a
+                      href={`/quotations/${quotation.id}`}
+                      onClick={(event) => event.stopPropagation()}
+                      className="text-primary hover:underline"
+                    >
                       {quotation.quotationNumber ?? "Not assigned"}
                     </a>
+                    {quotation.orderId ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <span>Converted to {quotation.orderNumber ?? "order"}</span>
+                        <Link
+                          href={orderHref(quotation.orderId)}
+                          onClick={(event) => event.stopPropagation()}
+                          className="text-accent hover:underline"
+                        >
+                          View order
+                        </Link>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
-                  <td className="px-5 py-3">
-                    <StatusPill tone={statusTone(quotation.status)}>
-                      {labelFromEnum(quotation.status)}
-                    </StatusPill>
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
+                    <QuotationStatusSelect
+                      quotation={quotation}
+                      action={statusAction}
+                      pending={statusPending}
+                      canUpdateQuotations={canUpdateQuotations}
+                      canApproveQuotations={canApproveQuotations}
+                    />
                   </td>
                   <td className="max-w-[260px] px-5 py-3 text-muted-foreground">
                     <span className="line-clamp-2">{quotation.itemSummary}</span>
@@ -1704,24 +2253,44 @@ export function QuotationRecordsList({
                   <td className="px-5 py-3 font-medium">{quotation.totalAmount}</td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.createdBy ?? "Unknown"}</td>
                   <td className="px-5 py-3 text-muted-foreground">{quotation.updatedAt}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center gap-2">
-                      <a href={`/quotations/${quotation.id}`} className={pdfLinkClass}>
+                      <a
+                        href={`/quotations/${quotation.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className={pdfLinkClass}
+                      >
                         <Eye className="h-4 w-4" />
                         View
                       </a>
                       {canExportDocuments ? (
-                        <a href={`/api/documents/quotation/${quotation.id}`} className={pdfLinkClass}>
+                        <a
+                          href={`/api/documents/quotation/${quotation.id}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className={pdfLinkClass}
+                        >
                           <Download className="h-4 w-4" />
                           PDF
                         </a>
                       ) : null}
+                      {quotation.orderId ? (
+                        <Link
+                          href={orderHref(quotation.orderId)}
+                          onClick={(event) => event.stopPropagation()}
+                          className={pdfLinkClass}
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                          View order
+                        </Link>
+                      ) : null}
                       <QuotationRecordActions
                         quotation={quotation}
-                        action={statusAction}
-                        pending={statusPending}
+                        statusAction={statusAction}
+                        deleteAction={deleteAction}
+                        pending={statusPending || deletePending}
                         canUpdateQuotations={canUpdateQuotations}
                         canApproveQuotations={canApproveQuotations}
+                        canDeleteQuotations={canDeleteQuotations}
                       />
                     </div>
                   </td>
@@ -1731,7 +2300,7 @@ export function QuotationRecordsList({
           ) : null}
         </table>
       </div>
-      {quotations.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="border-t border-border px-5 py-12 text-center">
           <div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-3">
             <p className="text-sm font-semibold text-foreground">
@@ -1787,20 +2356,31 @@ export function QuotationDetailActions({
   status,
   canExportDocuments,
   canUpdateQuotations,
-  canApproveQuotations
+  canApproveQuotations,
+  canCreateOrders,
+  order
 }: QuotationDetailActionsProps) {
   const router = useRouter();
-  const [state, action, pending] = useActionState(updateQuotationStatusAction, initialState);
+  const [statusState, statusAction, statusPending] = useActionState(
+    updateQuotationStatusAction,
+    initialState
+  );
+  const [convertState, convertAction, convertPending] = useActionState(
+    convertQuotationToOrderAction,
+    initialState
+  );
+  const linkedOrderId = order?.id ?? convertState.orderId ?? null;
+  const linkedOrderNumber = order?.orderNumber ?? convertState.orderNumber ?? null;
 
   useEffect(() => {
-    if (state.ok) {
+    if (statusState.message || convertState.message) {
       router.refresh();
     }
-  }, [router, state.ok]);
+  }, [convertState.message, router, statusState.message]);
 
   return (
     <div className="space-y-3">
-      <form action={action} className="grid gap-2">
+      <form action={statusAction} className="grid gap-2">
         <input type="hidden" name="quotationId" value={quotationId} />
         {canExportDocuments ? (
           <a href={`/api/documents/quotation/${quotationId}`} className={cn(pdfLinkClass, "w-full justify-start px-3")}>
@@ -1820,20 +2400,20 @@ export function QuotationDetailActions({
             name="status"
             value="SENT"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <Send className="h-4 w-4" />
             Mark as sent
           </Button>
         ) : null}
-        {status === "SENT" && canApproveQuotations ? (
+        {(status === "DRAFT" || status === "SENT") && canApproveQuotations ? (
           <Button
             type="submit"
             name="status"
             value="ACCEPTED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -1846,7 +2426,7 @@ export function QuotationDetailActions({
             name="status"
             value="DECLINED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <XCircle className="h-4 w-4" />
@@ -1859,7 +2439,7 @@ export function QuotationDetailActions({
             name="status"
             value="CANCELLED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <X className="h-4 w-4" />
@@ -1867,16 +2447,54 @@ export function QuotationDetailActions({
           </Button>
         ) : null}
       </form>
-      {state.message ? (
+      {status === "ACCEPTED" && !linkedOrderId && canCreateOrders ? (
+        <form action={convertAction} className="grid gap-2 border-t border-border pt-3">
+          <input type="hidden" name="quotationId" value={quotationId} />
+          <Button disabled={convertPending} className="w-full justify-start">
+            <ShoppingCart className="h-4 w-4" />
+            Create order from quotation
+          </Button>
+        </form>
+      ) : null}
+      {linkedOrderId ? (
+        <Link
+          href={orderHref(linkedOrderId)}
+          className={cn(pdfLinkClass, "w-full justify-start px-3")}
+        >
+          <ShoppingCart className="h-4 w-4" />
+          View order
+          {linkedOrderNumber ? (
+            <span className="ml-auto text-xs text-muted-foreground">{linkedOrderNumber}</span>
+          ) : null}
+        </Link>
+      ) : null}
+      {statusState.message ? (
         <p
           className={cn(
             "rounded-lg border px-3 py-2 text-sm",
-            state.ok
+            statusState.ok
               ? "border-success/30 bg-success/10 text-success"
               : "border-danger/30 bg-danger/10 text-danger"
           )}
         >
-          {state.message}
+          {statusState.message}
+        </p>
+      ) : null}
+      {convertState.message ? (
+        <p
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            convertState.ok
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger"
+          )}
+        >
+          {convertState.message}
+          {convertState.ok && convertState.orderId ? (
+            <Link href={orderHref(convertState.orderId)} className="ml-2 font-semibold underline">
+              View order
+            </Link>
+          ) : null}
         </p>
       ) : null}
     </div>

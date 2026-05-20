@@ -33,6 +33,20 @@ test("createDeliverySchema ignores arbitrary client delivery status", () => {
   assert.equal("status" in parsed, false);
 });
 
+test("createDeliverySchema requires a scheduled date", () => {
+  const parsed = createDeliverySchema.safeParse({
+    orderId: "33333333-3333-4333-8333-333333333333",
+    items: [
+      {
+        orderItemId: "44444444-4444-4444-8444-444444444444",
+        quantityPlanned: 1
+      }
+    ]
+  });
+
+  assert.equal(parsed.success, false);
+});
+
 test("prepareDeliveryProgressUpdate supports scheduled to in transit to partial to delivered", () => {
   const inTransitItems = prepareDeliveryProgressUpdate({
     currentStatus: "SCHEDULED",

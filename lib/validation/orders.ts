@@ -87,6 +87,8 @@ export const createManualOrderSchema = z
     orderDiscountValue: money.optional(),
     needsAssembly: formBoolean.default(false),
     salesInvoiceRequested: formBoolean.default(false),
+    paymentDueTiming: z.enum(["BEFORE_DELIVERY", "UPON_DELIVERY", "AFTER_DELIVERY"]).optional(),
+    paymentDueDate: z.coerce.date().optional(),
     modeOfDelivery: optionalTextMax(255, "Mode of delivery is too long."),
     deliveryMethod: optionalTextMax(255, "Delivery method is too long."),
     paymentTerms: optionalTextMax(1000, "Payment terms must be 1000 characters or fewer."),
@@ -156,7 +158,10 @@ export const deliveryItemSchema = z
 
 export const createDeliverySchema = z.object({
   orderId: z.string().uuid("Choose an order."),
-  scheduledDate: z.coerce.date().optional(),
+  scheduledDate: z.coerce.date({
+    invalid_type_error: "Choose a scheduled date.",
+    required_error: "Choose a scheduled date."
+  }),
   scheduledTimeWindow: optionalText,
   deliveryProviderType: z.enum(["IN_HOUSE", "CUSTOMER_PICKUP", "THIRD_PARTY", "OTHER"]).optional(),
   deliveryProviderName: optionalText,
@@ -167,6 +172,10 @@ export const createDeliverySchema = z.object({
   deliveryNotes: optionalText,
   internalNotes: optionalText,
   items: z.array(deliveryItemSchema).min(1, "Add at least one delivery item.")
+});
+
+export const completeOrderSchema = z.object({
+  orderId: z.string().uuid("Choose an order.")
 });
 
 export const updateDeliveryProgressItemSchema = z.object({

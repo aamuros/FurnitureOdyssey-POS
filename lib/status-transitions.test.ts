@@ -10,6 +10,8 @@ import {
 
 test("allows quotation lifecycle transitions", () => {
   assert.equal(canTransitionStatus("quotation", "DRAFT", "SENT"), true);
+  assert.equal(canTransitionStatus("quotation", "DRAFT", "ACCEPTED"), true);
+  assert.equal(canTransitionStatus("quotation", "SENT", "DRAFT"), true);
   assert.equal(canTransitionStatus("quotation", "SENT", "ACCEPTED"), true);
   assert.equal(canTransitionStatus("quotation", "SENT", "DECLINED"), true);
   assert.equal(canTransitionStatus("quotation", "DRAFT", "CANCELLED"), true);
@@ -65,6 +67,7 @@ test("allows payment lifecycle transitions and treats terminal statuses as termi
 
 test("returns allowed next statuses", () => {
   assert.deepEqual(getAllowedNextStatuses("quotation", "SENT"), [
+    "DRAFT",
     "ACCEPTED",
     "DECLINED",
     "CANCELLED"

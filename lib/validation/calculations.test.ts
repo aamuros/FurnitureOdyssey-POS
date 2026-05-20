@@ -11,6 +11,7 @@ const validQuotationItem = {
   itemName: "Custom sofa",
   quantity: "2",
   unitPrice: "1500",
+  unitCostSnapshot: "700",
   images: []
 };
 
@@ -39,6 +40,7 @@ test("createQuotationSchema accepts valid form data and normalizes optional text
   assert.equal(parsed.salesInvoiceRequested, false);
   assert.equal(parsed.items[0].quantity, 2);
   assert.equal(parsed.items[0].unitPrice, 1500);
+  assert.equal(parsed.items[0].unitCostSnapshot, 700);
 });
 
 test("createQuotationSchema rejects missing customer, catalog product, invalid quantity, price, and discount", () => {

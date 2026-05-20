@@ -460,10 +460,14 @@ Implementation notes:
 
 ### Order List
 
-- Table with order number or fallback ID, customer name, source, main status, payment status, delivery status, total, balance, assigned/created staff, and updated date.
-- Search by customer name, company name, contact value, order number, quotation reference, and item text when supported.
-- Filters for status, payment status, delivery status, source type, staff, and date range.
-- Row action to open order detail based on permissions.
+- Orders page acts as the operational control center for open and historical orders.
+- Header action launches a new order panel for approved quotation conversion or manual order creation when the user has `ORDERS:CREATE`.
+- Search supports order number, customer/company/contact values, item names/product codes, inquiry source references, and permission-safe payment or delivery provider references.
+- Primary filters cover order status, payment status, and delivery status.
+- Quick filters cover unfinished orders, orders with balances, scheduled deliveries, and orders needing action.
+- More filters cover assigned staff, created date range, balance state, and scheduled delivery state according to the user's permissions.
+- Order summaries show customer context, staff/source context, status badges, payment/delivery summaries when permitted, and the next practical action.
+- Pagination preserves the active search and filter state.
 
 ### Order Header
 
@@ -508,6 +512,14 @@ Implementation notes:
 - Upload or attach external document references when needed.
 - Document records store Cloudinary metadata and link back to the order.
 - Regenerating a document should create a new document record or version, not silently overwrite history.
+
+### Current Order Workspace Implementation Notes
+
+- Current order details are presented as focused sections for overview, items, payments, deliveries, documents, and notes.
+- Payment and delivery action forms open inline from the related section when the user has the required permission.
+- Users without payment visibility see restricted payment panels instead of totals, balances, cost, profit, or payment history.
+- Users without delivery visibility see restricted delivery panels instead of schedules, delivery provider data, recipient details, and delivery progress.
+- PDF links remain permission-gated and use the existing document export checks.
 
 ## Calculation Rules
 
