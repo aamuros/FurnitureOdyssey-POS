@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { DeliveryStatus } from "@prisma/client";
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   ListChecks,
+  MoreHorizontal,
   PackageSearch,
   Plus,
   ReceiptText,
@@ -204,9 +205,17 @@ type ItemDraft = {
 };
 
 type ActiveOrderAction = "payment" | "paymentDue" | "delivery" | `deliveryProgress:${string}` | null;
+type OpenOrderAction = Exclude<ActiveOrderAction, null>;
 type NewOrderMode = "choices" | "quotation" | "manual";
 type ManualOrderStep = "customer" | "items" | "terms" | "review";
 type OrderDetailTab = "overview" | "items" | "payments" | "deliveries" | "documents" | "notes";
+type OrderCardPrimaryActionKind = "recordPayment" | "scheduleDelivery" | "details";
+type OrderCardPrimaryAction = {
+  kind: OrderCardPrimaryActionKind;
+  label: string;
+  nextLabel: string;
+  onClick: () => void;
+};
 
 type NewOrderLauncherProps = Pick<
   OrderWorkspaceProps,
@@ -324,55 +333,85 @@ function PaymentForm({ order }: { order: OrderRow }) {
   const projectedBalance = roundMoney(Math.max(order.totalAmountValue - projectedPaid, 0));
 
   return (
-    <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-6">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="orderId" value={order.id} />
-      <Select name="paymentType" required defaultValue="PARTIAL_PAYMENT" aria-label="Payment type">
-        <option value="DOWNPAYMENT">Downpayment</option>
-        <option value="PARTIAL_PAYMENT">Partial payment</option>
-        <option value="FINAL_PAYMENT">Final payment</option>
-        <option value="DELIVERY_BALANCE_PAYMENT">Delivery balance</option>
-      </Select>
-      <Input name="paymentDate" type="date" required aria-label="Payment date" />
-      <Input
-        name="amount"
-        type="number"
-        min="0.01"
-        step="0.01"
-        required
-        placeholder="Amount"
-        value={amount}
-        onChange={(event) => setAmount(event.target.value)}
-      />
-      <Button type="button" variant="secondary" onClick={() => setAmount(String(order.balanceAmountValue))}>
-        Balance
-      </Button>
-      <Select name="method" defaultValue="" aria-label="Payment method">
-        <option value="">Method optional</option>
-        <option value="CASH">Cash</option>
-        <option value="BANK_TRANSFER">Bank transfer</option>
-        <option value="GCASH">GCash</option>
-        <option value="CHECK">Check</option>
-        <option value="CARD">Card</option>
-        <option value="OTHER">Other</option>
-      </Select>
-      <Input name="referenceNumber" placeholder="Reference" />
-      <Input name="payerName" placeholder="Payer name" className="md:col-span-2" />
-      <Textarea name="customerNotes" placeholder="Receipt note" className="md:col-span-2" />
-      <Textarea name="internalNotes" placeholder="Internal payment notes" className="md:col-span-2" />
-      <div className="rounded-md bg-background px-3 py-2 text-sm md:col-span-4">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="space-y-2 text-sm font-medium">
+          Amount
+          <Input
+            name="amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            placeholder="0.00"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </label>
+        <Button
+          type="button"
+          variant="secondary"
+          className="self-end"
+          onClick={() => setAmount(String(order.balanceAmountValue))}
+        >
+          Use full balance
+        </Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-2 text-sm font-medium">
+          Payment date
+          <Input name="paymentDate" type="date" required aria-label="Payment date" />
+        </label>
+        <label className="space-y-2 text-sm font-medium">
+          Method
+          <Select name="method" defaultValue="" aria-label="Payment method">
+            <option value="">Method optional</option>
+            <option value="CASH">Cash</option>
+            <option value="BANK_TRANSFER">Bank transfer</option>
+            <option value="GCASH">GCash</option>
+            <option value="CHECK">Check</option>
+            <option value="CARD">Card</option>
+            <option value="OTHER">Other</option>
+          </Select>
+        </label>
+      </div>
+      <label className="block space-y-2 text-sm font-medium">
+        Reference number
+        <Input name="referenceNumber" placeholder="Reference number optional" />
+      </label>
+      <details className="rounded-lg border border-border bg-background p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">More details</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="space-y-2 text-sm font-medium">
+            Payment type
+            <Select name="paymentType" required defaultValue="PARTIAL_PAYMENT" aria-label="Payment type">
+              <option value="DOWNPAYMENT">Downpayment</option>
+              <option value="PARTIAL_PAYMENT">Partial payment</option>
+              <option value="FINAL_PAYMENT">Final payment</option>
+              <option value="DELIVERY_BALANCE_PAYMENT">Delivery balance</option>
+            </Select>
+          </label>
+          <label className="space-y-2 text-sm font-medium">
+            Payer name
+            <Input name="payerName" placeholder="Payer name" />
+          </label>
+          <Textarea name="customerNotes" placeholder="Receipt note" />
+          <Textarea name="internalNotes" placeholder="Internal payment notes" />
+        </div>
+      </details>
+      <div className="rounded-md bg-background px-3 py-2 text-sm">
         <span className="text-muted-foreground">Projected after payment: </span>
         <span className="font-medium">{money(projectedPaid)} paid</span>
         <span className="text-muted-foreground"> · </span>
         <span className="font-medium">{money(projectedBalance)} balance</span>
       </div>
-      <Button disabled={pending} className="md:col-span-2">
+      <Button disabled={pending} className="w-full">
         <ReceiptText className="h-4 w-4" />
-        Add payment
+        Record payment
       </Button>
       {state.message ? (
-        <p className={state.ok ? "text-sm text-success md:col-span-6" : "text-sm text-danger md:col-span-6"}>
-          {state.message}
-        </p>
+        <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
       ) : null}
     </form>
   );
@@ -437,56 +476,81 @@ function DeliveryForm({ order }: { order: OrderRow }) {
     : [];
 
   return (
-    <form action={action} className="grid gap-3 rounded-md border border-border p-4 md:grid-cols-5">
+    <form action={action} className="space-y-4">
       <input type="hidden" name="orderId" value={order.id} />
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
-      <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground md:col-span-5">
+      <label className="block space-y-2 text-sm font-medium">
+        Scheduled date
+        <Input name="scheduledDate" type="date" required aria-label="Scheduled date" />
+      </label>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
+        <label className="space-y-2 text-sm font-medium">
+          Item
+          <Select
+            value={orderItemId}
+            onChange={(event) => setOrderItemId(event.target.value)}
+            aria-label="Delivery item"
+          >
+            {order.items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.itemName} ({item.remainingQuantity} remaining)
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="space-y-2 text-sm font-medium">
+          Quantity
+          <Input
+            type="number"
+            min="0.01"
+            max={remainingQuantity || undefined}
+            step="0.01"
+            value={quantityPlanned}
+            onChange={(event) => setQuantityPlanned(Number(event.target.value))}
+            aria-label="Delivery quantity"
+          />
+        </label>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-2 text-sm font-medium">
+          Provider type
+          <Select name="deliveryProviderType" defaultValue="" aria-label="Delivery provider type">
+            <option value="">Provider type optional</option>
+            <option value="IN_HOUSE">In-house</option>
+            <option value="CUSTOMER_PICKUP">Customer pickup</option>
+            <option value="THIRD_PARTY">Third-party</option>
+            <option value="OTHER">Other</option>
+          </Select>
+        </label>
+        <label className="space-y-2 text-sm font-medium">
+          Provider name
+          <Input name="deliveryProviderName" placeholder="Provider name optional" />
+        </label>
+      </div>
+      <label className="block space-y-2 text-sm font-medium">
+        Address
+        <Input name="deliveryAddress" placeholder="Address optional" />
+      </label>
+      <details className="rounded-lg border border-border bg-background p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">More details</summary>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <Input name="deliveryProviderReference" placeholder="Provider reference" />
+          <Input name="scheduledTimeWindow" placeholder="Time window" />
+          <Input name="recipientName" placeholder="Recipient" />
+          <Input name="recipientPhone" placeholder="Phone" />
+          <Textarea name="deliveryNotes" placeholder="Delivery notes" />
+          <Textarea name="internalNotes" placeholder="Internal notes" />
+        </div>
+      </details>
+      <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground">
         New deliveries are created as Scheduled. Use delivery progress to move them forward.
       </div>
-      <Select name="deliveryProviderType" defaultValue="" aria-label="Delivery provider type">
-        <option value="">Provider type</option>
-        <option value="IN_HOUSE">In-house</option>
-        <option value="CUSTOMER_PICKUP">Customer pickup</option>
-        <option value="THIRD_PARTY">Third-party</option>
-        <option value="OTHER">Other</option>
-      </Select>
-      <Input name="deliveryProviderName" placeholder="Provider name" />
-      <Input name="deliveryProviderReference" placeholder="Provider reference" />
-      <Input name="scheduledDate" type="date" required aria-label="Scheduled date" />
-      <Select
-        value={orderItemId}
-        onChange={(event) => setOrderItemId(event.target.value)}
-        aria-label="Delivery item"
-      >
-        {order.items.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.itemName} ({item.remainingQuantity} remaining)
-          </option>
-        ))}
-      </Select>
-      <Input
-        type="number"
-        min="0.01"
-        max={remainingQuantity || undefined}
-        step="0.01"
-        value={quantityPlanned}
-        onChange={(event) => setQuantityPlanned(Number(event.target.value))}
-        aria-label="Delivery quantity"
-      />
-      <Input name="scheduledTimeWindow" placeholder="Time window" />
-      <Button disabled={pending || !orderItemId || remainingQuantity <= 0}>
+      <Button disabled={pending || !orderItemId || remainingQuantity <= 0} className="w-full">
         <Truck className="h-4 w-4" />
         Schedule
       </Button>
-      <Input name="recipientName" placeholder="Recipient" />
-      <Input name="recipientPhone" placeholder="Phone" />
-      <Input name="deliveryAddress" placeholder="Delivery address" className="md:col-span-3" />
-      <Textarea name="deliveryNotes" placeholder="Delivery notes" className="md:col-span-5" />
-      <Textarea name="internalNotes" placeholder="Internal notes" className="md:col-span-5" />
       {state.message ? (
-        <p className={state.ok ? "text-sm text-success md:col-span-5" : "text-sm text-danger md:col-span-5"}>
-          {state.message}
-        </p>
+        <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
       ) : null}
     </form>
   );
@@ -524,7 +588,7 @@ function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
   }
 
   return (
-    <form action={action} className="mt-3 grid gap-2 rounded-md border border-border p-3">
+    <form action={action} className="grid gap-3">
       <input type="hidden" name="deliveryId" value={delivery.id} />
       <input type="hidden" name="items" value={JSON.stringify(submittedItems)} />
       <div className="grid gap-2 md:grid-cols-[1fr_auto]">
@@ -684,6 +748,81 @@ function canScheduleDelivery(order: OrderRow, canViewDeliveries: boolean, canCre
   );
 }
 
+function orderCardPrimaryAction(
+  order: OrderRow,
+  canViewPayments: boolean,
+  canCreatePayments: boolean,
+  canViewDeliveries: boolean,
+  canCreateDeliveries: boolean
+): OrderCardPrimaryActionKind {
+  if (canViewPayments && canCreatePayments && order.balanceAmountValue > 0) {
+    return "recordPayment";
+  }
+
+  if (canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries)) {
+    return "scheduleDelivery";
+  }
+
+  return "details";
+}
+
+function getPrimaryOrderAction({
+  order,
+  canViewPayments,
+  canCreatePayments,
+  canViewDeliveries,
+  canCreateDeliveries,
+  isDetailsOpen,
+  onDetails,
+  onHideDetails,
+  onRecordPayment,
+  onScheduleDelivery
+}: {
+  order: OrderRow;
+  canViewPayments: boolean;
+  canCreatePayments: boolean;
+  canViewDeliveries: boolean;
+  canCreateDeliveries: boolean;
+  isDetailsOpen: boolean;
+  onDetails: () => void;
+  onHideDetails: () => void;
+  onRecordPayment: () => void;
+  onScheduleDelivery: () => void;
+}): OrderCardPrimaryAction {
+  const kind = orderCardPrimaryAction(
+    order,
+    canViewPayments,
+    canCreatePayments,
+    canViewDeliveries,
+    canCreateDeliveries
+  );
+
+  if (kind === "recordPayment") {
+    return {
+      kind,
+      label: "Record payment",
+      nextLabel: "Next: collect balance",
+      onClick: onRecordPayment
+    };
+  }
+
+  if (kind === "scheduleDelivery") {
+    return {
+      kind,
+      label: "Schedule",
+      nextLabel: "Next: schedule delivery",
+      onClick: onScheduleDelivery
+    };
+  }
+
+  return {
+    kind,
+    label: isDetailsOpen ? "Hide" : "Details",
+    nextLabel: "Next: review details",
+    onClick: isDetailsOpen ? onHideDetails : onDetails
+  };
+}
+
 export function NewOrderLauncher({
   canCreateOrders,
   canViewPayments,
@@ -731,7 +870,7 @@ export function NewOrderLauncher({
             role="dialog"
             aria-modal="true"
             aria-labelledby="new-order-title"
-            className="relative ml-auto flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
+            className="relative ml-auto flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
           >
             <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
               <div className="min-w-0">
@@ -759,19 +898,19 @@ export function NewOrderLauncher({
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
               {mode === "choices" ? (
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid max-w-3xl gap-3 md:grid-cols-2">
                   <button
                     type="button"
                     className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45 disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={() => setMode("quotation")}
                     disabled={approvedQuotations.length === 0}
                   >
-                    <FileText className="mb-4 h-5 w-5 text-accent" />
+                    <FileText className="mb-3 h-5 w-5 text-accent" />
                     <span className="block text-base font-semibold">Convert approved quotation</span>
-                    <span className="mt-2 block text-sm leading-6 text-muted-foreground">
-                      Pull customer, item, and negotiated total from an accepted quotation.
+                    <span className="mt-2 block text-sm leading-5 text-muted-foreground">
+                      Pull customer, items, and negotiated total from an accepted quotation.
                     </span>
-                    <span className="mt-4 block text-xs font-semibold uppercase text-muted-foreground">
+                    <span className="mt-3 block text-xs font-semibold uppercase text-muted-foreground">
                       {approvedQuotations.length} ready
                     </span>
                   </button>
@@ -780,12 +919,12 @@ export function NewOrderLauncher({
                     className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45"
                     onClick={() => setMode("manual")}
                   >
-                    <ClipboardList className="mb-4 h-5 w-5 text-accent" />
+                    <ClipboardList className="mb-3 h-5 w-5 text-accent" />
                     <span className="block text-base font-semibold">Create manual order</span>
-                    <span className="mt-2 block text-sm leading-6 text-muted-foreground">
-                      Enter a direct order with catalog or custom items and negotiated pricing.
+                    <span className="mt-2 block text-sm leading-5 text-muted-foreground">
+                      Direct order with catalog or custom items, customer terms, and negotiated pricing.
                     </span>
-                    <span className="mt-4 block text-xs font-semibold uppercase text-muted-foreground">
+                    <span className="mt-3 block text-xs font-semibold uppercase text-muted-foreground">
                       Customer + items + terms
                     </span>
                   </button>
@@ -1360,226 +1499,70 @@ export function OrderWorkspace({
   canExportDocuments,
   orders
 }: OrderListProps) {
-  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
-  const [activeOrderActions, setActiveOrderActions] = useState<Record<string, ActiveOrderAction>>({});
-  const [activeDetailTabs, setActiveDetailTabs] = useState<Record<string, OrderDetailTab>>({});
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<OrderDetailTab>("overview");
+  const [activeActionPanel, setActiveActionPanel] = useState<{
+    orderId: string;
+    action: OpenOrderAction;
+  } | null>(null);
+  const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
+  const actionOrder = activeActionPanel
+    ? orders.find((order) => order.id === activeActionPanel.orderId) ?? null
+    : null;
 
-  function toggleOrderDetails(orderId: string) {
-    if (expandedOrders[orderId]) {
-      setActiveOrderActions((current) => ({ ...current, [orderId]: null }));
+  function openDetails(orderId: string, tab: OrderDetailTab = "overview") {
+    setSelectedOrderId(orderId);
+    setActiveDetailTab(tab);
+  }
+
+  function openAction(orderId: string, action: OpenOrderAction, tab?: OrderDetailTab) {
+    if (tab) {
+      setSelectedOrderId(orderId);
+      setActiveDetailTab(tab);
     }
 
-    setExpandedOrders((current) => ({ ...current, [orderId]: !current[orderId] }));
-  }
-
-  function setActiveOrderAction(orderId: string, actionKey: ActiveOrderAction) {
-    setActiveOrderActions((current) => ({
-      ...current,
-      [orderId]: current[orderId] === actionKey ? null : actionKey
-    }));
-  }
-
-  function openOrderDetails(orderId: string, tab: OrderDetailTab, actionKey: ActiveOrderAction = null) {
-    setExpandedOrders((current) => ({ ...current, [orderId]: true }));
-    setActiveDetailTabs((current) => ({ ...current, [orderId]: tab }));
-    setActiveOrderActions((current) => ({ ...current, [orderId]: actionKey }));
-  }
-
-  function setActiveDetailTab(orderId: string, tab: OrderDetailTab) {
-    setActiveDetailTabs((current) => ({ ...current, [orderId]: tab }));
+    setActiveActionPanel({ orderId, action });
   }
 
   return (
-    <section className="studio-card">
-      <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="studio-kicker">Work Queue</p>
-          <h2 className="mt-1 text-base font-semibold">Orders needing review</h2>
+    <>
+      <section className="studio-card">
+        <div className="studio-card-header flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="studio-kicker">Work Queue</p>
+            <h2 className="text-sm font-semibold">Orders</h2>
+          </div>
+          <p className="text-sm text-muted-foreground">{orders.length} shown</p>
         </div>
-        <p className="text-sm text-muted-foreground">{orders.length} shown</p>
-      </div>
-      <div className="divide-y divide-border">
-        {orders.map((order) => {
-          const expanded = Boolean(expandedOrders[order.id]);
-          const activeAction = activeOrderActions[order.id] ?? null;
-          const activeTab = activeDetailTabs[order.id] ?? "overview";
-          const actionLabel = nextOrderAction(order, canViewPayments, canViewDeliveries, canExportDocuments);
-
-          return (
+        <div className="divide-y divide-border">
+          {orders.map((order) => (
             <OrderCard
               key={order.id}
               order={order}
-              expanded={expanded}
-              activeAction={activeAction}
-              activeTab={activeTab}
-              actionLabel={actionLabel}
-              canUpdateOrders={canUpdateOrders}
               canViewPayments={canViewPayments}
               canCreatePayments={canCreatePayments}
               canViewDeliveries={canViewDeliveries}
               canCreateDeliveries={canCreateDeliveries}
-              canUpdateDeliveries={canUpdateDeliveries}
               canExportDocuments={canExportDocuments}
-              onToggleDetails={() => toggleOrderDetails(order.id)}
-              onOpenAction={(tab, actionKey) => openOrderDetails(order.id, tab, actionKey)}
-              onTabChange={(tab) => setActiveDetailTab(order.id, tab)}
-              onActionChange={(actionKey) => setActiveOrderAction(order.id, actionKey)}
+              isDetailsOpen={selectedOrderId === order.id}
+              onDetails={() => openDetails(order.id)}
+              onHideDetails={() => setSelectedOrderId(null)}
+              onRecordPayment={() => openAction(order.id, "payment", "payments")}
+              onScheduleDelivery={() => openAction(order.id, "delivery", "deliveries")}
             />
-          );
-        })}
-        {orders.length === 0 ? (
-          <div className="studio-empty m-5 px-5 py-8 text-sm">
-            No orders match the current queue filters.
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function OrderCard({
-  order,
-  expanded,
-  activeAction,
-  activeTab,
-  actionLabel,
-  canUpdateOrders,
-  canViewPayments,
-  canCreatePayments,
-  canViewDeliveries,
-  canCreateDeliveries,
-  canUpdateDeliveries,
-  canExportDocuments,
-  onToggleDetails,
-  onOpenAction,
-  onTabChange,
-  onActionChange
-}: {
-  order: OrderRow;
-  expanded: boolean;
-  activeAction: ActiveOrderAction;
-  activeTab: OrderDetailTab;
-  actionLabel: string;
-  canUpdateOrders: boolean;
-  canViewPayments: boolean;
-  canCreatePayments: boolean;
-  canViewDeliveries: boolean;
-  canCreateDeliveries: boolean;
-  canUpdateDeliveries: boolean;
-  canExportDocuments: boolean;
-  onToggleDetails: () => void;
-  onOpenAction: (tab: OrderDetailTab, actionKey?: ActiveOrderAction) => void;
-  onTabChange: (tab: OrderDetailTab) => void;
-  onActionChange: (actionKey: ActiveOrderAction) => void;
-}) {
-  const showPaymentAction = canViewPayments && canCreatePayments && order.balanceAmountValue > 0;
-  const showDeliveryAction = canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries);
-
-  return (
-    <article className="bg-panel">
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_260px]">
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="min-w-0 truncate text-base font-semibold">
-              {order.displayId} · {order.customerName}
-            </h2>
-            <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
-          </div>
-
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            {order.assignedStaff ? <span>Staff: {order.assignedStaff}</span> : null}
-            <span>{readableLabel(order.sourceType)}</span>
-            <span>Updated {order.updatedAt}</span>
-          </div>
-
-          <div className="grid gap-3 text-sm md:grid-cols-4">
-            {canViewPayments ? (
-              <div>
-                <p className="text-muted-foreground">Balance</p>
-                <p className="mt-1 font-semibold">{order.balanceAmount}</p>
-              </div>
-            ) : null}
-            {canViewPayments ? (
-              <div>
-                <p className="text-muted-foreground">Payment</p>
-                <div className="mt-1">
-                  <StatusPill tone={statusTone(order.paymentStatus)}>
-                    {paymentStatusLabel(order.paymentStatus)}
-                  </StatusPill>
-                </div>
-              </div>
-            ) : null}
-            {canViewDeliveries ? (
-              <div>
-                <p className="text-muted-foreground">Delivery</p>
-                <div className="mt-1">
-                  <StatusPill tone={statusTone(order.deliveryStatus)}>
-                    {deliveryStatusLabel(order.deliveryStatus)}
-                  </StatusPill>
-                </div>
-              </div>
-            ) : null}
-            {canViewDeliveries ? (
-              <div>
-                <p className="text-muted-foreground">Next delivery</p>
-                <p className="mt-1 font-semibold">
-                  {order.nextDeliveryDate ?? "None"}
-                  {order.nextDeliveryProvider ? (
-                    <span className="font-normal text-muted-foreground"> · {readableLabel(order.nextDeliveryProvider)}</span>
-                  ) : null}
-                </p>
-              </div>
-            ) : null}
-          </div>
+          ))}
+          {orders.length === 0 ? (
+            <div className="px-5 py-8 text-sm text-muted-foreground">
+              No orders match the current queue filters.
+            </div>
+          ) : null}
         </div>
+      </section>
 
-        <div className="space-y-3 rounded-lg bg-background p-3">
-          <div>
-            <p className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-              <ListChecks className="h-4 w-4" />
-              Next action
-            </p>
-            <p className="mt-1 text-sm font-semibold">{actionLabel}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {showPaymentAction ? (
-              <Button
-                type="button"
-                className="min-h-9 px-3 text-xs"
-                onClick={() => onOpenAction("payments", "payment")}
-              >
-                <ReceiptText className="h-4 w-4" />
-                Record payment
-              </Button>
-            ) : null}
-            {showDeliveryAction ? (
-              <Button
-                type="button"
-                variant={showPaymentAction ? "secondary" : "primary"}
-                className="min-h-9 px-3 text-xs"
-                onClick={() => onOpenAction("deliveries", "delivery")}
-              >
-                <Truck className="h-4 w-4" />
-                Schedule delivery
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              className="min-h-9 px-3 text-xs"
-              onClick={onToggleDetails}
-            >
-              {expanded ? "Hide details" : "View details"}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {expanded ? (
+      {selectedOrder ? (
         <OrderDetailPanel
-          order={order}
-          activeTab={activeTab}
-          activeAction={activeAction}
+          order={selectedOrder}
+          activeTab={activeDetailTab}
           canUpdateOrders={canUpdateOrders}
           canViewPayments={canViewPayments}
           canCreatePayments={canCreatePayments}
@@ -1587,19 +1570,372 @@ function OrderCard({
           canCreateDeliveries={canCreateDeliveries}
           canUpdateDeliveries={canUpdateDeliveries}
           canExportDocuments={canExportDocuments}
-          actionLabel={actionLabel}
-          onTabChange={onTabChange}
-          onActionChange={onActionChange}
+          actionLabel={nextOrderAction(selectedOrder, canViewPayments, canViewDeliveries, canExportDocuments)}
+          onClose={() => setSelectedOrderId(null)}
+          onTabChange={setActiveDetailTab}
+          onOpenAction={(action, tab) => openAction(selectedOrder.id, action, tab)}
         />
       ) : null}
+
+      {activeActionPanel && actionOrder ? (
+        <OrderActionPanel
+          order={actionOrder}
+          action={activeActionPanel.action}
+          canUpdateOrders={canUpdateOrders}
+          canViewPayments={canViewPayments}
+          canCreatePayments={canCreatePayments}
+          canViewDeliveries={canViewDeliveries}
+          canCreateDeliveries={canCreateDeliveries}
+          canUpdateDeliveries={canUpdateDeliveries}
+          onClose={() => setActiveActionPanel(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function OrderCard({
+  order,
+  canViewPayments,
+  canCreatePayments,
+  canViewDeliveries,
+  canCreateDeliveries,
+  canExportDocuments,
+  isDetailsOpen,
+  onDetails,
+  onHideDetails,
+  onRecordPayment,
+  onScheduleDelivery
+}: {
+  order: OrderRow;
+  canViewPayments: boolean;
+  canCreatePayments: boolean;
+  canViewDeliveries: boolean;
+  canCreateDeliveries: boolean;
+  canExportDocuments: boolean;
+  isDetailsOpen: boolean;
+  onDetails: () => void;
+  onHideDetails: () => void;
+  onRecordPayment: () => void;
+  onScheduleDelivery: () => void;
+}) {
+  const showPaymentAction = canViewPayments && canCreatePayments && order.balanceAmountValue > 0;
+  const showDeliveryAction = canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries);
+  const primaryAction = getPrimaryOrderAction({
+    order,
+    canViewPayments,
+    canCreatePayments,
+    canViewDeliveries,
+    canCreateDeliveries,
+    isDetailsOpen,
+    onDetails,
+    onHideDetails,
+    onRecordPayment,
+    onScheduleDelivery
+  });
+  const deliverySummary = order.nextDeliveryDate
+    ? [order.nextDeliveryDate, order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : null]
+        .filter(Boolean)
+        .join(" · ")
+    : "None";
+
+  return (
+    <article className="bg-panel px-4 py-3 transition hover:bg-muted/25">
+      <div
+        className={cn(
+          "grid gap-3 text-sm md:grid-cols-2 lg:items-center",
+          canViewPayments && canViewDeliveries
+            ? "lg:grid-cols-[minmax(220px,1.6fr)_minmax(135px,.75fr)_minmax(150px,.85fr)_minmax(130px,.7fr)_minmax(170px,190px)]"
+            : canViewPayments || canViewDeliveries
+              ? "lg:grid-cols-[minmax(220px,1.6fr)_minmax(145px,.8fr)_minmax(130px,.7fr)_minmax(170px,190px)]"
+              : "lg:grid-cols-[minmax(220px,1fr)_minmax(130px,160px)_minmax(170px,190px)]"
+        )}
+      >
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold">
+            {order.displayId} · {order.customerName}
+          </h2>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {order.assignedStaff ? <span>Staff: {order.assignedStaff}</span> : null}
+            <span>Updated {order.updatedAt}</span>
+            <span>{readableLabel(order.sourceType)}</span>
+          </div>
+        </div>
+
+        {canViewPayments ? (
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
+            <p className="mt-1 truncate font-semibold tabular-nums">{order.balanceAmount} balance</p>
+            <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
+              <StatusPill tone={statusTone(order.paymentStatus)}>
+                {paymentStatusLabel(order.paymentStatus)}
+              </StatusPill>
+            </div>
+          </div>
+        ) : null}
+
+        {canViewDeliveries ? (
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
+            <p className="mt-1 truncate font-semibold">{deliverySummary}</p>
+            <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
+              <StatusPill tone={statusTone(order.deliveryStatus)}>
+                {deliveryStatusLabel(order.deliveryStatus)}
+              </StatusPill>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Order status</p>
+          <div className="mt-1.5 [&_span]:px-2 [&_span]:py-0.5">
+            <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
+          </div>
+        </div>
+
+        <div className="min-w-0 md:col-span-2 lg:col-span-1 lg:text-right">
+          <p className="truncate whitespace-nowrap text-[11px] font-medium text-muted-foreground">
+            {primaryAction.nextLabel}
+          </p>
+          <div className="mt-2 flex items-center gap-1.5 lg:justify-end">
+            <Button
+              type="button"
+              className="min-h-8 shrink-0 whitespace-nowrap px-2.5 text-xs"
+              onClick={primaryAction.onClick}
+            >
+              {primaryAction.kind === "recordPayment" ? <ReceiptText className="h-3.5 w-3.5" /> : null}
+              {primaryAction.kind === "scheduleDelivery" ? <Truck className="h-3.5 w-3.5" /> : null}
+              {primaryAction.label}
+            </Button>
+            <OrderCardMoreActions
+              order={order}
+              primaryActionKind={primaryAction.kind}
+              canExportDocuments={canExportDocuments}
+              isDetailsOpen={isDetailsOpen}
+              showPaymentAction={showPaymentAction}
+              showDeliveryAction={showDeliveryAction}
+              onDetails={onDetails}
+              onHideDetails={onHideDetails}
+              onRecordPayment={onRecordPayment}
+              onScheduleDelivery={onScheduleDelivery}
+            />
+          </div>
+        </div>
+      </div>
     </article>
+  );
+}
+
+function OrderCardMoreActions({
+  order,
+  primaryActionKind,
+  canExportDocuments,
+  isDetailsOpen,
+  showPaymentAction,
+  showDeliveryAction,
+  onDetails,
+  onHideDetails,
+  onRecordPayment,
+  onScheduleDelivery
+}: {
+  order: OrderRow;
+  primaryActionKind: OrderCardPrimaryActionKind;
+  canExportDocuments: boolean;
+  isDetailsOpen: boolean;
+  showPaymentAction: boolean;
+  showDeliveryAction: boolean;
+  onDetails: () => void;
+  onHideDetails: () => void;
+  onRecordPayment: () => void;
+  onScheduleDelivery: () => void;
+}) {
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const isOpen = menuPosition !== null;
+  const showDetailsAction = primaryActionKind !== "details";
+  const showPaymentMenuAction = showPaymentAction && primaryActionKind !== "recordPayment";
+  const showDeliveryMenuAction = showDeliveryAction && primaryActionKind !== "scheduleDelivery";
+  const canShowMenu = showDetailsAction || showPaymentMenuAction || showDeliveryMenuAction || canExportDocuments;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuPosition(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuPosition(null);
+        buttonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function closeMenu() {
+    setMenuPosition(null);
+  }
+
+  function toggleMenu() {
+    if (isOpen) {
+      closeMenu();
+      return;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const menuWidth = 224;
+    const estimatedHeight = 224;
+    const hasRoomBelow = rect.bottom + estimatedHeight + 12 < window.innerHeight;
+    setMenuPosition({
+      left: Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.right - menuWidth)),
+      top: hasRoomBelow ? rect.bottom + 8 : rect.top - 8,
+      placement: hasRoomBelow ? "below" : "above"
+    });
+  }
+
+  if (!canShowMenu) {
+    return null;
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label="Order actions"
+        onClick={toggleMenu}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+        <span className="sr-only">Order actions</span>
+      </button>
+      {isOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[80] grid min-w-56 gap-1 rounded-lg border border-border bg-panel p-2 shadow-xl"
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            transform: menuPosition.placement === "above" ? "translateY(-100%)" : undefined
+          }}
+        >
+          {showDetailsAction && isDetailsOpen ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={() => {
+                closeMenu();
+                onHideDetails();
+              }}
+            >
+              Hide
+            </Button>
+          ) : null}
+          {showDetailsAction && !isDetailsOpen ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={() => {
+                closeMenu();
+                onDetails();
+              }}
+            >
+              Details
+            </Button>
+          ) : null}
+          {showPaymentMenuAction ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={() => {
+                closeMenu();
+                onRecordPayment();
+              }}
+            >
+              <ReceiptText className="h-4 w-4" />
+              Record payment
+            </Button>
+          ) : null}
+          {showDeliveryMenuAction ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={() => {
+                closeMenu();
+                onScheduleDelivery();
+              }}
+            >
+              <Truck className="h-4 w-4" />
+              Schedule
+            </Button>
+          ) : null}
+          {canExportDocuments ? (
+            <>
+              <a
+                href={`/api/documents/invoice/${order.id}`}
+                role="menuitem"
+                className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold hover:bg-soft-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                onClick={closeMenu}
+              >
+                <Download className="h-4 w-4" />
+                Invoice PDF
+              </a>
+              <a
+                href={`/api/documents/final-order-summary/${order.id}`}
+                role="menuitem"
+                className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold hover:bg-soft-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                onClick={closeMenu}
+              >
+                <Download className="h-4 w-4" />
+                Final summary PDF
+              </a>
+            </>
+          ) : null}
+          {/* Add Edit order here once a real edit route/server action exists, gated by canUpdateOrders. */}
+        </div>
+      ) : null}
+    </>
   );
 }
 
 function OrderDetailPanel({
   order,
   activeTab,
-  activeAction,
   canUpdateOrders,
   canViewPayments,
   canCreatePayments,
@@ -1608,12 +1944,12 @@ function OrderDetailPanel({
   canUpdateDeliveries,
   canExportDocuments,
   actionLabel,
+  onClose,
   onTabChange,
-  onActionChange
+  onOpenAction
 }: {
   order: OrderRow;
   activeTab: OrderDetailTab;
-  activeAction: ActiveOrderAction;
   canUpdateOrders: boolean;
   canViewPayments: boolean;
   canCreatePayments: boolean;
@@ -1622,8 +1958,9 @@ function OrderDetailPanel({
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
   actionLabel: string;
+  onClose: () => void;
   onTabChange: (tab: OrderDetailTab) => void;
-  onActionChange: (actionKey: ActiveOrderAction) => void;
+  onOpenAction: (actionKey: OpenOrderAction, tab?: OrderDetailTab) => void;
 }) {
   const tabs: Array<{ key: OrderDetailTab; label: string }> = [
     { key: "overview", label: "Overview" },
@@ -1635,72 +1972,259 @@ function OrderDetailPanel({
   ];
 
   return (
-    <div className="border-t border-border bg-background/60 p-4">
-      <div className="mb-4 flex gap-2 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            className={cn(
-              "whitespace-nowrap rounded-full border px-3 py-2 text-sm font-semibold transition",
-              activeTab === tab.key
-                ? "border-primary/30 bg-primary/15 text-foreground"
-                : "border-border bg-panel text-muted-foreground hover:bg-soft-accent/50"
-            )}
-            onClick={() => onTabChange(tab.key)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    <div className="fixed inset-0 z-40">
+      <button
+        type="button"
+        aria-label="Close order details"
+        className="absolute inset-0 bg-foreground/25"
+        onClick={onClose}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-detail-title"
+        className="relative ml-auto flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
+      >
+        <header className="border-b border-border px-4 py-4 sm:px-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="studio-kicker">Order Details</p>
+              <h2 id="order-detail-title" className="mt-1 truncate text-xl font-semibold">
+                {order.displayId} · {order.customerName}
+              </h2>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
+                {canViewPayments ? (
+                  <StatusPill tone={statusTone(order.paymentStatus)}>
+                    {paymentStatusLabel(order.paymentStatus)}
+                  </StatusPill>
+                ) : null}
+                {canViewDeliveries ? (
+                  <StatusPill tone={statusTone(order.deliveryStatus)}>
+                    {deliveryStatusLabel(order.deliveryStatus)}
+                  </StatusPill>
+                ) : null}
+              </div>
+            </div>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+          </div>
 
-      {activeTab === "overview" ? (
-        <OverviewSection
-          order={order}
-          canViewPayments={canViewPayments}
-          canViewDeliveries={canViewDeliveries}
-          actionLabel={actionLabel}
-        />
-      ) : null}
-      {activeTab === "items" ? (
-        <ItemsSection
-          order={order}
-          canViewPayments={canViewPayments}
-          canViewDeliveries={canViewDeliveries}
-        />
-      ) : null}
-      {activeTab === "payments" ? (
-        <PaymentSection
-          order={order}
-          activeAction={activeAction}
-          canUpdateOrders={canUpdateOrders}
-          canViewPayments={canViewPayments}
-          canCreatePayments={canCreatePayments}
-          canExportDocuments={canExportDocuments}
-          onActionChange={onActionChange}
-        />
-      ) : null}
-      {activeTab === "deliveries" ? (
-        <DeliverySection
-          order={order}
-          activeAction={activeAction}
-          canViewDeliveries={canViewDeliveries}
-          canCreateDeliveries={canCreateDeliveries}
-          canUpdateDeliveries={canUpdateDeliveries}
-          canExportDocuments={canExportDocuments}
-          onActionChange={onActionChange}
-        />
-      ) : null}
-      {activeTab === "documents" ? (
-        <DocumentsSection order={order} canExportDocuments={canExportDocuments} />
-      ) : null}
-      {activeTab === "notes" ? (
-        <NotesSection
-          order={order}
-          canViewPayments={canViewPayments}
-          canViewDeliveries={canViewDeliveries}
-        />
-      ) : null}
+          <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+            <div>
+              <p className="text-muted-foreground">Next action</p>
+              <p className="mt-1 font-semibold">{actionLabel}</p>
+            </div>
+            {canViewPayments ? (
+              <div>
+                <p className="text-muted-foreground">Balance</p>
+                <p className="mt-1 font-semibold">{order.balanceAmount}</p>
+              </div>
+            ) : null}
+            {canViewDeliveries ? (
+              <div>
+                <p className="text-muted-foreground">Next delivery</p>
+                <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None scheduled"}</p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {canViewPayments && canCreatePayments && order.balanceAmountValue > 0 ? (
+              <Button type="button" onClick={() => onOpenAction("payment", "payments")}>
+                <ReceiptText className="h-4 w-4" />
+                Record payment
+              </Button>
+            ) : null}
+            {canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries) ? (
+              <Button type="button" variant="secondary" onClick={() => onOpenAction("delivery", "deliveries")}>
+                <Truck className="h-4 w-4" />
+                Schedule delivery
+              </Button>
+            ) : null}
+            {canExportDocuments ? (
+              <>
+                <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
+                  <Download className="h-4 w-4" />
+                  Invoice PDF
+                </a>
+                <a href={`/api/documents/final-order-summary/${order.id}`} className={pdfLinkClass}>
+                  <Download className="h-4 w-4" />
+                  Final summary PDF
+                </a>
+              </>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="border-b border-border px-4 py-3 sm:px-5">
+          <div className="flex gap-2 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                className={cn(
+                  "whitespace-nowrap rounded-full border px-3 py-2 text-sm font-semibold transition",
+                  activeTab === tab.key
+                    ? "border-primary/30 bg-primary/15 text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:bg-soft-accent/50"
+                )}
+                onClick={() => onTabChange(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {activeTab === "overview" ? (
+            <OverviewSection
+              order={order}
+              canViewPayments={canViewPayments}
+              canViewDeliveries={canViewDeliveries}
+              actionLabel={actionLabel}
+            />
+          ) : null}
+          {activeTab === "items" ? (
+            <ItemsSection
+              order={order}
+              canViewPayments={canViewPayments}
+              canViewDeliveries={canViewDeliveries}
+            />
+          ) : null}
+          {activeTab === "payments" ? (
+            <PaymentSection
+              order={order}
+              canUpdateOrders={canUpdateOrders}
+              canViewPayments={canViewPayments}
+              canCreatePayments={canCreatePayments}
+              canExportDocuments={canExportDocuments}
+              onOpenAction={onOpenAction}
+            />
+          ) : null}
+          {activeTab === "deliveries" ? (
+            <DeliverySection
+              order={order}
+              canViewDeliveries={canViewDeliveries}
+              canCreateDeliveries={canCreateDeliveries}
+              canUpdateDeliveries={canUpdateDeliveries}
+              canExportDocuments={canExportDocuments}
+              onOpenAction={onOpenAction}
+            />
+          ) : null}
+          {activeTab === "documents" ? (
+            <DocumentsSection order={order} canExportDocuments={canExportDocuments} />
+          ) : null}
+          {activeTab === "notes" ? (
+            <NotesSection
+              order={order}
+              canViewPayments={canViewPayments}
+              canViewDeliveries={canViewDeliveries}
+            />
+          ) : null}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function OrderActionPanel({
+  order,
+  action,
+  canUpdateOrders,
+  canViewPayments,
+  canCreatePayments,
+  canViewDeliveries,
+  canCreateDeliveries,
+  canUpdateDeliveries,
+  onClose
+}: {
+  order: OrderRow;
+  action: OpenOrderAction;
+  canUpdateOrders: boolean;
+  canViewPayments: boolean;
+  canCreatePayments: boolean;
+  canViewDeliveries: boolean;
+  canCreateDeliveries: boolean;
+  canUpdateDeliveries: boolean;
+  onClose: () => void;
+}) {
+  const deliveryProgressId = action.startsWith("deliveryProgress:")
+    ? action.replace("deliveryProgress:", "")
+    : null;
+  const delivery = deliveryProgressId
+    ? order.deliveries.find((candidate) => candidate.id === deliveryProgressId)
+    : null;
+  const title =
+    action === "payment"
+      ? "Record payment"
+      : action === "paymentDue"
+        ? "Set payment due timing"
+        : action === "delivery"
+          ? "Schedule delivery"
+          : "Update delivery progress";
+  const summary =
+    action === "payment"
+      ? `${order.balanceAmount} balance`
+      : action === "delivery"
+        ? `${order.items.filter((item) => item.remainingQuantity > 0).length} item line(s) remaining`
+        : order.displayId;
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        aria-label="Close action panel"
+        className="absolute inset-0 bg-foreground/25"
+        onClick={onClose}
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-action-title"
+        className="relative ml-auto flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <p className="studio-kicker">{order.displayId}</p>
+            <h2 id="order-action-title" className="mt-1 text-xl font-semibold">
+              {title}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {order.customerName} · {summary}
+            </p>
+          </div>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          {action === "payment" && canViewPayments && canCreatePayments ? (
+            <PaymentForm order={order} />
+          ) : null}
+          {action === "paymentDue" && canUpdateOrders && canViewPayments ? (
+            <PaymentDueTimingForm order={order} />
+          ) : null}
+          {action === "delivery" && canViewDeliveries && canCreateDeliveries ? (
+            <DeliveryForm order={order} />
+          ) : null}
+          {delivery && canViewDeliveries && canUpdateDeliveries ? (
+            <DeliveryProgressForm delivery={delivery} />
+          ) : null}
+          {action === "payment" && (!canViewPayments || !canCreatePayments) ? (
+            <RestrictedPanel title="payment actions" />
+          ) : null}
+          {action === "delivery" && (!canViewDeliveries || !canCreateDeliveries) ? (
+            <RestrictedPanel title="delivery actions" />
+          ) : null}
+          {action.startsWith("deliveryProgress:") && (!delivery || !canViewDeliveries || !canUpdateDeliveries) ? (
+            <RestrictedPanel title="delivery progress" />
+          ) : null}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -1867,20 +2391,18 @@ function ItemsSection({
 
 function PaymentSection({
   order,
-  activeAction,
   canUpdateOrders,
   canViewPayments,
   canCreatePayments,
   canExportDocuments,
-  onActionChange
+  onOpenAction
 }: {
   order: OrderRow;
-  activeAction: ActiveOrderAction;
   canUpdateOrders: boolean;
   canViewPayments: boolean;
   canCreatePayments: boolean;
   canExportDocuments: boolean;
-  onActionChange: (actionKey: ActiveOrderAction) => void;
+  onOpenAction: (actionKey: OpenOrderAction, tab?: OrderDetailTab) => void;
 }) {
   if (!canViewPayments) {
     return <RestrictedPanel title="payment data" />;
@@ -1918,8 +2440,8 @@ function PaymentSection({
           {canCreatePayments ? (
             <Button
               type="button"
-              variant={activeAction === "payment" ? "primary" : "secondary"}
-              onClick={() => onActionChange("payment")}
+              variant="secondary"
+              onClick={() => onOpenAction("payment", "payments")}
             >
               <ReceiptText className="h-4 w-4" />
               Record payment
@@ -1928,19 +2450,14 @@ function PaymentSection({
           {canUpdateOrders && order.balanceAmountValue > 0 ? (
             <Button
               type="button"
-              variant={activeAction === "paymentDue" ? "primary" : "secondary"}
-              onClick={() => onActionChange("paymentDue")}
+              variant="secondary"
+              onClick={() => onOpenAction("paymentDue", "payments")}
             >
               <CalendarClock className="h-4 w-4" />
               Set due timing
             </Button>
           ) : null}
         </div>
-      ) : null}
-
-      {activeAction === "payment" && canCreatePayments ? <PaymentForm order={order} /> : null}
-      {activeAction === "paymentDue" && canUpdateOrders && order.balanceAmountValue > 0 ? (
-        <PaymentDueTimingForm order={order} />
       ) : null}
 
       {order.payments.length > 0 ? (
@@ -1978,20 +2495,18 @@ function PaymentSection({
 
 function DeliverySection({
   order,
-  activeAction,
   canViewDeliveries,
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
-  onActionChange
+  onOpenAction
 }: {
   order: OrderRow;
-  activeAction: ActiveOrderAction;
   canViewDeliveries: boolean;
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
-  onActionChange: (actionKey: ActiveOrderAction) => void;
+  onOpenAction: (actionKey: OpenOrderAction, tab?: OrderDetailTab) => void;
 }) {
   if (!canViewDeliveries) {
     return <RestrictedPanel title="delivery data" />;
@@ -2020,8 +2535,8 @@ function DeliverySection({
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
-            variant={activeAction === "delivery" ? "primary" : "secondary"}
-            onClick={() => onActionChange("delivery")}
+            variant="secondary"
+            onClick={() => onOpenAction("delivery", "deliveries")}
           >
             <Truck className="h-4 w-4" />
             Schedule delivery
@@ -2029,12 +2544,10 @@ function DeliverySection({
         </div>
       ) : null}
 
-      {activeAction === "delivery" && canCreateDeliveries ? <DeliveryForm order={order} /> : null}
-
       {order.deliveries.length > 0 ? (
-        <div className="grid gap-3 text-sm md:grid-cols-2">
+        <div className="divide-y divide-border rounded-lg border border-border bg-panel text-sm">
           {order.deliveries.map((delivery) => (
-            <div key={delivery.id} className="rounded-lg border border-border bg-panel p-3">
+            <div key={delivery.id} className="p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="font-semibold">{delivery.deliveryNumber ?? "Not assigned"}</span>
                 <StatusPill tone={statusTone(delivery.status)}>{deliveryStatusLabel(delivery.status)}</StatusPill>
@@ -2077,18 +2590,15 @@ function DeliverySection({
                 {canUpdateDeliveries ? (
                   <Button
                     type="button"
-                    variant={activeAction === `deliveryProgress:${delivery.id}` ? "primary" : "secondary"}
+                    variant="secondary"
                     className="min-h-9 px-3 text-xs"
-                    onClick={() => onActionChange(`deliveryProgress:${delivery.id}`)}
+                    onClick={() => onOpenAction(`deliveryProgress:${delivery.id}`, "deliveries")}
                   >
                     <Save className="h-4 w-4" />
                     Update progress
                   </Button>
                 ) : null}
               </div>
-              {activeAction === `deliveryProgress:${delivery.id}` && canUpdateDeliveries ? (
-                <DeliveryProgressForm delivery={delivery} />
-              ) : null}
             </div>
           ))}
         </div>
