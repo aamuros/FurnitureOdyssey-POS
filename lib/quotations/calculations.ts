@@ -1,5 +1,9 @@
 import type { CreateQuotationInput, QuotationItemInput } from "@/lib/validation/quotations";
 
+export const ASSEMBLY_FEE_PER_QUANTITY = 100;
+export const SALES_INVOICE_FEE_RATE = 0.08;
+export const SALES_INVOICE_FEE_PERCENTAGE = 8;
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -42,7 +46,41 @@ export function calculateQuotationItem(item: QuotationItemInput) {
   };
 }
 
-export function calculateQuotationTotals(input: Pick<CreateQuotationInput, "items" | "quotationDiscountType" | "quotationDiscountValue">) {
+export function calculateAssemblyFeeTotal({
+  items,
+  needsAssembly,
+  assemblyFeeRate = ASSEMBLY_FEE_PER_QUANTITY
+}: Pick<CreateQuotationInput, "items" | "needsAssembly"> &
+  Partial<Pick<CreateQuotationInput, "assemblyFeeRate">>) {
+  if (!needsAssembly) {
+    return 0;
+  }
+
+  return roundMoney(
+    items.reduce(
+      (sum, item) =>
+        item.requiresAssembly ? sum + item.quantity * assemblyFeeRate : sum,
+      0
+    )
+  );
+}
+
+export function calculateQuotationTotals(
+  input: Pick<
+    CreateQuotationInput,
+    | "items"
+    | "quotationDiscountType"
+    | "quotationDiscountValue"
+    | "needsAssembly"
+    | "salesInvoiceRequested"
+  > &
+    Partial<
+      Pick<
+        CreateQuotationInput,
+        "assemblyFeeRate" | "salesInvoiceFeePercentage" | "additionalFees"
+      >
+    >
+) {
   const calculatedItems = input.items.map((item) => calculateQuotationItem(item));
   const subtotalAmount = roundMoney(
     calculatedItems.reduce((sum, item) => sum + item.lineSubtotal, 0)
@@ -63,7 +101,20 @@ export function calculateQuotationTotals(input: Pick<CreateQuotationInput, "item
     throw new Error("Quotation discount exceeds the post-item-discount total.");
   }
 
-  const totalAmount = roundMoney(Math.max(postItemDiscountTotal - quotationDiscountAmount, 0));
+  const assemblyFeeTotal = calculateAssemblyFeeTotal(input);
+  const saleBaseBeforeInvoiceFee = roundMoney(
+    Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + assemblyFeeTotal
+  );
+  const salesInvoiceFeeRate =
+    (input.salesInvoiceFeePercentage ?? SALES_INVOICE_FEE_PERCENTAGE) / 100;
+  const salesInvoiceFeeTotal = input.salesInvoiceRequested
+    ? roundMoney(saleBaseBeforeInvoiceFee * salesInvoiceFeeRate)
+    : 0;
+  const additionalFees = roundMoney(input.additionalFees ?? 0);
+  const totalAdditionalFees = roundMoney(assemblyFeeTotal + salesInvoiceFeeTotal + additionalFees);
+  const totalAmount = roundMoney(
+    Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + totalAdditionalFees
+  );
   const totalCostAmount = roundMoney(
     calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0)
   );
@@ -73,8 +124,12 @@ export function calculateQuotationTotals(input: Pick<CreateQuotationInput, "item
     subtotalAmount,
     itemDiscountTotal,
     quotationDiscountAmount,
+    assemblyFeeTotal,
+    salesInvoiceFeeTotal,
+    additionalFees,
+    totalAdditionalFees,
     totalAmount,
     totalCostAmount,
-    grossProfitAmount: roundMoney(totalAmount - totalCostAmount)
+    grossProfitAmount: roundMoney(subtotalAmount - totalCostAmount)
   };
 }

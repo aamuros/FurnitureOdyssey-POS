@@ -2214,7 +2214,7 @@ function ManualOrderForm({
                 checked={needsAssembly}
                 onChange={(event) => setNeedsAssembly(event.target.checked)}
               />
-              Needs assembly
+              Needs assemble
             </label>
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium">
               <input
@@ -2279,7 +2279,7 @@ function ManualOrderForm({
               Remarks / special instructions
               <Textarea
                 name="specialInstructions"
-                placeholder="Assembly, access, timing, or client reminders"
+                placeholder="Assemble, access, timing, or client reminders"
                 value={specialInstructions}
                 onChange={(event) => setSpecialInstructions(event.target.value)}
               />
@@ -2363,10 +2363,10 @@ function ManualOrderForm({
               </div>
             </div>
             <div className="rounded-lg border border-border bg-background p-3 text-sm">
-              <p className="font-semibold">Delivery, assembly, invoice</p>
+              <p className="font-semibold">Delivery, assemble, invoice</p>
               <div className="mt-3 space-y-2">
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Assembly</span>
+                  <span className="text-muted-foreground">Assemble</span>
                   <span className="font-medium">{needsAssembly ? "Needed" : "Not marked"}</span>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -3734,7 +3734,7 @@ function NotesSection({
       <div className="space-y-3">
         <div className="grid gap-2">
           <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Needs assembly</span>
+            <span className="text-muted-foreground">Needs assemble</span>
             <span className="font-medium">{order.needsAssembly ? "Yes" : "No"}</span>
           </div>
           <div className="flex justify-between gap-4">

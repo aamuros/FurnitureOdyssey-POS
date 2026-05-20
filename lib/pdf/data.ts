@@ -145,7 +145,7 @@ function salesWorkflowRows(value: {
   specialInstructions?: string | null;
 }): PdfSummaryRow[] {
   return [
-    { label: "Needs assembly", value: yesNo(value.needsAssembly) },
+    { label: "Needs assemble", value: yesNo(value.needsAssembly) },
     { label: "Sales invoice requested", value: yesNo(value.salesInvoiceRequested) },
     { label: "Mode of delivery", value: fallbackText(value.modeOfDelivery) },
     { label: "Delivery method", value: fallbackText(value.deliveryMethod) },
@@ -262,7 +262,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
       ...salesWorkflowRows(quotation)
     ],
     totals: [
-      { label: "Subtotal", value: formatMoney(Number(quotation.subtotalAmount), quotation.currency) },
+      { label: "Subtotal for Items", value: formatMoney(Number(quotation.subtotalAmount), quotation.currency) },
       {
         label: "Item discounts",
         value: formatMoney(Number(quotation.itemDiscountTotal), quotation.currency)
@@ -271,6 +271,22 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
         label: "Quotation discount",
         value: formatMoney(Number(quotation.quotationDiscountAmount), quotation.currency)
       },
+      ...(quotation.needsAssembly
+        ? [
+            {
+              label: "Assemble fee",
+              value: formatMoney(Number(quotation.assemblyFeeTotal), quotation.currency)
+            }
+          ]
+        : []),
+      ...(quotation.salesInvoiceRequested
+        ? [
+            {
+              label: "Sales invoice fee",
+              value: formatMoney(Number(quotation.salesInvoiceFeeTotal), quotation.currency)
+            }
+          ]
+        : []),
       { label: "Total", value: formatMoney(Number(quotation.totalAmount), quotation.currency) }
     ],
     items: quotation.items.map((item) => ({
@@ -781,6 +797,8 @@ function orderSummary(order: {
   subtotalAmount: unknown;
   itemDiscountTotal: unknown;
   orderDiscountAmount: unknown;
+  assemblyFeeTotal: unknown;
+  salesInvoiceFeeTotal: unknown;
   totalAmount: unknown;
   paidAmount: unknown;
   balanceAmount: unknown;
@@ -802,17 +820,30 @@ function orderTotals(order: {
   subtotalAmount: unknown;
   itemDiscountTotal: unknown;
   orderDiscountAmount: unknown;
+  assemblyFeeTotal: unknown;
+  salesInvoiceFeeTotal: unknown;
   totalAmount: unknown;
   paidAmount: unknown;
   balanceAmount: unknown;
 }): PdfSummaryRow[] {
   return [
-    { label: "Subtotal", value: formatMoney(Number(order.subtotalAmount), order.currency) },
+    { label: "Subtotal for Items", value: formatMoney(Number(order.subtotalAmount), order.currency) },
     { label: "Item discounts", value: formatMoney(Number(order.itemDiscountTotal), order.currency) },
     {
       label: "Order discount",
       value: formatMoney(Number(order.orderDiscountAmount), order.currency)
     },
+    ...(Number(order.assemblyFeeTotal) > 0
+      ? [{ label: "Assemble fee", value: formatMoney(Number(order.assemblyFeeTotal), order.currency) }]
+      : []),
+    ...(Number(order.salesInvoiceFeeTotal) > 0
+      ? [
+          {
+            label: "Sales invoice fee",
+            value: formatMoney(Number(order.salesInvoiceFeeTotal), order.currency)
+          }
+        ]
+      : []),
     { label: "Total", value: formatMoney(Number(order.totalAmount), order.currency) },
     { label: "Paid", value: formatMoney(Number(order.paidAmount), order.currency) },
     { label: "Balance", value: formatMoney(Number(order.balanceAmount), order.currency) }

@@ -1502,7 +1502,7 @@ function salesWorkflowDetails(order: {
   const delivery = [order.modeOfDelivery, order.deliveryMethod].filter(Boolean).join(" / ");
 
   return [
-    `Assembly: ${order.needsAssembly ? "Yes" : "No"}`,
+    `Assemble: ${order.needsAssembly ? "Yes" : "No"}`,
     `Sales invoice: ${order.salesInvoiceRequested ? "Requested" : "No"}`,
     delivery ? `Delivery: ${delivery}` : null,
     order.paymentTerms ? `Payment terms: ${order.paymentTerms}` : null,

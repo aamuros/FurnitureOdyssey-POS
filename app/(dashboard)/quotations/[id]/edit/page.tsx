@@ -109,6 +109,15 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
   }
 
   const primaryContact = quotation.customer.contacts[0];
+  const inferredAdditionalFees = Math.max(
+    Number(quotation.totalAmount) -
+      (Number(quotation.subtotalAmount) -
+        Number(quotation.itemDiscountTotal) -
+        Number(quotation.quotationDiscountAmount) +
+        Number(quotation.assemblyFeeTotal) +
+        Number(quotation.salesInvoiceFeeTotal)),
+    0
+  );
 
   return (
     <>
@@ -138,6 +147,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
               .join(" - ") || null
           },
           quotationDiscountValue: Number(quotation.quotationDiscountValue ?? 0),
+          additionalFees: inferredAdditionalFees,
           needsAssembly: quotation.needsAssembly,
           salesInvoiceRequested: quotation.salesInvoiceRequested,
           modeOfDelivery: quotation.modeOfDelivery ?? "",
@@ -157,6 +167,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
             unitCostSnapshot: Number(item.unitCostSnapshot ?? 0),
+            requiresAssembly: item.requiresAssembly,
             discountValue: Number(item.discountValue ?? item.discountAmount ?? 0),
             customerNotes: item.customerNotes ?? "",
             internalNotes: item.internalNotes ?? "",
