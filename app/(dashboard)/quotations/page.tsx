@@ -5,22 +5,29 @@ import { requirePermission } from "@/lib/auth/server";
 import { hasPermission } from "@/lib/auth/permissions";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, QuotationStatus } from "@prisma/client";
 
 type QuotationsPageProps = {
   searchParams?: Promise<{
     q?: string;
     status?: string;
+    view?: string;
     page?: string;
   }>;
 };
 
 const PAGE_SIZE = 25;
 const QUOTATION_STATUS_FILTERS = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const QUOTATION_VIEW_FILTERS = ["active", "converted", "all"] as const;
 
 function validStatusFilter(value: string | undefined) {
   const status = value?.trim();
   return QUOTATION_STATUS_FILTERS.find((option) => option === status);
+}
+
+function validViewFilter(value: string | undefined) {
+  const view = value?.trim();
+  return QUOTATION_VIEW_FILTERS.find((option) => option === view) ?? "active";
 }
 
 function formatDate(value: Date) {
@@ -69,14 +76,39 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const status = validStatusFilter(params.status);
+  const view = validViewFilter(params.view);
   const requestedPage = Number(params.page ?? "1");
   const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
+  const viewWhere: Prisma.QuotationWhereInput =
+    view === "converted"
+      ? {
+          order: {
+            isNot: null
+          }
+        }
+      : view === "active"
+        ? {
+            order: {
+              is: null
+            },
+            status: {
+              notIn: ["DECLINED", "CANCELLED"]
+            }
+          }
+        : {};
+
+  const filters = [
+    Object.keys(viewWhere).length ? viewWhere : undefined,
+    status
+      ? {
+          status: status as QuotationStatus
+        }
+      : undefined
+  ].filter(Boolean) as Prisma.QuotationWhereInput[];
+
   const where: Prisma.QuotationWhereInput = {
-    order: {
-      is: null
-    },
-    status: status ? (status as never) : { not: "ACCEPTED" },
+    AND: filters.length ? filters : undefined,
     OR: query
       ? [
           { quotationNumber: { contains: query, mode: "insensitive" } },
@@ -136,6 +168,12 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
           quantity: true
         },
         take: 4
+      },
+      order: {
+        select: {
+          id: true,
+          orderNumber: true
+        }
       }
     }
   });
@@ -159,6 +197,7 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
       <QuotationRecordsList
         query={query ?? ""}
         status={status ?? ""}
+        view={view}
         pagination={{
           page: paginationPage,
           pageSize: PAGE_SIZE,
@@ -176,7 +215,9 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
           subtotalAmount: formatMoney(quotation.subtotalAmount),
           totalAmount: formatMoney(quotation.totalAmount),
           createdBy: quotation.createdBy?.displayName ?? null,
-          updatedAt: formatDate(quotation.updatedAt)
+          updatedAt: formatDate(quotation.updatedAt),
+          orderId: quotation.order?.id ?? null,
+          orderNumber: quotation.order?.orderNumber ?? null
         }))}
         canExportDocuments={hasPermission(user, "DOCUMENTS", "EXPORT")}
         canUpdateQuotations={hasPermission(user, "QUOTATIONS", "UPDATE")}

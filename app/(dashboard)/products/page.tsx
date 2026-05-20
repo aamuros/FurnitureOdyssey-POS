@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Prisma } from "@prisma/client";
 import { ProductWorkspace } from "@/components/dashboard/product-workspace";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
@@ -6,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
+import { timeQuery } from "@/lib/query-timing";
 
 type ProductsPageProps = {
   searchParams?: Promise<{
@@ -13,8 +16,11 @@ type ProductsPageProps = {
     status?: string;
     category?: string;
     website?: string;
+    page?: string;
   }>;
 };
+
+const pageSize = 25;
 
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -22,6 +28,30 @@ function formatDate(value: Date) {
     day: "numeric",
     year: "numeric"
   }).format(value);
+}
+
+function productsHref(
+  params: Record<string, string | undefined>,
+  updates: Record<string, string | undefined> = {}
+) {
+  const next = new URLSearchParams();
+
+  for (const [paramKey, paramValue] of Object.entries(params)) {
+    if (paramValue && paramKey !== "page") {
+      next.set(paramKey, paramValue);
+    }
+  }
+
+  for (const [paramKey, paramValue] of Object.entries(updates)) {
+    if (paramValue) {
+      next.set(paramKey, paramValue);
+    } else {
+      next.delete(paramKey);
+    }
+  }
+
+  const query = next.toString();
+  return query ? `/products?${query}` : "/products";
 }
 
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
@@ -33,29 +63,47 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const category = params.category?.trim() || undefined;
   const website =
     params.website === "visible" ? true : params.website === "hidden" ? false : undefined;
+  const page = Math.max(Number(params.page ?? 1) || 1, 1);
+  const productWhere: Prisma.ProductWhereInput = {
+    status,
+    category,
+    isWebsiteVisible: website,
+    OR: query
+      ? [
+          { name: { contains: query, mode: "insensitive" } },
+          { code: { contains: query, mode: "insensitive" } },
+          { category: { contains: query, mode: "insensitive" } },
+          { description: { contains: query, mode: "insensitive" } },
+          { specifications: { contains: query, mode: "insensitive" } }
+        ]
+      : undefined
+  };
 
-  const [products, categories] = await Promise.all([
-    prisma.product.findMany({
-      where: {
-        status,
-        category,
-        isWebsiteVisible: website,
-        OR: query
-          ? [
-              { name: { contains: query, mode: "insensitive" } },
-              { code: { contains: query, mode: "insensitive" } },
-              { category: { contains: query, mode: "insensitive" } },
-              { description: { contains: query, mode: "insensitive" } },
-              { specifications: { contains: query, mode: "insensitive" } }
-            ]
-          : undefined
-      },
+  const [products, productCount, categories] = await Promise.all([
+    timeQuery("products:list", prisma.product.findMany({
+      where: productWhere,
       orderBy: [
         {
           updatedAt: "desc"
         }
       ],
-      include: {
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        category: true,
+        description: true,
+        specifications: true,
+        referencePrice: true,
+        referenceCost: true,
+        currency: true,
+        status: true,
+        isWebsiteVisible: true,
+        websiteSortOrder: true,
+        internalNotes: true,
+        updatedAt: true,
         images: {
           orderBy: [
             {
@@ -67,11 +115,23 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             {
               createdAt: "asc"
             }
-          ]
+          ],
+          take: 1,
+          select: {
+            id: true,
+            cloudinaryPublicId: true,
+            secureUrl: true,
+            altText: true,
+            sortOrder: true,
+            isPrimary: true
+          }
         }
       }
-    }),
-    prisma.product.findMany({
+    })),
+    timeQuery("products:count", prisma.product.count({
+      where: productWhere
+    })),
+    timeQuery("products:categories", prisma.product.findMany({
       where: {
         category: {
           not: null
@@ -84,8 +144,15 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       select: {
         category: true
       }
-    })
+    }))
   ]);
+  const totalPages = Math.max(Math.ceil(productCount / pageSize), 1);
+  const pageParams = {
+    q: params.q,
+    status: params.status,
+    category: params.category,
+    website: params.website
+  };
 
   return (
     <>
@@ -157,10 +224,42 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               sortOrder: image.sortOrder,
               isPrimary: image.isPrimary
             })),
+            imagesLoaded: false,
             updatedAt: formatDate(product.updatedAt)
           };
         })}
       />
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel px-4 py-3 text-sm text-muted-foreground">
+        <span>
+          Showing {products.length} of {productCount} product(s), page {page} of {totalPages}
+        </span>
+        <div className="flex gap-2">
+          {page <= 1 ? (
+            <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
+              Previous
+            </span>
+          ) : (
+            <Link
+              href={productsHref(pageParams, { page: String(page - 1) })}
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Previous
+            </Link>
+          )}
+          {page >= totalPages ? (
+            <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
+              Next
+            </span>
+          ) : (
+            <Link
+              href={productsHref(pageParams, { page: String(page + 1) })}
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
+            >
+              Next
+            </Link>
+          )}
+        </div>
+      </div>
     </>
   );
 }

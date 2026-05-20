@@ -108,6 +108,12 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
           displayName: true
         }
       },
+      order: {
+        select: {
+          id: true,
+          orderNumber: true
+        }
+      },
       items: {
         orderBy: {
           sortOrder: "asc"
@@ -252,6 +258,8 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
                 canExportDocuments={hasPermission(user, "DOCUMENTS", "EXPORT")}
                 canUpdateQuotations={hasPermission(user, "QUOTATIONS", "UPDATE")}
                 canApproveQuotations={hasPermission(user, "QUOTATIONS", "APPROVE")}
+                canCreateOrders={hasPermission(user, "ORDERS", "CREATE")}
+                order={quotation.order}
               />
             </div>
           </section>

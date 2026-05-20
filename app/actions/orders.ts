@@ -52,6 +52,8 @@ import {
 type ActionState = {
   ok: boolean;
   message: string;
+  orderId?: string;
+  orderNumber?: string | null;
 };
 
 type OrderTx = Prisma.TransactionClient;
@@ -546,6 +548,12 @@ export async function convertQuotationToOrderAction(
       id: parsed.data.quotationId
     },
     include: {
+      order: {
+        select: {
+          id: true,
+          orderNumber: true
+        }
+      },
       customer: {
         select: {
           displayName: true
@@ -558,6 +566,19 @@ export async function convertQuotationToOrderAction(
     return {
       ok: false,
       message: "Quotation was not found."
+    };
+  }
+
+  if (quotation.order) {
+    revalidatePath("/orders");
+    revalidatePath("/quotations");
+    revalidatePath(`/quotations/${quotation.id}`);
+
+    return {
+      ok: true,
+      orderId: quotation.order.id,
+      orderNumber: quotation.order.orderNumber,
+      message: `Quotation already has an order: ${quotation.order.orderNumber ?? quotation.order.id}.`
     };
   }
 
@@ -580,10 +601,13 @@ export async function convertQuotationToOrderAction(
 
   revalidatePath("/orders");
   revalidatePath("/quotations");
+  revalidatePath(`/quotations/${quotation.id}`);
   revalidatePath("/inquiries");
 
   return {
     ok: true,
+    orderId: order.id,
+    orderNumber: order.orderNumber,
     message: `Order created from approved quotation for ${quotation.customer.displayName}: ${order.orderNumber ?? order.id}.`
   };
 }

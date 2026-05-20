@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { ImagePlus, PackageOpen, Pencil, Plus, Save, Star, Trash2, Upload } from "lucide-react";
 import {
   createProductAction,
@@ -43,6 +43,7 @@ type ProductRow = {
     altText: string | null;
   } | null;
   images: ProductImageDraft[];
+  imagesLoaded: boolean;
   updatedAt: string;
 };
 
@@ -75,11 +76,15 @@ function formatMoney(value: number | null, currency: string) {
 function ProductImageManager({
   productId,
   productName,
-  images
+  images,
+  loadingImages,
+  imageError
 }: {
   productId: string;
   productName: string;
   images: ProductImageDraft[];
+  loadingImages: boolean;
+  imageError: string | null;
 }) {
   async function uploadImage(formData: FormData) {
     await uploadProductImageAction(formData);
@@ -123,6 +128,14 @@ function ProductImageManager({
           </Button>
         </div>
       </form>
+      {loadingImages ? (
+        <p className="rounded-md bg-panel px-3 py-2 text-sm text-muted-foreground">
+          Loading saved images...
+        </p>
+      ) : null}
+      {imageError ? (
+        <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{imageError}</p>
+      ) : null}
       {images.map((image, index) => (
         <div key={image.id ?? index} className="studio-subpanel grid gap-3 p-3 lg:grid-cols-[96px_1fr]">
           <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
@@ -176,12 +189,90 @@ function ProductImageManager({
 export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWorkspaceProps) {
   const [createState, createAction, createPending] = useActionState(createProductAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateProductAction, initialState);
+  const [productRows, setProductRows] = useState(products);
   const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ?? "");
+  const [loadingImagesProductId, setLoadingImagesProductId] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setProductRows(products);
+    setSelectedProductId((current) =>
+      current && products.some((product) => product.id === current) ? current : (products[0]?.id ?? "")
+    );
+  }, [products]);
 
   const selectedProduct = useMemo(
-    () => products.find((product) => product.id === selectedProductId) ?? null,
-    [products, selectedProductId]
+    () => productRows.find((product) => product.id === selectedProductId) ?? null,
+    [productRows, selectedProductId]
   );
+
+  useEffect(() => {
+    if (!canUpdate || !selectedProduct || selectedProduct.imagesLoaded) {
+      return;
+    }
+
+    let cancelled = false;
+    const productId = selectedProduct.id;
+
+    async function loadImages() {
+      setLoadingImagesProductId(productId);
+      setImageError(null);
+
+      try {
+        const response = await fetch(`/api/products/${productId}/images`, {
+          headers: {
+            Accept: "application/json"
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to load product images.");
+        }
+
+        const data = (await response.json()) as { images: ProductImageDraft[] };
+
+        if (cancelled) {
+          return;
+        }
+
+        setProductRows((current) =>
+          current.map((product) => {
+            if (product.id !== productId) {
+              return product;
+            }
+
+            const primaryImage = data.images.find((image) => image.isPrimary) ?? data.images[0] ?? null;
+
+            return {
+              ...product,
+              primaryImage: primaryImage
+                ? {
+                    secureUrl: primaryImage.secureUrl,
+                    altText: primaryImage.altText
+                  }
+                : null,
+              images: data.images,
+              imagesLoaded: true
+            };
+          })
+        );
+      } catch (error) {
+        if (!cancelled) {
+          setImageError(error instanceof Error ? error.message : "Unable to load product images.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingImagesProductId(null);
+        }
+      }
+    }
+
+    void loadImages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canUpdate, selectedProduct]);
 
   function selectProduct(product: ProductRow) {
     setSelectedProductId(product.id);
@@ -350,6 +441,8 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                 productId={selectedProduct.id}
                 productName={selectedProduct.name}
                 images={selectedProduct.images}
+                loadingImages={loadingImagesProductId === selectedProduct.id}
+                imageError={imageError}
               />
             </div>
           </section>
@@ -380,7 +473,7 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {products.map((product) => (
+              {productRows.map((product) => (
                 <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/45" : undefined}>
                   <td className="px-5 py-3">
                     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
@@ -426,7 +519,7 @@ export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWork
                   ) : null}
                 </tr>
               ))}
-              {products.length === 0 ? (
+              {productRows.length === 0 ? (
                 <tr>
                   <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={canUpdate ? 9 : 8}>
                     <div className="studio-empty flex items-center gap-3 px-4 py-4">

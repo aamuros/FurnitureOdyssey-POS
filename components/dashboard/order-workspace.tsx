@@ -1,13 +1,13 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import Link from "next/link";
 import type { DeliveryStatus } from "@prisma/client";
 import {
   ArrowLeft,
   CalendarClock,
-  ClipboardList,
   Download,
-  FileText,
   ListChecks,
   MoreHorizontal,
   PackageSearch,
@@ -15,7 +15,8 @@ import {
   ReceiptText,
   Save,
   Trash2,
-  Truck
+  Truck,
+  X
 } from "lucide-react";
 import {
   convertQuotationToOrderAction,
@@ -184,9 +185,7 @@ type OrderWorkspaceProps = {
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
-  customers: CustomerOption[];
-  products: ProductOption[];
-  approvedQuotations: ApprovedQuotationOption[];
+  initialSelectedOrderId?: string | null;
   orders: OrderRow[];
 };
 
@@ -222,7 +221,7 @@ type OrderCardPrimaryAction = {
 
 type NewOrderLauncherProps = Pick<
   OrderWorkspaceProps,
-  "canCreateOrders" | "canViewPayments" | "customers" | "products" | "approvedQuotations"
+  "canCreateOrders" | "canViewPayments"
 >;
 
 type OrderListProps = Pick<
@@ -234,6 +233,7 @@ type OrderListProps = Pick<
   | "canCreateDeliveries"
   | "canUpdateDeliveries"
   | "canExportDocuments"
+  | "initialSelectedOrderId"
   | "orders"
 >;
 
@@ -244,6 +244,51 @@ const initialState = {
 
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-border bg-panel px-2 text-sm font-medium text-foreground transition hover:bg-muted";
+
+type OptionLoadState<T> = {
+  items: T[];
+  count: number;
+  query: string;
+  loading: boolean;
+  loaded: boolean;
+  error: string | null;
+};
+
+function emptyOptionState<T>(): OptionLoadState<T> {
+  return {
+    items: [],
+    count: 0,
+    query: "",
+    loading: false,
+    loaded: false,
+    error: null
+  };
+}
+
+async function fetchCreateOptions<T>(kind: "customers" | "products" | "quotations", query: string) {
+  const params = new URLSearchParams({
+    kind
+  });
+
+  if (query.trim()) {
+    params.set("q", query.trim());
+  }
+
+  const response = await fetch(`/api/orders/create-options?${params.toString()}`, {
+    headers: {
+      Accept: "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to load order options.");
+  }
+
+  return (await response.json()) as {
+    items: T[];
+    count: number;
+  };
+}
 
 function money(value: number) {
   return new Intl.NumberFormat("en-PH", {
@@ -554,7 +599,7 @@ function DeliveryForm({ order }: { order: OrderRow }) {
       </div>
       <Button disabled={pending || !orderItemId || remainingQuantity <= 0} className="w-full">
         <Truck className="h-4 w-4" />
-        Schedule
+        Schedule delivery
       </Button>
       {state.message ? (
         <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
@@ -817,25 +862,66 @@ function workflowStageTone(stage: string): StatusTone {
   return "neutral";
 }
 
+function workflowStageDescription(order: OrderRow, stage: string, canViewPayments: boolean, canViewDeliveries: boolean) {
+  if (stage === "Awaiting payment" && canViewPayments) {
+    return `${order.balanceAmount} due before delivery`;
+  }
+
+  if (stage === "Collect balance" && canViewPayments) {
+    return `${order.balanceAmount} still open after delivery`;
+  }
+
+  if (stage === "Ready to schedule" && canViewDeliveries) {
+    const remainingLines = order.items.filter((item) => item.remainingQuantity > 0).length;
+    return `${itemCountLabel(remainingLines)} ready for delivery`;
+  }
+
+  if (stage === "Scheduled" && canViewDeliveries) {
+    return deliverySummaryLabel(order);
+  }
+
+  if (stage === "In delivery" && canViewDeliveries) {
+    return "Delivery progress is underway";
+  }
+
+  if (stage === "Ready to complete") {
+    return "Paid and delivered";
+  }
+
+  if (stage === "Completed") {
+    return "Order closed";
+  }
+
+  if (stage === "Cancelled") {
+    return "No open staff action";
+  }
+
+  if (order.salesInvoiceRequested) {
+    return "Sales invoice requested";
+  }
+
+  return "Review order details";
+}
+
 function nextActionLabel(order: OrderRow, canViewPayments: boolean, canViewDeliveries: boolean) {
   if (isTerminalOrder(order)) {
     return "No open action";
   }
 
   if (canViewDeliveries && isDeliveryComplete(order) && canViewPayments && hasBalanceDue(order)) {
-    return "Collect delivery balance";
+    return "Record payment";
   }
 
   if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
-    return "Balance due";
+    return "Record payment";
   }
 
   if (canViewDeliveries && isReadyToScheduleDelivery(order)) {
-    return "Ready to schedule";
+    return "Schedule delivery";
   }
 
   if (canViewDeliveries && (isDeliveryScheduled(order) || isDeliveryPartiallyDelivered(order))) {
-    return "Delivery scheduled";
+    return "Update delivery progress";
   }
 
   if (canViewDeliveries && isDeliveryComplete(order) && (!canViewPayments || isPaymentPaid(order))) {
@@ -849,17 +935,9 @@ function nextOrderAction(order: OrderRow, canViewPayments: boolean, canViewDeliv
   return nextActionLabel(order, canViewPayments, canViewDeliveries);
 }
 
-function paymentSummaryLabel(order: OrderRow) {
-  if (!hasBalanceDue(order)) {
-    return "Paid in full";
-  }
-
-  return `${order.balanceAmount} due`;
-}
-
 function deliverySummaryLabel(order: OrderRow) {
   if (!order.nextDeliveryDate) {
-    return "No schedule";
+    return "Not scheduled";
   }
 
   return [order.nextDeliveryDate, order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : null]
@@ -867,9 +945,51 @@ function deliverySummaryLabel(order: OrderRow) {
     .join(" · ");
 }
 
+function paymentSupportSummary(order: OrderRow) {
+  if (!hasBalanceDue(order)) {
+    return {
+      value: "Paid in full",
+      detail: `${order.paidAmount} received`
+    };
+  }
+
+  return {
+    value: `${order.balanceAmount} due`,
+    detail: [
+      paymentStatusLabel(order.paymentStatus),
+      order.paymentDueTiming ? paymentDueTimingLabel(order.paymentDueTiming) : null
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  };
+}
+
+function deliverySupportSummary(order: OrderRow) {
+  if (order.deliveryStatus === "DELIVERED") {
+    return {
+      value: "Delivered",
+      detail: deliveryStatusLabel(order.deliveryStatus)
+    };
+  }
+
+  if (!order.nextDeliveryDate) {
+    return {
+      value: "Not scheduled",
+      detail: deliveryStatusLabel(order.deliveryStatus)
+    };
+  }
+
+  return {
+    value: order.nextDeliveryDate,
+    detail: order.nextDeliveryProvider
+      ? readableLabel(order.nextDeliveryProvider)
+      : deliveryStatusLabel(order.deliveryStatus)
+  };
+}
+
 function staffDisplayName(name: string | null) {
   if (!name) {
-    return null;
+    return "Unassigned";
   }
 
   if (name === "Furniture Odyssey Admin") {
@@ -886,6 +1006,7 @@ function compactUpdatedAtLabel(value: string) {
 function orderMetaLine(order: OrderRow) {
   return [
     readableLabel(order.sourceType),
+    itemCountLabel(order.items.length),
     staffDisplayName(order.assignedStaff),
     `Updated ${compactUpdatedAtLabel(order.updatedAt)}`
   ]
@@ -972,7 +1093,7 @@ function getPrimaryOrderAction({
   if (kind === "scheduleDelivery") {
     return {
       kind,
-      label: "Schedule",
+      label: "Schedule delivery",
       nextLabel: nextActionLabel(order, canViewPayments, canViewDeliveries),
       onClick: onScheduleDelivery
     };
@@ -980,7 +1101,7 @@ function getPrimaryOrderAction({
 
   return {
     kind,
-    label: isDetailsOpen ? "Hide" : "Details",
+    label: isDetailsOpen ? "Hide details" : "View details",
     nextLabel: nextActionLabel(order, canViewPayments, canViewDeliveries),
     onClick: isDetailsOpen ? onHideDetails : onDetails
   };
@@ -988,16 +1109,134 @@ function getPrimaryOrderAction({
 
 export function NewOrderLauncher({
   canCreateOrders,
-  canViewPayments,
-  customers,
-  products,
-  approvedQuotations
+  canViewPayments
 }: NewOrderLauncherProps) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<NewOrderMode>("choices");
+  const [quotationOptions, setQuotationOptions] = useState<OptionLoadState<ApprovedQuotationOption>>(
+    () => emptyOptionState()
+  );
+  const [customerOptions, setCustomerOptions] = useState<OptionLoadState<CustomerOption>>(
+    () => emptyOptionState()
+  );
+  const [productOptions, setProductOptions] = useState<OptionLoadState<ProductOption>>(
+    () => emptyOptionState()
+  );
 
   if (!canCreateOrders) {
     return null;
+  }
+
+  async function loadQuotationOptions(query = quotationOptions.query) {
+    setQuotationOptions((current) => ({
+      ...current,
+      query,
+      loading: true,
+      error: null
+    }));
+
+    try {
+      const data = await fetchCreateOptions<ApprovedQuotationOption>("quotations", query);
+      setQuotationOptions((current) => ({
+        ...current,
+        ...data,
+        query,
+        loading: false,
+        loaded: true,
+        error: null
+      }));
+    } catch (error) {
+      setQuotationOptions((current) => ({
+        ...current,
+        loading: false,
+        loaded: true,
+        error: error instanceof Error ? error.message : "Unable to load approved quotations."
+      }));
+    }
+  }
+
+  async function loadCustomerOptions(query = customerOptions.query) {
+    setCustomerOptions((current) => ({
+      ...current,
+      query,
+      loading: true,
+      error: null
+    }));
+
+    try {
+      const data = await fetchCreateOptions<CustomerOption>("customers", query);
+      setCustomerOptions((current) => ({
+        ...current,
+        ...data,
+        query,
+        loading: false,
+        loaded: true,
+        error: null
+      }));
+    } catch (error) {
+      setCustomerOptions((current) => ({
+        ...current,
+        loading: false,
+        loaded: true,
+        error: error instanceof Error ? error.message : "Unable to load customers."
+      }));
+    }
+  }
+
+  async function loadProductOptions(query = productOptions.query) {
+    setProductOptions((current) => ({
+      ...current,
+      query,
+      loading: true,
+      error: null
+    }));
+
+    try {
+      const data = await fetchCreateOptions<ProductOption>("products", query);
+      setProductOptions((current) => ({
+        ...current,
+        ...data,
+        query,
+        loading: false,
+        loaded: true,
+        error: null
+      }));
+    } catch (error) {
+      setProductOptions((current) => ({
+        ...current,
+        loading: false,
+        loaded: true,
+        error: error instanceof Error ? error.message : "Unable to load products."
+      }));
+    }
+  }
+
+  function openPanel() {
+    setOpen(true);
+
+    if (!quotationOptions.loaded && !quotationOptions.loading) {
+      void loadQuotationOptions("");
+    }
+  }
+
+  function openManualMode() {
+    setMode("manual");
+
+    if (!customerOptions.loaded && !customerOptions.loading) {
+      void loadCustomerOptions("");
+    }
+
+    if (!productOptions.loaded && !productOptions.loading) {
+      void loadProductOptions("");
+    }
+  }
+
+  function openQuotationMode() {
+    setMode("quotation");
+
+    if (!quotationOptions.loaded && !quotationOptions.loading) {
+      void loadQuotationOptions("");
+    }
   }
 
   function closePanel() {
@@ -1006,17 +1245,38 @@ export function NewOrderLauncher({
   }
 
   const title =
-    mode === "quotation" ? "Convert approved quotation" : mode === "manual" ? "Create manual order" : "New order";
+    mode === "quotation"
+      ? "Convert approved quotation"
+      : mode === "manual"
+        ? "Create manual order"
+        : "Create new order";
   const description =
     mode === "quotation"
       ? "Start from a quotation that is already accepted."
       : mode === "manual"
         ? "Build a direct order for negotiated or custom sales."
-        : "Choose how this order should start.";
+        : "Start from an approved quotation or create an order manually.";
+  const hasApprovedQuotations = quotationOptions.count > 0;
+  const firstApprovedQuotation = quotationOptions.items[0] ?? null;
+  const firstQuotationSummary = firstApprovedQuotation
+    ? [
+        firstApprovedQuotation.quotationNumber ?? "No quote number",
+        firstApprovedQuotation.customerName,
+        firstApprovedQuotation.totalAmount
+      ].join(" · ")
+    : null;
+  const quotationSummary =
+    quotationOptions.count === 1 && firstQuotationSummary
+      ? `1 ready · ${firstQuotationSummary}`
+      : quotationOptions.count > 1
+        ? `${quotationOptions.count} approved quotations ready`
+        : quotationOptions.loading
+          ? "Checking approved quotations..."
+          : "No approved quotations ready.";
 
   return (
     <>
-      <Button type="button" onClick={() => setOpen(true)} className="w-full sm:w-auto">
+      <Button type="button" onClick={openPanel} className="w-full sm:w-auto">
         <Plus className="h-4 w-4" />
         New order
       </Button>
@@ -1033,7 +1293,11 @@ export function NewOrderLauncher({
             role="dialog"
             aria-modal="true"
             aria-labelledby="new-order-title"
-            className="relative ml-auto flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl"
+            aria-describedby="new-order-description"
+            className={cn(
+              "relative ml-auto flex h-full w-full flex-col overflow-hidden border-l border-border bg-panel shadow-xl",
+              mode === "choices" ? "max-w-xl" : "max-w-3xl"
+            )}
           >
             <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
               <div className="min-w-0">
@@ -1052,98 +1316,156 @@ export function NewOrderLauncher({
                 <h2 id="new-order-title" className="mt-1 text-xl font-semibold">
                   {title}
                 </h2>
-                <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+                <p id="new-order-description" className="mt-1 text-sm text-muted-foreground">
+                  {description}
+                </p>
               </div>
-              <Button type="button" variant="ghost" onClick={closePanel}>
-                Close
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Close create new order panel"
+                className="-mr-1 min-h-10 rounded-full px-2 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                onClick={closePanel}
+              >
+                <X className="h-5 w-5" />
               </Button>
             </header>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+            <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7">
               {mode === "choices" ? (
-                <div className="grid max-w-3xl gap-4 md:grid-cols-2">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45 disabled:cursor-not-allowed disabled:opacity-70"
-                    onClick={() => setMode("quotation")}
-                    disabled={approvedQuotations.length === 0}
-                  >
-                    <span className="flex items-start gap-3">
-                      <FileText className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-                      <span>
-                        <span className="block text-base font-semibold">Convert approved quotation</span>
-                        <span className="mt-1 block text-sm leading-5 text-muted-foreground">
-                          Start from an accepted quotation with customer and items already set.
-                        </span>
+                <div className="mx-auto w-full max-w-lg">
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      className="group w-full rounded-lg border border-primary/40 bg-soft-accent/45 p-5 text-left shadow-sm transition hover:border-primary/60 hover:bg-soft-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+                      onClick={openManualMode}
+                    >
+                      <span className="block text-base font-semibold">Manual order</span>
+                      <span className="mt-2 block text-sm leading-5 text-muted-foreground">
+                        Create an order directly by adding customer, items, payment, delivery, and review details.
                       </span>
-                    </span>
-                    {approvedQuotations.length > 0 ? (
-                      <span className="mt-4 block space-y-2">
-                        {approvedQuotations.slice(0, 3).map((quotation) => (
-                          <span
-                            key={quotation.id}
-                            className="block rounded-md border border-border bg-panel px-3 py-2 text-sm"
-                          >
-                            <span className="block truncate font-semibold">
-                              {quotation.quotationNumber ?? "No quote number"} · {quotation.customerName}
-                            </span>
-                            <span className="mt-0.5 block text-xs text-muted-foreground">
-                              {quotation.totalAmount} · {itemCountLabel(quotation.itemCount)}
-                            </span>
-                          </span>
-                        ))}
-                        {approvedQuotations.length > 3 ? (
-                          <span className="block text-xs font-semibold text-muted-foreground">
-                            +{approvedQuotations.length - 3} more ready
+                      <span className="mt-4 flex flex-wrap items-center gap-1.5 text-sm font-medium text-foreground">
+                        <span>Customer</span>
+                        <span className="text-muted-foreground" aria-hidden="true">
+                          &rarr;
+                        </span>
+                        <span>Items</span>
+                        <span className="text-muted-foreground" aria-hidden="true">
+                          &rarr;
+                        </span>
+                        <span>Payment &amp; delivery</span>
+                        <span className="text-muted-foreground" aria-hidden="true">
+                          &rarr;
+                        </span>
+                        <span>Review</span>
+                      </span>
+
+                      <span className="mt-5 inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground transition group-hover:bg-primary/90">
+                        Start manual order
+                      </span>
+                    </button>
+
+                    {quotationOptions.loading && !quotationOptions.loaded ? (
+                      <article className="rounded-lg border border-border bg-background p-5 text-left">
+                        <span className="block h-5 w-44 animate-pulse rounded bg-muted" />
+                        <span className="mt-3 block h-4 w-full animate-pulse rounded bg-muted" />
+                        <span className="mt-2 block h-4 w-3/4 animate-pulse rounded bg-muted" />
+                      </article>
+                    ) : hasApprovedQuotations ? (
+                      <button
+                        type="button"
+                        className="w-full rounded-lg border border-border bg-background p-5 text-left transition hover:border-primary/35 hover:bg-soft-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+                        onClick={openQuotationMode}
+                      >
+                        <span className="block text-base font-semibold">From approved quotation</span>
+                        <span className="mt-2 block text-sm leading-5 text-muted-foreground">
+                          Start with customer, pricing, and items already approved.
+                        </span>
+
+                        <span className="mt-4 block text-sm font-medium text-foreground">
+                          {quotationSummary}
+                        </span>
+                        {quotationOptions.count > 1 && firstQuotationSummary ? (
+                          <span className="mt-1 block truncate text-xs text-muted-foreground">
+                            Next: {firstQuotationSummary}
                           </span>
                         ) : null}
-                      </span>
+
+                        <span className="mt-5 inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-border bg-panel px-3 text-sm font-semibold text-foreground transition hover:bg-muted">
+                          Continue with quotation
+                        </span>
+                      </button>
                     ) : (
-                      <span className="mt-4 block rounded-md border border-dashed border-border bg-panel px-3 py-2 text-sm font-medium text-muted-foreground">
-                        No approved quotations ready
-                      </span>
+                      <article className="rounded-lg border border-dashed border-border bg-background/65 p-5 text-left opacity-85">
+                        <span className="block text-base font-semibold text-muted-foreground">
+                          From approved quotation
+                        </span>
+                        <span className="mt-2 block text-sm leading-5 text-muted-foreground">
+                          Start with customer, pricing, and items already approved.
+                        </span>
+                        <span className="mt-4 block rounded-md border border-border bg-panel px-3 py-2 text-sm font-medium text-muted-foreground">
+                          No approved quotations available.
+                        </span>
+                        <Link
+                          href="/quotations"
+                          className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-border bg-panel px-3 text-sm font-semibold text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+                        >
+                          View quotations
+                        </Link>
+                      </article>
                     )}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-border bg-background p-4 text-left transition hover:bg-soft-accent/45"
-                    onClick={() => setMode("manual")}
-                  >
-                    <span className="flex items-start gap-3">
-                      <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-                      <span>
-                        <span className="block text-base font-semibold">Create manual order</span>
-                        <span className="mt-1 block text-sm leading-5 text-muted-foreground">
-                          Build a direct order for negotiated or custom sales.
-                        </span>
-                      </span>
-                    </span>
-                    <span className="mt-4 block space-y-2 text-sm">
-                      {[
-                        "Choose customer",
-                        "Add catalog or custom items",
-                        "Set payment and delivery plan",
-                        "Review before creating"
-                      ].map((item) => (
-                        <span key={item} className="flex items-center gap-2 text-muted-foreground">
-                          <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                          {item}
-                        </span>
-                      ))}
-                    </span>
-                  </button>
+
+                    <div className="rounded-lg border border-border bg-panel px-4 py-3 text-xs leading-5 text-muted-foreground">
+                      New orders appear in the work queue for payment, delivery, and documents.
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
               {mode === "quotation" ? (
-                <ConvertApprovedQuotationForm approvedQuotations={approvedQuotations} />
+                <ConvertApprovedQuotationForm
+                  approvedQuotations={quotationOptions.items}
+                  approvedQuotationCount={quotationOptions.count}
+                  loading={quotationOptions.loading}
+                  error={quotationOptions.error}
+                  query={quotationOptions.query}
+                  onQueryChange={(query) =>
+                    setQuotationOptions((current) => ({
+                      ...current,
+                      query
+                    }))
+                  }
+                  onSearch={() => void loadQuotationOptions(quotationOptions.query)}
+                />
               ) : null}
 
               {mode === "manual" ? (
                 <ManualOrderForm
                   canViewPayments={canViewPayments}
-                  customers={customers}
-                  products={products}
+                  customers={customerOptions.items}
+                  customerCount={customerOptions.count}
+                  customersLoading={customerOptions.loading}
+                  customersError={customerOptions.error}
+                  customerQuery={customerOptions.query}
+                  onCustomerQueryChange={(query) =>
+                    setCustomerOptions((current) => ({
+                      ...current,
+                      query
+                    }))
+                  }
+                  onCustomerSearch={() => void loadCustomerOptions(customerOptions.query)}
+                  products={productOptions.items}
+                  productCount={productOptions.count}
+                  productsLoading={productOptions.loading}
+                  productsError={productOptions.error}
+                  productQuery={productOptions.query}
+                  onProductQueryChange={(query) =>
+                    setProductOptions((current) => ({
+                      ...current,
+                      query
+                    }))
+                  }
+                  onProductSearch={() => void loadProductOptions(productOptions.query)}
                 />
               ) : null}
             </div>
@@ -1155,9 +1477,21 @@ export function NewOrderLauncher({
 }
 
 function ConvertApprovedQuotationForm({
-  approvedQuotations
+  approvedQuotations,
+  approvedQuotationCount,
+  loading,
+  error,
+  query,
+  onQueryChange,
+  onSearch
 }: {
   approvedQuotations: ApprovedQuotationOption[];
+  approvedQuotationCount: number;
+  loading: boolean;
+  error: string | null;
+  query: string;
+  onQueryChange: (query: string) => void;
+  onSearch: () => void;
 }) {
   const [convertState, convertAction, convertPending] = useActionState(
     convertQuotationToOrderAction,
@@ -1168,14 +1502,52 @@ function ConvertApprovedQuotationForm({
   );
   const selectedQuotation =
     approvedQuotations.find((quotation) => quotation.id === selectedQuotationId) ?? null;
+  const hiddenMatchingCount = Math.max(approvedQuotationCount - approvedQuotations.length, 0);
+
+  useEffect(() => {
+    if (!selectedQuotationId && approvedQuotations.length === 1) {
+      setSelectedQuotationId(approvedQuotations[0]?.id ?? "");
+    }
+  }, [approvedQuotations, selectedQuotationId]);
+
+  function handleSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+    onSearch();
+  }
 
   return (
     <form action={convertAction} className="max-w-3xl space-y-4">
       <input type="hidden" name="quotationId" value={selectedQuotationId} />
 
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <Input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={handleSearchKeyDown}
+          placeholder="Search quotation number or customer"
+          aria-label="Search approved quotations"
+        />
+        <Button type="button" variant="secondary" onClick={onSearch} disabled={loading}>
+          Search
+        </Button>
+      </div>
+
+      {error ? (
+        <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
+      ) : null}
+
       {approvedQuotations.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div className="space-y-3" role="radiogroup" aria-label="Approved quotations">
+            {hiddenMatchingCount > 0 ? (
+              <p className="rounded-md bg-panel px-3 py-2 text-xs text-muted-foreground">
+                Showing first {approvedQuotations.length} of {approvedQuotationCount} matching quotations. Search to narrow the list.
+              </p>
+            ) : null}
             {approvedQuotations.map((quotation) => {
               const selected = selectedQuotationId === quotation.id;
 
@@ -1254,7 +1626,9 @@ function ConvertApprovedQuotationForm({
 
       {approvedQuotations.length === 0 ? (
         <div className="studio-empty px-4 py-4 text-sm">
-          No approved quotations ready. Approve a quotation before converting it into an order.
+          {loading
+            ? "Loading approved quotations..."
+            : "No approved quotations ready. Approve a quotation before converting it into an order."}
         </div>
       ) : null}
 
@@ -1285,15 +1659,45 @@ function ConvertApprovedQuotationForm({
 function ManualOrderForm({
   canViewPayments,
   customers,
-  products
-}: Pick<OrderWorkspaceProps, "canViewPayments" | "customers" | "products">) {
+  customerCount,
+  customersLoading,
+  customersError,
+  customerQuery,
+  onCustomerQueryChange,
+  onCustomerSearch,
+  products,
+  productCount,
+  productsLoading,
+  productsError,
+  productQuery,
+  onProductQueryChange,
+  onProductSearch
+}: {
+  canViewPayments: boolean;
+  customers: CustomerOption[];
+  customerCount: number;
+  customersLoading: boolean;
+  customersError: string | null;
+  customerQuery: string;
+  onCustomerQueryChange: (query: string) => void;
+  onCustomerSearch: () => void;
+  products: ProductOption[];
+  productCount: number;
+  productsLoading: boolean;
+  productsError: string | null;
+  productQuery: string;
+  onProductQueryChange: (query: string) => void;
+  onProductSearch: () => void;
+}) {
   const [manualState, manualAction, manualPending] = useActionState(
     createManualOrderAction,
     initialState
   );
   const [items, setItems] = useState<ItemDraft[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<ProductOption | null>(null);
   const [customerId, setCustomerId] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
   const [step, setStep] = useState<ManualOrderStep>("customer");
   const [orderDiscountType, setOrderDiscountType] = useState<"" | "FIXED_AMOUNT" | "PERCENTAGE">(
     ""
@@ -1341,7 +1745,7 @@ function ManualOrderForm({
   }, [items, orderDiscountType, orderDiscountValue]);
 
   function addCatalogItem() {
-    const product = products.find((candidate) => candidate.id === selectedProductId);
+    const product = selectedProduct ?? products.find((candidate) => candidate.id === selectedProductId);
 
     if (!product) {
       return;
@@ -1366,6 +1770,7 @@ function ManualOrderForm({
 
     setItems((current) => [...current, { ...catalogItem, sortOrder: current.length }]);
     setSelectedProductId("");
+    setSelectedProduct(null);
   }
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {
@@ -1382,7 +1787,14 @@ function ManualOrderForm({
     setItems((current) => [...current, createCustomItem(current.length)]);
   }
 
-  const selectedCustomer = customers.find((customer) => customer.id === customerId);
+  const customerChoices =
+    selectedCustomer && !customers.some((customer) => customer.id === selectedCustomer.id)
+      ? [selectedCustomer, ...customers]
+      : customers;
+  const productChoices =
+    selectedProduct && !products.some((product) => product.id === selectedProduct.id)
+      ? [selectedProduct, ...products]
+      : products;
   const manualSteps: Array<{ key: ManualOrderStep; label: string }> = [
     { key: "customer", label: "Customer" },
     { key: "items", label: "Items & pricing" },
@@ -1453,6 +1865,24 @@ function ManualOrderForm({
     return false;
   }
 
+  function handleCustomerSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+    onCustomerSearch();
+  }
+
+  function handleProductSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+    onProductSearch();
+  }
+
   return (
     <form action={manualAction} className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
       <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
@@ -1491,19 +1921,44 @@ function ManualOrderForm({
             </p>
           </div>
           <div className="grid gap-3">
-            {customers.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={customerQuery}
+                onChange={(event) => onCustomerQueryChange(event.target.value)}
+                onKeyDown={handleCustomerSearchKeyDown}
+                placeholder="Search customer name, company, or contact"
+                aria-label="Search customers for manual order"
+              />
+              <Button type="button" variant="secondary" onClick={onCustomerSearch} disabled={customersLoading}>
+                Search
+              </Button>
+            </div>
+            {customersError ? (
+              <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{customersError}</p>
+            ) : null}
+            {customerCount > customerChoices.length ? (
+              <p className="text-xs text-muted-foreground">
+                Showing first {customerChoices.length} of {customerCount} matching customers. Search to narrow the list.
+              </p>
+            ) : null}
+            {customerChoices.length > 0 ? (
               <label className="max-w-xl space-y-2 text-sm font-medium">
                 Customer
                 <Select
                   name="customerId"
                   required
                   value={customerId}
-                  onChange={(event) => setCustomerId(event.target.value)}
+                  onChange={(event) => {
+                    const nextCustomer =
+                      customerChoices.find((customer) => customer.id === event.target.value) ?? null;
+                    setCustomerId(event.target.value);
+                    setSelectedCustomer(nextCustomer);
+                  }}
                 >
                   <option value="" disabled>
-                    Choose customer
+                    {customersLoading ? "Loading customers..." : "Choose customer"}
                   </option>
-                  {customers.map((customer) => (
+                  {customerChoices.map((customer) => (
                     <option key={customer.id} value={customer.id}>
                       {customer.displayName}
                       {customer.companyName ? ` - ${customer.companyName}` : ""}
@@ -1513,7 +1968,9 @@ function ManualOrderForm({
               </label>
             ) : (
               <div className="studio-empty px-4 py-4 text-sm">
-                Add a customer record before creating a manual order.
+                {customersLoading
+                  ? "Loading customers..."
+                  : "No matching customers found. Add a customer record before creating a manual order."}
               </div>
             )}
           </div>
@@ -1530,13 +1987,40 @@ function ManualOrderForm({
 
           <div className="grid gap-3">
             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={productQuery}
+                onChange={(event) => onProductQueryChange(event.target.value)}
+                onKeyDown={handleProductSearchKeyDown}
+                placeholder="Search catalog item, code, or category"
+                aria-label="Search products for manual order"
+              />
+              <Button type="button" variant="secondary" onClick={onProductSearch} disabled={productsLoading}>
+                Search
+              </Button>
+            </div>
+            {productsError ? (
+              <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{productsError}</p>
+            ) : null}
+            {productCount > productChoices.length ? (
+              <p className="text-xs text-muted-foreground">
+                Showing first {productChoices.length} of {productCount} matching catalog items. Search to narrow the list.
+              </p>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Select
                 value={selectedProductId}
-                onChange={(event) => setSelectedProductId(event.target.value)}
+                onChange={(event) => {
+                  const nextProduct =
+                    productChoices.find((product) => product.id === event.target.value) ?? null;
+                  setSelectedProductId(event.target.value);
+                  setSelectedProduct(nextProduct);
+                }}
                 aria-label="Catalog product"
               >
-                <option value="">Choose active catalog item</option>
-                {products.map((product) => (
+                <option value="">
+                  {productsLoading ? "Loading catalog items..." : "Choose active catalog item"}
+                </option>
+                {productChoices.map((product) => (
                   <option key={product.id} value={product.id}>
                     {[product.code, product.name, product.category].filter(Boolean).join(" - ")}
                   </option>
@@ -2041,9 +2525,14 @@ export function OrderWorkspace({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
+  initialSelectedOrderId,
   orders
 }: OrderListProps) {
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
+    initialSelectedOrderId && orders.some((order) => order.id === initialSelectedOrderId)
+      ? initialSelectedOrderId
+      : null
+  );
   const [activeDetailTab, setActiveDetailTab] = useState<OrderDetailTab>("overview");
   const [activeActionPanel, setActiveActionPanel] = useState<{
     orderId: string;
@@ -2053,6 +2542,12 @@ export function OrderWorkspace({
   const actionOrder = activeActionPanel
     ? orders.find((order) => order.id === activeActionPanel.orderId) ?? null
     : null;
+
+  useEffect(() => {
+    if (initialSelectedOrderId && orders.some((order) => order.id === initialSelectedOrderId)) {
+      setSelectedOrderId(initialSelectedOrderId);
+    }
+  }, [initialSelectedOrderId, orders]);
 
   function openDetails(orderId: string, tab: OrderDetailTab = "overview") {
     setSelectedOrderId(orderId);
@@ -2166,6 +2661,10 @@ function OrderCard({
   const showPaymentAction = canViewPayments && canCreatePayments && !isTerminalOrder(order) && hasBalanceDue(order);
   const showDeliveryAction = canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries);
   const workflowStage = workflowStageLabel(order, canViewPayments, canViewDeliveries);
+  const workflowTone = workflowStageTone(workflowStage);
+  const workflowDescription = workflowStageDescription(order, workflowStage, canViewPayments, canViewDeliveries);
+  const paymentSupport = paymentSupportSummary(order);
+  const deliverySupport = deliverySupportSummary(order);
   const primaryAction = getPrimaryOrderAction({
     order,
     canViewPayments,
@@ -2179,64 +2678,73 @@ function OrderCard({
     onScheduleDelivery
   });
 
+  function handleDetailsKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    onDetails();
+  }
+
   return (
-    <article className="bg-panel px-4 py-3 transition hover:bg-muted/25">
-      <div
-        className={cn(
-          "grid gap-3 text-sm md:grid-cols-2 lg:items-center",
-          canViewPayments && canViewDeliveries
-            ? "lg:grid-cols-[minmax(220px,1.6fr)_minmax(135px,.75fr)_minmax(150px,.85fr)_minmax(130px,.7fr)_minmax(170px,190px)]"
-            : canViewPayments || canViewDeliveries
-              ? "lg:grid-cols-[minmax(220px,1.6fr)_minmax(145px,.8fr)_minmax(130px,.7fr)_minmax(170px,190px)]"
-              : "lg:grid-cols-[minmax(220px,1fr)_minmax(130px,160px)_minmax(170px,190px)]"
-        )}
-      >
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">
-            {order.displayId} · {order.customerName}
-          </h2>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{orderMetaLine(order)}</p>
+    <article className={cn("group bg-panel transition", isDetailsOpen ? "bg-primary/5" : "hover:bg-muted/25")}>
+      <div className="grid gap-3 px-4 py-3 text-sm sm:px-5 lg:grid-cols-[minmax(0,1fr)_minmax(150px,auto)] lg:items-center">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={`Open details for ${order.displayId} ${order.customerName}`}
+          onClick={onDetails}
+          onKeyDown={handleDetailsKeyDown}
+          className={cn(
+            "-m-2 grid min-w-0 cursor-pointer gap-3 rounded-md p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:grid-cols-2",
+            canViewPayments && canViewDeliveries
+              ? "xl:grid-cols-[minmax(220px,1.35fr)_minmax(210px,1fr)_minmax(130px,.62fr)_minmax(150px,.72fr)]"
+              : canViewPayments || canViewDeliveries
+                ? "xl:grid-cols-[minmax(220px,1.35fr)_minmax(210px,1fr)_minmax(150px,.72fr)]"
+                : "xl:grid-cols-[minmax(220px,1.35fr)_minmax(210px,1fr)]"
+          )}
+        >
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold">
+              {order.displayId} · {order.customerName}
+            </h2>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{orderMetaLine(order)}</p>
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Workflow</p>
+            <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
+              <StatusPill tone={workflowTone}>{workflowStage}</StatusPill>
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{workflowDescription}</p>
+          </div>
+
+          {canViewPayments ? (
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
+              <p className="mt-1 truncate font-semibold tabular-nums">{paymentSupport.value}</p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{paymentSupport.detail}</p>
+            </div>
+          ) : null}
+
+          {canViewDeliveries ? (
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
+              <p className="mt-1 truncate font-semibold">{deliverySupport.value}</p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{deliverySupport.detail}</p>
+            </div>
+          ) : null}
         </div>
 
-        {canViewPayments ? (
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
-            <p className="mt-1 truncate font-semibold tabular-nums">{paymentSummaryLabel(order)}</p>
-            <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
-              <StatusPill tone={statusTone(order.paymentStatus)}>
-                {paymentStatusLabel(order.paymentStatus)}
-              </StatusPill>
-            </div>
+        <div className="flex min-w-0 items-center justify-between gap-1.5 border-t border-border pt-3 lg:justify-end lg:border-t-0 lg:pt-0">
+          <div className="min-w-0 truncate text-xs font-medium text-muted-foreground lg:hidden">
+            {primaryAction.nextLabel}
           </div>
-        ) : null}
-
-        {canViewDeliveries ? (
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
-            <p className="mt-1 truncate font-semibold">{deliverySummaryLabel(order)}</p>
-            <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
-              <StatusPill tone={statusTone(order.deliveryStatus)}>
-                {deliveryStatusLabel(order.deliveryStatus)}
-              </StatusPill>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stage</p>
-          <div className="mt-1.5 [&_span]:px-2 [&_span]:py-0.5">
-            <StatusPill tone={workflowStageTone(workflowStage)}>{workflowStage}</StatusPill>
-          </div>
-        </div>
-
-        <div className="min-w-0 md:col-span-2 lg:col-span-1 lg:text-right">
-          <p className="truncate whitespace-nowrap text-[11px] font-medium text-muted-foreground">
-            Next: {primaryAction.nextLabel}
-          </p>
-          <div className="mt-2 flex items-center gap-1.5 lg:justify-end">
+          <div className="flex shrink-0 items-center gap-1.5">
             <Button
               type="button"
-              className="h-8 w-32 shrink-0 justify-center whitespace-nowrap px-3 text-xs"
+              className="h-9 min-h-9 min-w-[8.75rem] shrink-0 justify-center whitespace-nowrap px-3 text-xs"
               onClick={primaryAction.onClick}
             >
               {primaryAction.kind === "recordPayment" ? <ReceiptText className="h-3.5 w-3.5" /> : null}
@@ -2393,7 +2901,7 @@ function OrderCardMoreActions({
                 onHideDetails();
               }}
             >
-              Hide
+              Hide details
             </Button>
           ) : null}
           {showDetailsAction && !isDetailsOpen ? (
@@ -2407,7 +2915,7 @@ function OrderCardMoreActions({
                 onDetails();
               }}
             >
-              Details
+              View details
             </Button>
           ) : null}
           {showPaymentMenuAction ? (
@@ -2437,7 +2945,7 @@ function OrderCardMoreActions({
               }}
             >
               <Truck className="h-4 w-4" />
-              Schedule
+              Schedule delivery
             </Button>
           ) : null}
           {canExportDocuments ? (
@@ -2561,7 +3069,7 @@ function OrderDetailPanel({
             {canViewDeliveries ? (
               <div>
                 <p className="text-muted-foreground">Next delivery</p>
-                <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None scheduled"}</p>
+                <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "Not scheduled"}</p>
               </div>
             ) : null}
           </div>
@@ -2839,7 +3347,7 @@ function OverviewSection({
         {canViewDeliveries ? (
           <div className="mt-4 border-t border-border pt-3">
             <p className="text-muted-foreground">Next delivery</p>
-            <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None scheduled"}</p>
+            <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "Not scheduled"}</p>
             {order.nextDeliveryProvider ? (
               <p className="text-muted-foreground">{readableLabel(order.nextDeliveryProvider)}</p>
             ) : null}
@@ -3057,7 +3565,7 @@ function DeliverySection({
         </div>
         <div>
           <p className="text-muted-foreground">Next scheduled</p>
-          <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "None"}</p>
+          <p className="mt-1 font-semibold">{order.nextDeliveryDate ?? "Not scheduled"}</p>
         </div>
         <div>
           <p className="text-muted-foreground">Provider</p>
@@ -3088,7 +3596,7 @@ function DeliverySection({
                 <span className="font-semibold">{delivery.deliveryNumber ?? "Not assigned"}</span>
                 <StatusPill tone={statusTone(delivery.status)}>{deliveryStatusLabel(delivery.status)}</StatusPill>
               </div>
-              <p className="mt-1 text-muted-foreground">{delivery.scheduledDateLabel ?? "No date"}</p>
+              <p className="mt-1 text-muted-foreground">{delivery.scheduledDateLabel ?? "Not scheduled"}</p>
               <p className="mt-1 text-muted-foreground">{delivery.itemCount} item line(s)</p>
               <p className="mt-1 text-muted-foreground">
                 {providerLabel(delivery.deliveryProviderType, delivery.deliveryProviderName)}

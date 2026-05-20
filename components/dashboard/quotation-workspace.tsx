@@ -31,6 +31,7 @@ import {
   updateDraftQuotationAction,
   updateQuotationStatusAction
 } from "@/app/actions/quotations";
+import { convertQuotationToOrderAction } from "@/app/actions/orders";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -76,6 +77,8 @@ type QuotationRow = {
   totalAmount: string;
   createdBy: string | null;
   updatedAt: string;
+  orderId?: string | null;
+  orderNumber?: string | null;
 };
 
 type QuotationBuilderProps = {
@@ -113,6 +116,7 @@ type QuotationRecordsListProps = {
   quotations: QuotationRow[];
   query?: string;
   status?: string;
+  view?: string;
   pagination: {
     page: number;
     pageSize: number;
@@ -133,6 +137,11 @@ type QuotationDetailActionsProps = {
   canExportDocuments: boolean;
   canUpdateQuotations: boolean;
   canApproveQuotations: boolean;
+  canCreateOrders: boolean;
+  order?: {
+    id: string;
+    orderNumber: string | null;
+  } | null;
 };
 
 type ItemImageDraft = {
@@ -175,6 +184,8 @@ type ActionState = {
   status?: QuotationStatus;
   deleted?: boolean;
   intent?: string;
+  orderId?: string;
+  orderNumber?: string | null;
 };
 
 const initialState: ActionState = {
@@ -184,10 +195,15 @@ const initialState: ActionState = {
 
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
-const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "CANCELLED"] as const;
+const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const quotationViewOptions = ["active", "converted", "all"] as const;
 
 function normalizeStatusFilter(value: string | undefined) {
   return quotationStatusFilterOptions.find((option) => option === value) ?? "";
+}
+
+function normalizeQuotationView(value: string | undefined) {
+  return quotationViewOptions.find((option) => option === value) ?? "active";
 }
 
 function money(value: number) {
@@ -477,6 +493,10 @@ function labelFromEnum(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function orderHref(orderId: string) {
+  return `/orders?orderId=${encodeURIComponent(orderId)}`;
 }
 
 const compactStatusOptions = ["DRAFT", "SENT", "ACCEPTED"] as const;
@@ -1299,6 +1319,17 @@ export function QuotationBuilder({
   const [noteOpen, setNoteOpen] = useState(false);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [customerNotes, setCustomerNotes] = useState(initialQuotation?.customerNotes ?? "");
+  const [needsAssembly, setNeedsAssembly] = useState(initialQuotation?.needsAssembly ?? false);
+  const [salesInvoiceRequested, setSalesInvoiceRequested] = useState(
+    initialQuotation?.salesInvoiceRequested ?? false
+  );
+  const [modeOfDelivery, setModeOfDelivery] = useState(initialQuotation?.modeOfDelivery ?? "");
+  const [deliveryMethod, setDeliveryMethod] = useState(initialQuotation?.deliveryMethod ?? "");
+  const [paymentTerms, setPaymentTerms] = useState(initialQuotation?.paymentTerms ?? "");
+  const [specialInstructions, setSpecialInstructions] = useState(
+    initialQuotation?.specialInstructions ?? ""
+  );
+  const [internalNotes, setInternalNotes] = useState(initialQuotation?.internalNotes ?? "");
 
   useEffect(() => {
     if (state.ok && state.quotationId) {
@@ -1458,22 +1489,13 @@ export function QuotationBuilder({
         <input
           type="hidden"
           name="needsAssembly"
-          value={initialQuotation?.needsAssembly ? "true" : "false"}
+          value={needsAssembly ? "true" : "false"}
         />
         <input
           type="hidden"
           name="salesInvoiceRequested"
-          value={initialQuotation?.salesInvoiceRequested ? "true" : "false"}
+          value={salesInvoiceRequested ? "true" : "false"}
         />
-        <input type="hidden" name="modeOfDelivery" value={initialQuotation?.modeOfDelivery ?? ""} />
-        <input type="hidden" name="deliveryMethod" value={initialQuotation?.deliveryMethod ?? ""} />
-        <input type="hidden" name="paymentTerms" value={initialQuotation?.paymentTerms ?? ""} />
-        <input
-          type="hidden"
-          name="specialInstructions"
-          value={initialQuotation?.specialInstructions ?? ""}
-        />
-        <input type="hidden" name="internalNotes" value={initialQuotation?.internalNotes ?? ""} />
 
         <section className="space-y-5">
           <section className="studio-card">
@@ -1539,6 +1561,85 @@ export function QuotationBuilder({
               />
             </div>
           </details>
+
+          <section className="studio-card">
+            <div className="studio-card-header">
+              <p className="studio-kicker">Terms</p>
+              <h2 className="text-sm font-semibold">Terms, delivery, and instructions</h2>
+            </div>
+            <div className="grid gap-4 p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={needsAssembly}
+                    onChange={(event) => setNeedsAssembly(event.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Needs assembly
+                </label>
+                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={salesInvoiceRequested}
+                    onChange={(event) => setSalesInvoiceRequested(event.target.checked)}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Sales invoice requested
+                </label>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-medium">
+                  <span className="text-muted-foreground">Mode of delivery</span>
+                  <Input
+                    name="modeOfDelivery"
+                    value={modeOfDelivery}
+                    onChange={(event) => setModeOfDelivery(event.target.value)}
+                    placeholder="Delivery, pickup, third-party courier"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-medium">
+                  <span className="text-muted-foreground">Delivery method</span>
+                  <Input
+                    name="deliveryMethod"
+                    value={deliveryMethod}
+                    onChange={(event) => setDeliveryMethod(event.target.value)}
+                    placeholder="Furniture Odyssey truck, client pickup"
+                  />
+                </label>
+              </div>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Payment terms</span>
+                <Textarea
+                  name="paymentTerms"
+                  value={paymentTerms}
+                  onChange={(event) => setPaymentTerms(event.target.value)}
+                  placeholder="Downpayment, balance timing, installment notes"
+                  className="min-h-24"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Special instructions</span>
+                <Textarea
+                  name="specialInstructions"
+                  value={specialInstructions}
+                  onChange={(event) => setSpecialInstructions(event.target.value)}
+                  placeholder="Delivery access, assembly notes, customer requests"
+                  className="min-h-24"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium">
+                <span className="text-muted-foreground">Internal notes</span>
+                <Textarea
+                  name="internalNotes"
+                  value={internalNotes}
+                  onChange={(event) => setInternalNotes(event.target.value)}
+                  placeholder="Staff-only quotation notes"
+                  className="min-h-24"
+                />
+              </label>
+            </div>
+          </section>
         </section>
 
         <aside className="xl:sticky xl:top-6 xl:self-start">
@@ -1889,6 +1990,7 @@ export function QuotationRecordsList({
   quotations,
   query = "",
   status = "",
+  view = "active",
   pagination,
   canExportDocuments,
   canUpdateQuotations,
@@ -1897,9 +1999,11 @@ export function QuotationRecordsList({
 }: QuotationRecordsListProps) {
   const router = useRouter();
   const normalizedStatus = normalizeStatusFilter(status);
+  const normalizedView = normalizeQuotationView(view);
   const [rows, setRows] = useState<QuotationRow[]>(quotations);
   const [searchQuery, setSearchQuery] = useState(query);
   const [selectedStatus, setSelectedStatus] = useState(normalizedStatus);
+  const [selectedView, setSelectedView] = useState(normalizedView);
   const [statusState, statusAction, statusPending] = useActionState(
     updateQuotationStatusAction,
     initialState
@@ -1922,16 +2026,18 @@ export function QuotationRecordsList({
   }, [normalizedStatus]);
 
   useEffect(() => {
+    setSelectedView(normalizedView);
+  }, [normalizedView]);
+
+  useEffect(() => {
     if (statusState.message) {
       if (statusState.ok && statusState.quotationId && statusState.status) {
         setRows((current) =>
-          statusState.status === "ACCEPTED"
-            ? current.filter((quotation) => quotation.id !== statusState.quotationId)
-            : current.map((quotation) =>
-                quotation.id === statusState.quotationId
-                  ? { ...quotation, status: statusState.status ?? quotation.status }
-                  : quotation
-              )
+          current.map((quotation) =>
+            quotation.id === statusState.quotationId
+              ? { ...quotation, status: statusState.status ?? quotation.status }
+              : quotation
+          )
         );
       }
 
@@ -1949,13 +2055,18 @@ export function QuotationRecordsList({
     }
   }, [deleteState.message, deleteState.ok, deleteState.quotationId, router]);
 
-  function quotationHref(nextQuery: string, nextStatus: string, page?: number) {
+  function quotationHref(nextQuery: string, nextStatus: string, nextView: string, page?: number) {
     const params = new URLSearchParams();
     const safeStatus = normalizeStatusFilter(nextStatus);
+    const safeView = normalizeQuotationView(nextView);
     const safeQuery = nextQuery.trim();
 
     if (safeQuery) {
       params.set("q", safeQuery);
+    }
+
+    if (safeView !== "active") {
+      params.set("view", safeView);
     }
 
     if (safeStatus) {
@@ -1970,12 +2081,16 @@ export function QuotationRecordsList({
     return queryString ? `/quotations?${queryString}` : "/quotations";
   }
 
-  function applyFilters(nextQuery = searchQuery, nextStatus = selectedStatus) {
-    router.push(quotationHref(nextQuery, nextStatus));
+  function applyFilters(
+    nextQuery = searchQuery,
+    nextStatus = selectedStatus,
+    nextView = selectedView
+  ) {
+    router.push(quotationHref(nextQuery, nextStatus, nextView));
   }
 
   function pageHref(page: number) {
-    return quotationHref(query, normalizedStatus, page);
+    return quotationHref(query, normalizedStatus, normalizedView, page);
   }
 
   function openQuotation(quotationId: string) {
@@ -1983,7 +2098,7 @@ export function QuotationRecordsList({
   }
 
   const emptyStatusLabel = normalizedStatus ? labelFromEnum(normalizedStatus) : "selected";
-  const hasActiveFilters = Boolean(query || normalizedStatus);
+  const hasActiveFilters = Boolean(query || normalizedStatus || normalizedView !== "active");
   const emptyRecordMessage = hasActiveFilters
     ? normalizedStatus && query
       ? `No ${emptyStatusLabel.toLowerCase()} quotation records match "${query}".`
@@ -2000,11 +2115,11 @@ export function QuotationRecordsList({
             <p className="studio-kicker">Records</p>
             <h2 className="text-sm font-semibold">Quotation records</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search active quotations and update their workflow status without opening the builder.
+              Search quotation records and update their workflow status without opening the builder.
             </p>
           </div>
           <form
-            className="grid w-full gap-2 sm:grid-cols-[minmax(220px,1fr)_180px_112px] lg:w-auto lg:grid-cols-[260px_180px_112px]"
+            className="grid w-full gap-2 sm:grid-cols-[minmax(220px,1fr)_150px_180px_112px] lg:w-auto lg:grid-cols-[260px_150px_180px_112px]"
             onSubmit={(event) => {
               event.preventDefault();
               applyFilters();
@@ -2016,6 +2131,20 @@ export function QuotationRecordsList({
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search quotations"
             />
+            <Select
+              name="view"
+              value={selectedView}
+              aria-label="Quotation view"
+              onChange={(event) => {
+                const nextView = normalizeQuotationView(event.target.value);
+                setSelectedView(nextView);
+                applyFilters(searchQuery, selectedStatus, nextView);
+              }}
+            >
+              <option value="active">Active</option>
+              <option value="converted">Converted</option>
+              <option value="all">All</option>
+            </Select>
             <Select
               name="status"
               value={selectedStatus}
@@ -2030,6 +2159,7 @@ export function QuotationRecordsList({
               <option value="DRAFT">Draft</option>
               <option value="SENT">Sent</option>
               <option value="ACCEPTED">Accepted</option>
+              <option value="DECLINED">Declined</option>
               <option value="CANCELLED">Cancelled</option>
             </Select>
             <Button>
@@ -2093,6 +2223,18 @@ export function QuotationRecordsList({
                     >
                       {quotation.quotationNumber ?? "Not assigned"}
                     </a>
+                    {quotation.orderId ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <span>Converted to {quotation.orderNumber ?? "order"}</span>
+                        <Link
+                          href={orderHref(quotation.orderId)}
+                          onClick={(event) => event.stopPropagation()}
+                          className="text-accent hover:underline"
+                        >
+                          View order
+                        </Link>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-5 py-3 font-medium">{quotation.customerName}</td>
                   <td className="px-5 py-3" onClick={(event) => event.stopPropagation()}>
@@ -2130,6 +2272,16 @@ export function QuotationRecordsList({
                           <Download className="h-4 w-4" />
                           PDF
                         </a>
+                      ) : null}
+                      {quotation.orderId ? (
+                        <Link
+                          href={orderHref(quotation.orderId)}
+                          onClick={(event) => event.stopPropagation()}
+                          className={pdfLinkClass}
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                          View order
+                        </Link>
                       ) : null}
                       <QuotationRecordActions
                         quotation={quotation}
@@ -2204,20 +2356,31 @@ export function QuotationDetailActions({
   status,
   canExportDocuments,
   canUpdateQuotations,
-  canApproveQuotations
+  canApproveQuotations,
+  canCreateOrders,
+  order
 }: QuotationDetailActionsProps) {
   const router = useRouter();
-  const [state, action, pending] = useActionState(updateQuotationStatusAction, initialState);
+  const [statusState, statusAction, statusPending] = useActionState(
+    updateQuotationStatusAction,
+    initialState
+  );
+  const [convertState, convertAction, convertPending] = useActionState(
+    convertQuotationToOrderAction,
+    initialState
+  );
+  const linkedOrderId = order?.id ?? convertState.orderId ?? null;
+  const linkedOrderNumber = order?.orderNumber ?? convertState.orderNumber ?? null;
 
   useEffect(() => {
-    if (state.message) {
+    if (statusState.message || convertState.message) {
       router.refresh();
     }
-  }, [router, state.message]);
+  }, [convertState.message, router, statusState.message]);
 
   return (
     <div className="space-y-3">
-      <form action={action} className="grid gap-2">
+      <form action={statusAction} className="grid gap-2">
         <input type="hidden" name="quotationId" value={quotationId} />
         {canExportDocuments ? (
           <a href={`/api/documents/quotation/${quotationId}`} className={cn(pdfLinkClass, "w-full justify-start px-3")}>
@@ -2237,20 +2400,20 @@ export function QuotationDetailActions({
             name="status"
             value="SENT"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <Send className="h-4 w-4" />
             Mark as sent
           </Button>
         ) : null}
-        {status === "SENT" && canApproveQuotations ? (
+        {(status === "DRAFT" || status === "SENT") && canApproveQuotations ? (
           <Button
             type="submit"
             name="status"
             value="ACCEPTED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <CheckCircle2 className="h-4 w-4" />
@@ -2263,7 +2426,7 @@ export function QuotationDetailActions({
             name="status"
             value="DECLINED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <XCircle className="h-4 w-4" />
@@ -2276,7 +2439,7 @@ export function QuotationDetailActions({
             name="status"
             value="CANCELLED"
             variant="secondary"
-            disabled={pending}
+            disabled={statusPending}
             className="w-full justify-start"
           >
             <X className="h-4 w-4" />
@@ -2284,16 +2447,54 @@ export function QuotationDetailActions({
           </Button>
         ) : null}
       </form>
-      {state.message ? (
+      {status === "ACCEPTED" && !linkedOrderId && canCreateOrders ? (
+        <form action={convertAction} className="grid gap-2 border-t border-border pt-3">
+          <input type="hidden" name="quotationId" value={quotationId} />
+          <Button disabled={convertPending} className="w-full justify-start">
+            <ShoppingCart className="h-4 w-4" />
+            Create order from quotation
+          </Button>
+        </form>
+      ) : null}
+      {linkedOrderId ? (
+        <Link
+          href={orderHref(linkedOrderId)}
+          className={cn(pdfLinkClass, "w-full justify-start px-3")}
+        >
+          <ShoppingCart className="h-4 w-4" />
+          View order
+          {linkedOrderNumber ? (
+            <span className="ml-auto text-xs text-muted-foreground">{linkedOrderNumber}</span>
+          ) : null}
+        </Link>
+      ) : null}
+      {statusState.message ? (
         <p
           className={cn(
             "rounded-lg border px-3 py-2 text-sm",
-            state.ok
+            statusState.ok
               ? "border-success/30 bg-success/10 text-success"
               : "border-danger/30 bg-danger/10 text-danger"
           )}
         >
-          {state.message}
+          {statusState.message}
+        </p>
+      ) : null}
+      {convertState.message ? (
+        <p
+          className={cn(
+            "rounded-lg border px-3 py-2 text-sm",
+            convertState.ok
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger"
+          )}
+        >
+          {convertState.message}
+          {convertState.ok && convertState.orderId ? (
+            <Link href={orderHref(convertState.orderId)} className="ml-2 font-semibold underline">
+              View order
+            </Link>
+          ) : null}
         </p>
       ) : null}
     </div>
