@@ -54,8 +54,10 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 - Confirmed orders snapshot unit cost, line cost, line profit, total cost, and gross profit so historical profitability is preserved when product reference costs change later.
 - Recalculate order subtotal, discounts, total, paid amount, balance, payment status, delivery status, and overall order status.
 - Derived order progress status changes pass through the central lifecycle validator, preventing regressions such as delivered orders moving back to payment-only states.
-- Orders workspace now serves as a day-to-day order control center with server-side search, filters, unfinished sales mode, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
+- Orders workspace now serves as a day-to-day order control center with server-side search, status filters, quick filters for unfinished orders, balances, scheduled deliveries, and orders needing action, pagination, clearer customer/contact/staff identity, payment and delivery status summaries, related quotation/inquiry context, safe notes, and protected PDF action areas.
 - Orders search covers order number, customer/company/contact values, item names/product codes, inquiry source references, and permission-safe payment or delivery provider references.
+- Order creation is launched from the Orders page header. Staff with `ORDERS:CREATE` can choose approved quotation conversion or manual order creation without leaving the main orders workspace.
+- Order details are organized into focused sections for overview, items, payments, deliveries, documents, and notes so staff can scan the current operational state before recording the next action.
 - Payment totals, payment history, delivery schedules, delivery details, and document export actions are conditionally shown according to the existing payment, delivery, and document permissions.
 
 ### Payments

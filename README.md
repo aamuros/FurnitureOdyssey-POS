@@ -49,7 +49,7 @@ This application is focused on the manual sales workflow used by Admin and Staff
 | `/dashboard` | Internal dashboard landing page |
 | `/customers` | Customer directory, buyer records, search, contacts, source context, and customer history support |
 | `/quotations` | Draft quotations, custom items, discounts, and approval status updates |
-| `/orders` | Quotation conversion, manual orders, payments, deliveries, and document records |
+| `/orders` | Order control center with quotation conversion, manual order creation, quick operational filters, payments, deliveries, documents, and notes |
 | `/payments` | Read-only payment history, customer balances, receipt links, and order balance tracking |
 | `/deliveries` | Read-only delivery schedule, partial delivery quantities, provider notes, and receipt readiness |
 | `/documents` | Generated document registry with search, download actions, related record links, and quotation/invoice/receipt/delivery/final summary tracking |
