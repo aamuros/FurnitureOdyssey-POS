@@ -113,11 +113,11 @@ This document maps the current codebase to the phase plans in `docs/`. It should
 
 - Sales history route provides a permission-gated operational reporting workspace for saved orders.
 - Overview, unfinished sales, outstanding balances, payment history, delivery schedule, order history, quotation history, and customer sales history are available as report views.
-- Overview summarizes total orders, completed orders, unfinished orders, gross sales, total cost, gross profit, gross margin, paid amount, outstanding balance, payments received, scheduled deliveries, and pending deliveries for the selected date range.
+- Overview summarizes operational order status counts, unfinished orders, orders with balances, sales total excluding cancelled orders, paid amount, outstanding balance, payment records, scheduled deliveries, and pending deliveries for the selected date range.
 - Order-focused reports support search, date range, order status, payment status, delivery status, staff, has-balance, has-delivery, completed-only, and unfinished-only filters.
 - Order history details include client-required sales details where space allows without overcrowding summary tables.
 - Quotation, payment, and delivery reports support practical search, status, staff, date range filters, and safe pagination.
-- Payment, cost, profit, and balance values are hidden from users without payment visibility.
+- Payment and balance values are hidden from users without payment visibility. Sales History does not expose cost, gross profit, or margin reporting.
 - Delivery schedule details are hidden from users without delivery visibility.
 - Customer sales history composes profile, inquiry, quotation, order, payment, delivery, balance, and latest activity details according to each module permission.
 - PDF download links appear only when document export permission is available and the source record has the required ID.

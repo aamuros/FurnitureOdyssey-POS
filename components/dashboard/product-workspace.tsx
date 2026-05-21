@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertCircle,
   Ban,
   CheckCircle2,
   ImagePlus,
+  MoreHorizontal,
   PackageOpen,
   Pencil,
   Plus,
@@ -35,6 +36,7 @@ type ProductRow = {
   description: string | null;
   specifications: string | null;
   referencePrice: number | null;
+  referenceCost: number | null;
   currency: string;
   status: "ACTIVE" | "INACTIVE";
   primaryImage: {
@@ -49,6 +51,7 @@ type ProductWorkspaceProps = {
   canCreate: boolean;
   canUpdate: boolean;
   canDelete: boolean;
+  canViewProductCost: boolean;
   hasActiveFilters: boolean;
   categories: string[];
 };
@@ -67,6 +70,7 @@ type ProductFormProps = {
   onCancel: () => void;
   categories: string[];
   canUploadImage: boolean;
+  canViewProductCost: boolean;
 };
 
 const fieldClassName = "flex min-h-[78px] flex-col gap-2 text-sm font-medium";
@@ -120,7 +124,8 @@ function ProductForm({
   action,
   onCancel,
   categories,
-  canUploadImage
+  canUploadImage,
+  canViewProductCost
 }: ProductFormProps) {
   const isEdit = mode === "edit";
   const categoryOptions = uniqueCategories(categories, product?.category);
@@ -154,7 +159,7 @@ function ProductForm({
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className={canViewProductCost ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"}>
             <label className={fieldClassName}>
               Category
               <Select name="category" defaultValue={product?.category ?? ""}>
@@ -167,7 +172,7 @@ function ProductForm({
               </Select>
             </label>
             <label className={fieldClassName}>
-              Reference price
+              Unit price
               <Input
                 name="referencePrice"
                 type="number"
@@ -179,6 +184,21 @@ function ProductForm({
                 Optional. This can still be changed in a quotation.
               </span>
             </label>
+            {canViewProductCost ? (
+              <label className={fieldClassName}>
+                Product cost
+                <Input
+                  name="referenceCost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  defaultValue={product?.referenceCost ?? ""}
+                />
+                <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                  Used as the default unit cost snapshot.
+                </span>
+              </label>
+            ) : null}
             <label className={fieldClassName}>
               Status
               <Select name="status" defaultValue={product?.status ?? "ACTIVE"}>
@@ -319,10 +339,226 @@ function ProductNotice({
   );
 }
 
+function ProductRowActions({
+  product,
+  canUpdate,
+  canDelete,
+  statusAction,
+  statusPending,
+  deleteAction,
+  deletePending,
+  onEdit
+}: {
+  product: ProductRow;
+  canUpdate: boolean;
+  canDelete: boolean;
+  statusAction: (formData: FormData) => void;
+  statusPending: boolean;
+  deleteAction: (formData: FormData) => void;
+  deletePending: boolean;
+  onEdit: (product: ProductRow) => void;
+}) {
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "above" | "below";
+  } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [isSubmitting, startActionTransition] = useTransition();
+  const isOpen = menuPosition !== null;
+  const isBusy = statusPending || deletePending || isSubmitting;
+  const canShowMenu = canUpdate || canDelete;
+  const nextStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  const statusLabel = product.status === "ACTIVE" ? "Deactivate" : "Activate";
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuPosition(null);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuPosition(null);
+        buttonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function closeMenu() {
+    setMenuPosition(null);
+  }
+
+  function toggleMenu() {
+    if (isBusy) {
+      return;
+    }
+
+    if (isOpen) {
+      closeMenu();
+      return;
+    }
+
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return;
+    }
+
+    const menuWidth = 192;
+    const estimatedHeight = canDelete ? 156 : 112;
+    const hasRoomBelow = rect.bottom + estimatedHeight + 12 < window.innerHeight;
+    setMenuPosition({
+      left: Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.right - menuWidth)),
+      top: hasRoomBelow ? rect.bottom + 8 : rect.top - 8,
+      placement: hasRoomBelow ? "below" : "above"
+    });
+  }
+
+  function submitStatusUpdate() {
+    if (
+      product.status === "ACTIVE" &&
+      !window.confirm(`Deactivate ${product.name}? It will be hidden from normal quotation selection.`)
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("productId", product.id);
+    formData.set("status", nextStatus);
+
+    closeMenu();
+    startActionTransition(() => {
+      statusAction(formData);
+    });
+  }
+
+  function submitDelete() {
+    if (
+      !window.confirm(
+        `Delete ${product.name}? Only unused products can be deleted. Products already used in quotations or orders should be deactivated instead.`
+      )
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("productId", product.id);
+
+    closeMenu();
+    startActionTransition(() => {
+      deleteAction(formData);
+    });
+  }
+
+  if (!canShowMenu) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  return (
+    <div className="contents">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label={`${product.name} actions`}
+        disabled={isBusy}
+        onClick={toggleMenu}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+        <span className="sr-only">Product actions</span>
+      </button>
+      {isOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[80] grid min-w-48 gap-1 rounded-lg border border-border bg-panel p-2 text-left shadow-xl"
+          style={{
+            left: menuPosition.left,
+            top: menuPosition.top,
+            transform: menuPosition.placement === "above" ? "translateY(-100%)" : undefined
+          }}
+        >
+          {canUpdate ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={() => {
+                closeMenu();
+                onEdit(product);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          ) : null}
+          {canUpdate ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isBusy}
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3"
+              onClick={(event) => {
+                event.preventDefault();
+                submitStatusUpdate();
+              }}
+            >
+              {product.status === "ACTIVE" ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+              {statusLabel}
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isBusy}
+              role="menuitem"
+              className={
+                canUpdate
+                  ? "mt-1 min-h-9 justify-start rounded-md border-t border-border px-3 pt-2 text-danger hover:bg-danger/10"
+                  : "min-h-9 justify-start rounded-md px-3 text-danger hover:bg-danger/10"
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                submitDelete();
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ProductTable({
   products,
   canUpdate,
   canDelete,
+  canViewProductCost,
   selectedProductId,
   statusAction,
   statusPending,
@@ -333,6 +569,7 @@ function ProductTable({
   products: ProductRow[];
   canUpdate: boolean;
   canDelete: boolean;
+  canViewProductCost: boolean;
   selectedProductId: string;
   statusAction: (formData: FormData) => void;
   statusPending: boolean;
@@ -345,29 +582,28 @@ function ProductTable({
       <table className="studio-table w-full min-w-[880px] table-fixed text-left text-sm">
         <colgroup>
           <col className="w-[76px]" />
-          <col className="w-[30%]" />
-          <col className="w-[15%]" />
-          <col className="w-[132px]" />
+          <col className={canViewProductCost ? "w-[26%]" : "w-[30%]"} />
+          <col className="w-[14%]" />
+          <col className="w-[124px]" />
+          {canViewProductCost ? <col className="w-[124px]" /> : null}
           <col className="w-[104px]" />
           <col className="w-[112px]" />
-          {canUpdate || canDelete ? <col className="w-[230px]" /> : null}
+          {canUpdate || canDelete ? <col className="w-[88px]" /> : null}
         </colgroup>
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
             <th className="px-4 py-3 font-medium">Image</th>
             <th className="px-4 py-3 font-medium">Product</th>
             <th className="px-4 py-3 font-medium">Category</th>
-            <th className="px-4 py-3 text-right font-medium">Reference price</th>
+            <th className="px-4 py-3 text-right font-medium">Unit price</th>
+            {canViewProductCost ? <th className="px-4 py-3 text-right font-medium">Product cost</th> : null}
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Updated</th>
-            {canUpdate || canDelete ? <th className="px-4 py-3 font-medium">Action</th> : null}
+            {canUpdate || canDelete ? <th className="px-4 py-3 text-right font-medium">Action</th> : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {products.map((product) => {
-            const nextStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-            const statusLabel = product.status === "ACTIVE" ? "Deactivate" : "Reactivate";
-
             return (
               <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/35" : undefined}>
                 <td className="px-4 py-4 align-middle">
@@ -392,70 +628,27 @@ function ProductTable({
                 <td className="px-4 py-4 text-right align-middle tabular-nums text-muted-foreground">
                   {formatMoney(product.referencePrice, product.currency)}
                 </td>
+                {canViewProductCost ? (
+                  <td className="px-4 py-4 text-right align-middle tabular-nums text-muted-foreground">
+                    {formatMoney(product.referenceCost, product.currency)}
+                  </td>
+                ) : null}
                 <td className="px-4 py-4 align-middle">
                   <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
                 </td>
                 <td className="px-4 py-4 align-middle text-muted-foreground">{product.updatedAt}</td>
                 {canUpdate || canDelete ? (
-                  <td className="px-4 py-4 align-middle">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {canUpdate ? (
-                        <Button type="button" variant="secondary" onClick={() => onEdit(product)} className="min-h-9 px-2.5">
-                          <Pencil className="h-4 w-4" />
-                          Edit
-                        </Button>
-                      ) : null}
-                      {canUpdate ? (
-                        <form action={statusAction}>
-                          <input type="hidden" name="productId" value={product.id} />
-                          <input type="hidden" name="status" value={nextStatus} />
-                          <Button
-                            type="submit"
-                            variant="ghost"
-                            disabled={statusPending}
-                            className="min-h-9 px-2.5"
-                            onClick={(event) => {
-                              if (
-                                product.status === "ACTIVE" &&
-                                !window.confirm(`Deactivate ${product.name}? It will be hidden from normal quotation selection.`)
-                              ) {
-                                event.preventDefault();
-                              }
-                            }}
-                          >
-                            {product.status === "ACTIVE" ? (
-                              <Ban className="h-4 w-4" />
-                            ) : (
-                              <RotateCcw className="h-4 w-4" />
-                            )}
-                            {statusLabel}
-                          </Button>
-                        </form>
-                      ) : null}
-                      {canDelete ? (
-                        <form action={deleteAction}>
-                          <input type="hidden" name="productId" value={product.id} />
-                          <Button
-                            type="submit"
-                            variant="danger"
-                            disabled={deletePending}
-                            className="min-h-9 px-2.5"
-                            onClick={(event) => {
-                              if (
-                                !window.confirm(
-                                  `Delete ${product.name}? Only unused products can be deleted. Products already used in quotations or orders should be deactivated instead.`
-                                )
-                              ) {
-                                event.preventDefault();
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Delete
-                          </Button>
-                        </form>
-                      ) : null}
-                    </div>
+                  <td className="whitespace-nowrap px-4 py-4 text-right align-middle">
+                    <ProductRowActions
+                      product={product}
+                      canUpdate={canUpdate}
+                      canDelete={canDelete}
+                      statusAction={statusAction}
+                      statusPending={statusPending}
+                      deleteAction={deleteAction}
+                      deletePending={deletePending}
+                      onEdit={onEdit}
+                    />
                   </td>
                 ) : null}
               </tr>
@@ -472,6 +665,7 @@ export function ProductWorkspace({
   canCreate,
   canUpdate,
   canDelete,
+  canViewProductCost,
   hasActiveFilters,
   categories
 }: ProductWorkspaceProps) {
@@ -580,6 +774,7 @@ export function ProductWorkspace({
             onCancel={closeForm}
             categories={categories}
             canUploadImage={canUpdate}
+            canViewProductCost={canViewProductCost}
           />
         ) : null}
 
@@ -593,6 +788,7 @@ export function ProductWorkspace({
             onCancel={closeForm}
             categories={categories}
             canUploadImage={false}
+            canViewProductCost={canViewProductCost}
           />
         ) : null}
 
@@ -601,6 +797,7 @@ export function ProductWorkspace({
             products={products}
             canUpdate={canUpdate}
             canDelete={canDelete}
+            canViewProductCost={canViewProductCost}
             selectedProductId={selectedProductId}
             statusAction={statusAction}
             statusPending={statusPending}

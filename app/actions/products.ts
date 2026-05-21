@@ -55,8 +55,12 @@ function productValidationMessage(error: { issues: { message: string; path: (str
     return "Product name is required.";
   }
 
-  if (field === "referencePrice" || field === "referenceCost") {
-    return "Reference price must be a valid amount.";
+  if (field === "referencePrice") {
+    return "Unit price must be a valid amount.";
+  }
+
+  if (field === "referenceCost") {
+    return "Product cost must be a valid amount.";
   }
 
   if (field === "status") {

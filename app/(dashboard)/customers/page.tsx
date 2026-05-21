@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { CustomerWorkspace } from "@/components/dashboard/customer-workspace";
+import { CustomerCreateButton, CustomerWorkspace } from "@/components/dashboard/customer-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/auth/server";
 import { timeQuery } from "@/lib/query-timing";
@@ -55,7 +56,8 @@ function customersHref(
 }
 
 export default async function CustomersPage({ searchParams }: CustomersPageProps) {
-  await requirePermission("CUSTOMERS", "VIEW");
+  const user = await requirePermission("CUSTOMERS", "VIEW");
+  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const customerType =
@@ -127,7 +129,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
               createdAt: "asc"
             }
           ],
-          take: 1
+          take: 3
         },
         assignedStaff: {
           select: {
@@ -175,10 +177,17 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
     <>
       <PageHeader
         title="Customer Directory"
-        description="Buyer records for contact reuse, address reuse, sales history, and repeat-customer context."
-      />
-      <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[1.4fr_0.8fr_0.9fr_0.9fr_auto]">
-        <Input name="q" defaultValue={params.q ?? ""} placeholder="Search name, company, phone, Viber, Facebook, or email" />
+        description="Find customer records quickly by name, company, or contact detail."
+      >
+        {canCreateCustomers ? <CustomerCreateButton /> : null}
+      </PageHeader>
+      <form className="mb-4 grid gap-3 rounded-lg border border-border bg-panel p-3 md:grid-cols-[minmax(260px,1fr)_170px_190px_170px_auto]">
+        <Input
+          name="q"
+          defaultValue={params.q ?? ""}
+          placeholder="Search customer name, company, phone, Viber, Facebook, or email"
+          className="md:min-w-[320px]"
+        />
         <Select name="type" defaultValue={params.type ?? ""}>
           <option value="">All types</option>
           <option value="INDIVIDUAL">Individual</option>
@@ -208,7 +217,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         </Button>
       </form>
       <CustomerWorkspace
-        staff={staff}
+        canCreateCustomers={canCreateCustomers}
         customers={customers.map((customer) => ({
           id: customer.id,
           displayName: customer.displayName,
@@ -218,42 +227,45 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
           primaryContact: customer.contacts[0]
             ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
             : null,
+          contactValues: customer.contacts.map((contact) => contact.value),
           source: customer.source ?? customer.inquiries[0]?.source ?? null,
           assignedStaff: customer.assignedStaff?.displayName ?? null,
           updatedAt: formatDate(customer.updatedAt)
         }))}
       />
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel px-4 py-3 text-sm text-muted-foreground">
-        <span>
-          Showing {customers.length} of {customerCount} customer(s), page {page} of {totalPages}
-        </span>
-        <div className="flex gap-2">
-          {page <= 1 ? (
-            <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
-              Previous
-            </span>
-          ) : (
-            <Link
-              href={customersHref(pageParams, { page: String(page - 1) })}
-              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              Previous
-            </Link>
-          )}
-          {page >= totalPages ? (
-            <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
-              Next
-            </span>
-          ) : (
-            <Link
-              href={customersHref(pageParams, { page: String(page + 1) })}
-              className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              Next
-            </Link>
-          )}
+      {totalPages > 1 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel px-4 py-3 text-sm text-muted-foreground">
+          <span>
+            Showing {customers.length} of {customerCount} customer(s), page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            {page <= 1 ? (
+              <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
+                Previous
+              </span>
+            ) : (
+              <Link
+                href={customersHref(pageParams, { page: String(page - 1) })}
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                Previous
+              </Link>
+            )}
+            {page >= totalPages ? (
+              <span className="inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium opacity-60">
+                Next
+              </span>
+            ) : (
+              <Link
+                href={customersHref(pageParams, { page: String(page + 1) })}
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
+              >
+                Next
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
     </>
   );
 }

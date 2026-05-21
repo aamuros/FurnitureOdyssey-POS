@@ -1086,6 +1086,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             paymentDueTiming: order.paymentDueTiming,
             paymentDueDate: formatOptionalInputDate(order.paymentDueDate),
             deliveryStatus: order.deliveryStatus,
+            nextDeliveryStatus: canViewDeliveries ? activeDelivery?.status ?? null : null,
             canScheduleDelivery,
             canCompleteOrder,
             needsAssembly: order.needsAssembly,

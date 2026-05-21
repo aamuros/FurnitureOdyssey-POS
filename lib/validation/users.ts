@@ -5,6 +5,7 @@ const permissionInputSchema = z.object({
   module: z.enum([
     "CUSTOMERS",
     "INQUIRIES",
+    "PRODUCTS",
     "QUOTATIONS",
     "ORDERS",
     "PAYMENTS",

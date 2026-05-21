@@ -1,0 +1,18 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - paragraph [ref=e6]: Furniture Odyssey
+        - heading "Operations login" [level=1] [ref=e7]
+        - paragraph [ref=e8]: For Admin and Staff handling sales records.
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - text: Email
+          - textbox "Email" [ref=e12]
+        - generic [ref=e13]:
+          - text: Password
+          - textbox "Password" [ref=e14]
+        - button "Sign in" [ref=e15] [cursor=pointer]:
+          - img [ref=e16]
+          - text: Sign in
+  - alert [ref=e19]

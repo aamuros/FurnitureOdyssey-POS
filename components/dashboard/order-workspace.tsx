@@ -101,6 +101,7 @@ type OrderRow = {
   paymentDueTiming: string | null;
   paymentDueDate: string;
   deliveryStatus: string;
+  nextDeliveryStatus: string | null;
   canScheduleDelivery: boolean;
   canCompleteOrder: boolean;
   needsAssembly: boolean;
@@ -320,6 +321,23 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function roundQuantity(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function parseDecimalInput(value: string, fallback = 0) {
+  if (!value.trim()) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function decimalInputValue(value: number) {
+  return Number.isFinite(value) ? String(roundQuantity(value)) : "";
+}
+
 function itemCountLabel(count: number) {
   return `${count} ${count === 1 ? "item" : "items"}`;
 }
@@ -363,6 +381,78 @@ function createCustomItem(sortOrder: number): ItemDraft {
     customerNotes: "",
     internalNotes: ""
   };
+}
+
+function DecimalInput({
+  value,
+  onValueChange,
+  min = 0,
+  max,
+  step = "0.01",
+  fallback = 0,
+  "aria-label": ariaLabel,
+  placeholder,
+  disabled,
+  name,
+  className
+}: {
+  value: number;
+  onValueChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: string;
+  fallback?: number;
+  "aria-label"?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  name?: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(decimalInputValue(value));
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(decimalInputValue(value));
+    }
+  }, [editing, value]);
+
+  return (
+    <Input
+      name={name}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={editing ? draft : decimalInputValue(value)}
+      disabled={disabled}
+      onFocus={() => {
+        setEditing(true);
+        setDraft(decimalInputValue(value));
+      }}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraft(nextValue);
+
+        if (nextValue.trim()) {
+          const parsed = parseDecimalInput(nextValue, fallback);
+          const bounded = Math.min(Math.max(parsed, min), max ?? Number.POSITIVE_INFINITY);
+          onValueChange(roundQuantity(bounded));
+        }
+      }}
+      onBlur={() => {
+        const parsed = parseDecimalInput(draft, fallback);
+        const bounded = Math.min(Math.max(parsed, min), max ?? Number.POSITIVE_INFINITY);
+        const rounded = roundQuantity(bounded);
+        setEditing(false);
+        setDraft(decimalInputValue(rounded));
+        onValueChange(rounded);
+      }}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      className={className}
+    />
+  );
 }
 
 function toActionItems(items: ItemDraft[]) {
@@ -572,13 +662,12 @@ function DeliveryForm({ order }: { order: OrderRow }) {
         </label>
         <label className="space-y-2 text-[14px] font-medium text-foreground">
           Quantity
-          <Input
-            type="number"
-            min="0.01"
-            max={remainingQuantity || undefined}
-            step="0.01"
+          <DecimalInput
             value={quantityPlanned}
-            onChange={(event) => setQuantityPlanned(Number(event.target.value))}
+            onValueChange={setQuantityPlanned}
+            min={0.01}
+            max={remainingQuantity || undefined}
+            fallback={1}
             aria-label="Delivery quantity"
             className="text-[15px]"
           />
@@ -691,6 +780,9 @@ function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
       notes: ""
     }))
   );
+  const deliveryItemStateKey = delivery.items
+    .map((item) => `${item.id}:${item.quantityDelivered}:${item.quantityPlanned}`)
+    .join("|");
   const nextStatuses = [
     delivery.status,
     ...getAllowedNextStatuses("delivery", delivery.status as DeliveryStatus)
@@ -708,6 +800,18 @@ function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
       current.map((item) => (item.deliveryItemId === deliveryItemId ? { ...item, quantityDelivered } : item))
     );
   }
+
+  useEffect(() => {
+    setStatus(delivery.status);
+    setMarkAllDelivered(false);
+    setItems(
+      delivery.items.map((item) => ({
+        deliveryItemId: item.id,
+        quantityDelivered: item.quantityDelivered,
+        notes: ""
+      }))
+    );
+  }, [delivery.id, delivery.status, deliveryItemStateKey, delivery.items]);
 
   return (
     <form action={action} className="grid gap-3">
@@ -744,18 +848,16 @@ function DeliveryProgressForm({ delivery }: { delivery: DeliveryRow }) {
             <span className="text-muted-foreground">
               {item.itemName} planned {item.quantityPlanned}
             </span>
-            <Input
-              type="number"
-              min="0"
-              max={item.quantityPlanned}
-              step="0.01"
+            <DecimalInput
               value={
                 markAllDelivered
                   ? item.quantityPlanned
                   : (items.find((candidate) => candidate.deliveryItemId === item.id)?.quantityDelivered ?? 0)
               }
               disabled={markAllDelivered}
-              onChange={(event) => updateDeliveredQuantity(item.id, Number(event.target.value))}
+              onValueChange={(value) => updateDeliveredQuantity(item.id, value)}
+              min={0}
+              max={item.quantityPlanned}
               aria-label={`${item.itemName} delivered quantity`}
             />
           </label>
@@ -844,8 +946,22 @@ function isDeliveryPartiallyDelivered(order: OrderRow) {
   return order.deliveryStatus === "PARTIALLY_DELIVERED";
 }
 
+function visibleDeliveryStatus(order: OrderRow) {
+  if (["PARTIALLY_DELIVERED", "DELIVERED", "CANCELLED"].includes(order.deliveryStatus)) {
+    return order.deliveryStatus;
+  }
+
+  return order.nextDeliveryStatus ?? order.deliveryStatus;
+}
+
+function isDeliveryInTransit(order: OrderRow) {
+  return visibleDeliveryStatus(order) === "IN_TRANSIT";
+}
+
 function isDeliveryScheduled(order: OrderRow) {
-  return ["SCHEDULED", "SCHEDULED_FOR_DELIVERY", "IN_TRANSIT"].includes(order.deliveryStatus);
+  return ["PLANNED", "SCHEDULED", "SCHEDULED_FOR_DELIVERY", "IN_TRANSIT"].includes(
+    visibleDeliveryStatus(order)
+  );
 }
 
 function isPaymentPaid(order: OrderRow) {
@@ -877,7 +993,7 @@ function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDe
     return "Ready to complete";
   }
 
-  if (canViewDeliveries && isDeliveryPartiallyDelivered(order)) {
+  if (canViewDeliveries && (isDeliveryPartiallyDelivered(order) || isDeliveryInTransit(order))) {
     return "In delivery";
   }
 
@@ -1019,6 +1135,8 @@ function paymentSupportSummary(order: OrderRow) {
 }
 
 function deliverySupportSummary(order: OrderRow) {
+  const status = visibleDeliveryStatus(order);
+
   if (order.deliveryStatus === "DELIVERED") {
     return {
       value: "Delivered",
@@ -1029,15 +1147,15 @@ function deliverySupportSummary(order: OrderRow) {
   if (!order.nextDeliveryDate) {
     return {
       value: "Not scheduled",
-      detail: deliveryStatusLabel(order.deliveryStatus)
+      detail: deliveryStatusLabel(status)
     };
   }
 
   return {
     value: order.nextDeliveryDate,
-    detail: order.nextDeliveryProvider
-      ? readableLabel(order.nextDeliveryProvider)
-      : deliveryStatusLabel(order.deliveryStatus)
+    detail: [deliveryStatusLabel(status), order.nextDeliveryProvider ? readableLabel(order.nextDeliveryProvider) : null]
+      .filter(Boolean)
+      .join(" · ")
   };
 }
 
@@ -2294,24 +2412,21 @@ function ManualOrderForm({
                   <div className="grid gap-3 sm:grid-cols-[80px_minmax(0,1fr)]">
                     <label className="space-y-2 text-sm font-medium">
                       Qty
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
+                      <DecimalInput
                         value={item.quantity}
-                        onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
+                        onValueChange={(value) => updateItem(index, { quantity: value })}
+                        min={0.01}
+                        fallback={1}
                         aria-label="Quantity"
                         placeholder="Qty"
                       />
                     </label>
                     <label className="space-y-2 text-sm font-medium">
                       Unit price
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                      <DecimalInput
                         value={item.unitPrice}
-                        onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                        onValueChange={(value) => updateItem(index, { unitPrice: value })}
+                        min={0}
                         aria-label="Unit price"
                         placeholder="Unit price"
                       />
@@ -2335,13 +2450,11 @@ function ManualOrderForm({
                           <option value="FIXED_AMOUNT">Fixed</option>
                           <option value="PERCENTAGE">%</option>
                         </Select>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
+                        <DecimalInput
                           value={item.discountValue}
                           disabled={!item.discountType}
-                          onChange={(event) => updateItem(index, { discountValue: Number(event.target.value) })}
+                          onValueChange={(value) => updateItem(index, { discountValue: value })}
+                          min={0}
                           aria-label="Discount value"
                         />
                       </div>
@@ -2413,12 +2526,10 @@ function ManualOrderForm({
                     <span className="truncate font-medium">{item.itemName || `Item ${index + 1}`}</span>
                     <label className="space-y-1 text-muted-foreground">
                       Unit cost
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
+                      <DecimalInput
                         value={item.unitCostSnapshot}
-                        onChange={(event) => updateItem(index, { unitCostSnapshot: Number(event.target.value) })}
+                        onValueChange={(value) => updateItem(index, { unitCostSnapshot: value })}
+                        min={0}
                         aria-label="Unit cost"
                       />
                     </label>
@@ -2682,14 +2793,12 @@ function ManualOrderForm({
               <option value="FIXED_AMOUNT">Fixed amount</option>
               <option value="PERCENTAGE">Percentage</option>
             </Select>
-            <Input
+            <DecimalInput
               name="orderDiscountValue"
-              type="number"
-              min="0"
-              step="0.01"
               value={orderDiscountValue}
               disabled={!orderDiscountType}
-              onChange={(event) => setOrderDiscountValue(Number(event.target.value))}
+              onValueChange={setOrderDiscountValue}
+              min={0}
               aria-label="Order discount value"
             />
           </div>
@@ -3387,8 +3496,8 @@ function OrderPanelHeader({
             </StatusPill>
           ) : null}
           {canViewDeliveries ? (
-            <StatusPill tone={statusTone(order.deliveryStatus)}>
-              {deliveryStatusLabel(order.deliveryStatus)}
+            <StatusPill tone={statusTone(visibleDeliveryStatus(order))}>
+              {deliveryStatusLabel(visibleDeliveryStatus(order))}
             </StatusPill>
           ) : null}
           {canViewDeliveries ? (
@@ -3670,7 +3779,7 @@ function OrderOverviewSummary({
               ) : null}
               {canViewDeliveries ? (
                 <>
-                  <SummaryRow label="Delivery status" value={deliveryStatusLabel(order.deliveryStatus)} />
+                  <SummaryRow label="Delivery status" value={deliveryStatusLabel(visibleDeliveryStatus(order))} />
                   <SummaryRow label="Remaining items" value={remainingItemCountLabel(order)} />
                 </>
               ) : null}
@@ -3959,7 +4068,7 @@ function DeliverySection({
       <div className="grid gap-3 text-sm md:grid-cols-3">
         <div>
           <p className="text-muted-foreground">Delivery status</p>
-          <p className="mt-1 font-semibold">{deliveryStatusLabel(order.deliveryStatus)}</p>
+          <p className="mt-1 font-semibold">{deliveryStatusLabel(visibleDeliveryStatus(order))}</p>
         </div>
         <div>
           <p className="text-muted-foreground">Next scheduled</p>

@@ -1723,7 +1723,7 @@ export function QuotationBuilder({
       <form
         action={action}
         onSubmit={() => setHasAttemptedSubmit(true)}
-        className="mt-6 grid gap-6 xl:grid-cols-[1fr_360px]"
+        className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
       >
         {initialQuotation?.id ? (
           <input type="hidden" name="quotationId" value={initialQuotation.id} />
@@ -1750,8 +1750,8 @@ export function QuotationBuilder({
         />
         <input type="hidden" name="salesInvoiceFeePercentage" value={salesInvoiceFeePercentage} />
 
-        <section className="space-y-5">
-          <section className="studio-card">
+        <section className="min-w-0 space-y-5">
+          <section className="studio-card min-w-0">
             <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="studio-kicker">Items</p>
@@ -1807,7 +1807,7 @@ export function QuotationBuilder({
           </section>
 
           <details
-            className="studio-card"
+            className="studio-card min-w-0"
             open={termsOpen}
             onToggle={(event) => setTermsOpen(event.currentTarget.open)}
           >
@@ -1870,7 +1870,7 @@ export function QuotationBuilder({
           </details>
 
           <details
-            className="studio-card"
+            className="studio-card min-w-0"
             open={noteOpen}
             onToggle={(event) => setNoteOpen(event.currentTarget.open)}
           >

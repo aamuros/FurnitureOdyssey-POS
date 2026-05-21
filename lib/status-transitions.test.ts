@@ -30,9 +30,22 @@ test("allows order lifecycle transitions", () => {
   assert.equal(canTransitionStatus("order", "CONFIRMED", "PARTIALLY_PAID"), true);
   assert.equal(canTransitionStatus("order", "PARTIALLY_PAID", "PAID"), true);
   assert.equal(canTransitionStatus("order", "PAID", "SCHEDULED_FOR_DELIVERY"), true);
+  assert.equal(canTransitionStatus("order", "SCHEDULED_FOR_DELIVERY", "PAID"), true);
   assert.equal(canTransitionStatus("order", "SCHEDULED_FOR_DELIVERY", "PARTIALLY_DELIVERED"), true);
   assert.equal(canTransitionStatus("order", "PARTIALLY_DELIVERED", "DELIVERED"), true);
   assert.equal(canTransitionStatus("order", "DELIVERED", "COMPLETED"), true);
+});
+
+test("allows scheduled delivery rollback when active deliveries are cancelled", () => {
+  assert.equal(canTransitionStatus("orderDelivery", "SCHEDULED", "NOT_SCHEDULED"), true);
+  assert.equal(
+    nextOrderStatusFromProgress({
+      currentStatus: "SCHEDULED_FOR_DELIVERY",
+      paymentStatus: "PAID",
+      deliveryStatus: "NOT_SCHEDULED"
+    }),
+    "PAID"
+  );
 });
 
 test("blocks invalid order lifecycle transitions", () => {

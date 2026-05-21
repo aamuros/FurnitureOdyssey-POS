@@ -8,142 +8,49 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
-
-type ReportView =
-  | "overview"
-  | "unfinished"
-  | "balances"
-  | "payments"
-  | "deliveries"
-  | "orders"
-  | "quotations"
-  | "customers";
+import {
+  PAGE_SIZE,
+  activeDeliveryStatuses,
+  buildOrderWhere,
+  canAccessReportView,
+  customerHistoryCountSelect,
+  customerHistoryOrderSelect,
+  deliveryStatuses,
+  orderDeliveryStatuses,
+  orderListSelect,
+  overviewOrderWhere,
+  overviewOutstandingBalanceAggregateArgs,
+  overviewSalesAggregateArgs,
+  parseReportFilters,
+  paymentRecordStatuses,
+  paymentStatuses,
+  quotationSearchWhere,
+  quotationStatuses,
+  reportViews,
+  statusOptionsForView,
+  unfinishedOrderWhere,
+  type ReportPermissions,
+  type ReportSearchParams,
+  type ReportView
+} from "@/lib/sales-history/reporting";
 
 type SalesHistoryPageProps = {
-  searchParams?: Promise<{
-    view?: string;
-    q?: string;
-    status?: string;
-    paymentStatus?: string;
-    deliveryStatus?: string;
-    staffId?: string;
-    from?: string;
-    to?: string;
-    hasBalance?: string;
-    hasDelivery?: string;
-    completedOnly?: string;
-    unfinishedOnly?: string;
-    page?: string;
-  }>;
+  searchParams?: Promise<ReportSearchParams>;
 };
 
-type ReportSearchParams = Awaited<NonNullable<SalesHistoryPageProps["searchParams"]>>;
+type Permissions = ReportPermissions;
 
-type Permissions = {
-  canViewQuotations: boolean;
-  canViewOrders: boolean;
-  canViewPayments: boolean;
-  canViewDeliveries: boolean;
-  canViewCustomers: boolean;
-  canViewInquiries: boolean;
-  canExportDocuments: boolean;
+type FilterVisibility = {
+  showSearch: boolean;
+  showStatus: boolean;
+  showPaymentStatus: boolean;
+  showDeliveryStatus: boolean;
+  showHasBalance: boolean;
+  showHasDelivery: boolean;
+  showCompletedOnly: boolean;
+  showUnfinishedOnly: boolean;
+  showOverdueOnly: boolean;
 };
-
-const PAGE_SIZE = 50;
-
-const reportViews: Array<{ value: ReportView; label: string }> = [
-  { value: "overview", label: "Overview" },
-  { value: "unfinished", label: "Unfinished Sales" },
-  { value: "balances", label: "Outstanding Balances" },
-  { value: "payments", label: "Payment History" },
-  { value: "deliveries", label: "Delivery Schedule" },
-  { value: "orders", label: "Order History" },
-  { value: "quotations", label: "Quotation History" },
-  { value: "customers", label: "Customer Sales History" }
-];
-
-const orderStatuses = [
-  "DRAFT",
-  "CONFIRMED",
-  "PARTIALLY_PAID",
-  "PAID",
-  "SCHEDULED_FOR_DELIVERY",
-  "PARTIALLY_DELIVERED",
-  "DELIVERED",
-  "COMPLETED",
-  "CANCELLED"
-] as const;
-
-const quotationStatuses = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
-
-const paymentStatuses = [
-  "UNPAID",
-  "DOWNPAYMENT_PAID",
-  "PARTIALLY_PAID",
-  "BALANCE_DUE_ON_DELIVERY",
-  "PAID",
-  "REFUNDED",
-  "PARTIALLY_REFUNDED"
-] as const;
-
-const orderDeliveryStatuses = [
-  "NOT_SCHEDULED",
-  "SCHEDULED",
-  "PARTIALLY_DELIVERED",
-  "DELIVERED",
-  "CANCELLED"
-] as const;
-
-const deliveryStatuses = [
-  "PLANNED",
-  "SCHEDULED",
-  "IN_TRANSIT",
-  "PARTIALLY_DELIVERED",
-  "DELIVERED",
-  "FAILED",
-  "CANCELLED"
-] as const;
-
-function asReportView(value: string | undefined): ReportView {
-  if (value === "sales") {
-    return "overview";
-  }
-
-  return reportViews.some((view) => view.value === value) ? (value as ReportView) : "overview";
-}
-
-function cleanSearch(value: string | undefined) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed.slice(0, 100) : undefined;
-}
-
-function cleanSelect(value: string | undefined) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function parsePage(value: string | undefined) {
-  const page = Number(value);
-  return Number.isInteger(page) && page > 0 ? page : 1;
-}
-
-function parseDate(value: string | undefined, endOfDay = false) {
-  if (!value) {
-    return undefined;
-  }
-
-  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}+08:00`);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function dateRangeWhere(from: Date | undefined, to: Date | undefined) {
-  return from || to
-    ? {
-        gte: from,
-        lte: to
-      }
-    : undefined;
-}
 
 function formatDate(value: Date | null | undefined) {
   if (!value) {
@@ -180,6 +87,24 @@ function labelFromEnum(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatSummaryDate(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00.000+08:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
 }
 
 function statusTone(status: string | null | undefined) {
@@ -288,177 +213,11 @@ function addressLine(value: unknown) {
     .join(", ");
 }
 
-function orderSearchWhere(query: string | undefined): Prisma.OrderWhereInput[] | undefined {
-  if (!query) {
-    return undefined;
-  }
-
-  return [
-    { orderNumber: { contains: query, mode: "insensitive" } },
-    { customerDisplayNameSnapshot: { contains: query, mode: "insensitive" } },
-    { companyNameSnapshot: { contains: query, mode: "insensitive" } },
-    { contactPersonNameSnapshot: { contains: query, mode: "insensitive" } },
-    {
-      inquiry: {
-        sourceReference: { contains: query, mode: "insensitive" }
-      }
-    },
-    {
-      items: {
-        some: {
-          OR: [
-            { itemName: { contains: query, mode: "insensitive" } },
-            { snapshotProductCode: { contains: query, mode: "insensitive" } }
-          ]
-        }
-      }
-    }
-  ];
-}
-
-function quotationSearchWhere(query: string | undefined): Prisma.QuotationWhereInput[] | undefined {
-  if (!query) {
-    return undefined;
-  }
-
-  return [
-    { quotationNumber: { contains: query, mode: "insensitive" } },
-    {
-      customer: {
-        OR: [
-          { displayName: { contains: query, mode: "insensitive" } },
-          { companyName: { contains: query, mode: "insensitive" } },
-          { contactPersonName: { contains: query, mode: "insensitive" } }
-        ]
-      }
-    },
-    {
-      inquiry: {
-        sourceReference: { contains: query, mode: "insensitive" }
-      }
-    },
-    {
-      items: {
-        some: {
-          itemName: { contains: query, mode: "insensitive" }
-        }
-      }
-    }
-  ];
-}
-
-function unfinishedOrderWhere(): Prisma.OrderWhereInput {
-  return {
-    status: {
-      notIn: ["COMPLETED", "CANCELLED"]
-    },
-    OR: [
-      {
-        balanceAmount: {
-          gt: 0
-        }
-      },
-      {
-        paymentStatus: {
-          not: "PAID"
-        }
-      },
-      {
-        deliveryStatus: {
-          in: ["NOT_SCHEDULED", "SCHEDULED", "PARTIALLY_DELIVERED"]
-        }
-      },
-      {
-        deliveries: {
-          some: {
-            status: {
-              in: ["PLANNED", "SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED"]
-            }
-          }
-        }
-      }
-    ]
-  };
-}
-
-function buildOrderWhere({
-  query,
-  status,
-  paymentStatus,
-  deliveryStatus,
-  staffId,
-  createdDateRange,
-  hasBalance,
-  hasDelivery,
-  completedOnly,
-  unfinishedOnly
-}: {
-  query: string | undefined;
-  status: string | undefined;
-  paymentStatus: string | undefined;
-  deliveryStatus: string | undefined;
-  staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
-  hasBalance: boolean;
-  hasDelivery: boolean;
-  completedOnly: boolean;
-  unfinishedOnly: boolean;
-}): Prisma.OrderWhereInput {
-  const and: Prisma.OrderWhereInput[] = [];
-  const search = orderSearchWhere(query);
-
-  if (search) {
-    and.push({ OR: search });
-  }
-
-  if (status && orderStatuses.includes(status as never)) {
-    and.push({ status: status as never });
-  }
-
-  if (paymentStatus && paymentStatuses.includes(paymentStatus as never)) {
-    and.push({ paymentStatus: paymentStatus as never });
-  }
-
-  if (deliveryStatus && orderDeliveryStatuses.includes(deliveryStatus as never)) {
-    and.push({ deliveryStatus: deliveryStatus as never });
-  }
-
-  if (staffId) {
-    and.push({ createdById: staffId });
-  }
-
-  if (createdDateRange) {
-    and.push({ createdAt: createdDateRange });
-  }
-
-  if (hasBalance) {
-    and.push({ balanceAmount: { gt: 0 } });
-  }
-
-  if (hasDelivery) {
-    and.push({
-      deliveries: {
-        some: {}
-      }
-    });
-  }
-
-  if (completedOnly) {
-    and.push({ status: "COMPLETED" });
-  }
-
-  if (unfinishedOnly) {
-    and.push(unfinishedOrderWhere());
-  }
-
-  return and.length > 0 ? { AND: and } : {};
-}
-
 function neededAction(order: {
-  paymentStatus: string;
+  paymentStatus?: string;
   deliveryStatus: string;
-  paymentDueDate: Date | null;
-  balanceAmount: unknown;
+  paymentDueDate?: Date | null;
+  balanceAmount?: unknown;
   deliveries?: Array<{ scheduledDate: Date | null }>;
 }) {
   const now = new Date();
@@ -467,16 +226,20 @@ function neededAction(order: {
     return "Payment overdue";
   }
 
-  if (Number(order.balanceAmount) > 0) {
+  if (Number(order.balanceAmount ?? 0) > 0) {
     return "Balance still open";
   }
 
-  if (order.paymentStatus !== "PAID") {
+  if (order.paymentStatus && order.paymentStatus !== "PAID") {
     return "Payment follow-up";
   }
 
   if (order.deliveryStatus === "NOT_SCHEDULED") {
     return "Delivery not scheduled";
+  }
+
+  if (order.deliveries?.[0]?.scheduledDate && order.deliveries[0].scheduledDate < now) {
+    return "Delivery overdue";
   }
 
   if (order.deliveryStatus === "SCHEDULED" || order.deliveries?.[0]?.scheduledDate) {
@@ -490,6 +253,20 @@ function neededAction(order: {
   return "Operational review";
 }
 
+function filterVisibilityForView(view: ReportView, permissions: Permissions): FilterVisibility {
+  return {
+    showSearch: view !== "overview",
+    showStatus: ["payments", "deliveries", "orders", "quotations"].includes(view),
+    showPaymentStatus: permissions.canViewPayments && ["unfinished", "balances", "orders"].includes(view),
+    showDeliveryStatus: ["unfinished", "orders"].includes(view),
+    showHasBalance: permissions.canViewPayments && ["balances", "orders"].includes(view),
+    showHasDelivery: permissions.canViewDeliveries && view === "orders",
+    showCompletedOnly: view === "orders",
+    showUnfinishedOnly: view === "orders",
+    showOverdueOnly: view === "unfinished" && (permissions.canViewPayments || permissions.canViewDeliveries)
+  };
+}
+
 function RestrictedPanel({ title }: { title: string }) {
   return (
     <section className="studio-empty px-5 py-8 text-sm">
@@ -501,20 +278,21 @@ function RestrictedPanel({ title }: { title: string }) {
 export default async function SalesHistoryPage({ searchParams }: SalesHistoryPageProps) {
   const user = await requirePermission("SALES_HISTORY", "VIEW");
   const params = (await searchParams) ?? {};
-  const view = asReportView(params.view);
-  const query = cleanSearch(params.q);
-  const status = cleanSelect(params.status);
-  const paymentStatus = cleanSelect(params.paymentStatus);
-  const deliveryStatus = cleanSelect(params.deliveryStatus);
-  const staffId = cleanSelect(params.staffId);
-  const from = parseDate(params.from);
-  const to = parseDate(params.to, true);
-  const createdDateRange = dateRangeWhere(from, to);
-  const page = parsePage(params.page);
-  const hasBalance = params.hasBalance === "on";
-  const hasDelivery = params.hasDelivery === "on";
-  const completedOnly = params.completedOnly === "on";
-  const unfinishedOnly = params.unfinishedOnly === "on";
+  const {
+    view,
+    query,
+    status,
+    paymentStatus,
+    deliveryStatus,
+    staffId,
+    dateRange,
+    page,
+    hasBalance,
+    hasDelivery,
+    completedOnly,
+    unfinishedOnly,
+    overdueOnly
+  } = parseReportFilters(params);
 
   const permissions: Permissions = {
     canViewQuotations: hasPermission(user, "QUOTATIONS", "VIEW"),
@@ -523,8 +301,20 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
     canViewDeliveries: hasPermission(user, "DELIVERIES", "VIEW"),
     canViewCustomers: hasPermission(user, "CUSTOMERS", "VIEW"),
     canViewInquiries: hasPermission(user, "INQUIRIES", "VIEW"),
+    canViewDocuments: hasPermission(user, "DOCUMENTS", "VIEW"),
     canExportDocuments: hasPermission(user, "DOCUMENTS", "EXPORT")
   };
+  const filterVisibility = filterVisibilityForView(view, permissions);
+
+  const activeQuery = filterVisibility.showSearch ? query : undefined;
+  const activeStatus = filterVisibility.showStatus ? status : undefined;
+  const activePaymentStatus = filterVisibility.showPaymentStatus ? paymentStatus : undefined;
+  const activeDeliveryStatus = filterVisibility.showDeliveryStatus ? deliveryStatus : undefined;
+  const activeHasBalance = filterVisibility.showHasBalance && (hasBalance || view === "balances");
+  const activeHasDelivery = filterVisibility.showHasDelivery && hasDelivery;
+  const activeCompletedOnly = filterVisibility.showCompletedOnly && completedOnly;
+  const activeUnfinishedOnly = filterVisibility.showUnfinishedOnly && unfinishedOnly;
+  const activeOverdueOnly = filterVisibility.showOverdueOnly && overdueOnly;
 
   const staff = await prisma.userProfile.findMany({
     where: {
@@ -541,17 +331,18 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
 
   const report = await getReportData({
     view,
-    query,
-    status,
-    paymentStatus,
-    deliveryStatus,
+    query: activeQuery,
+    status: activeStatus,
+    paymentStatus: activePaymentStatus,
+    deliveryStatus: activeDeliveryStatus,
     staffId,
-    createdDateRange,
+    dateRange,
     page,
-    hasBalance,
-    hasDelivery,
-    completedOnly,
-    unfinishedOnly,
+    hasBalance: activeHasBalance,
+    hasDelivery: activeHasDelivery,
+    completedOnly: activeCompletedOnly,
+    unfinishedOnly: activeUnfinishedOnly,
+    overdueOnly: activeOverdueOnly,
     permissions,
     params
   });
@@ -560,7 +351,7 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
     <>
       <PageHeader
         title="Sales History / Reports"
-        description="Operational reporting for unfinished sales, balances, payments, deliveries, order history, quotation history, and customer history."
+        description="Daily operations reports for orders, balances, payments, deliveries, quotations, and customers."
       />
 
       <nav className="mb-5 flex gap-2 overflow-x-auto border-b border-border pb-2">
@@ -579,39 +370,113 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
         ))}
       </nav>
 
-      <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 lg:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_auto]">
-        <input type="hidden" name="view" value={view} />
-        <Input
-          name="q"
-          defaultValue={params.q ?? ""}
-          placeholder="Search customer, order, reference, contact, item, provider, or payer"
-        />
-        <Select name="status" defaultValue={params.status ?? ""}>
-          <option value="">Any status</option>
-          {statusOptionsForView(view).map((option) => (
-            <option key={option} value={option}>
-              {labelFromEnum(option)}
-            </option>
-          ))}
-        </Select>
-        <Select name="paymentStatus" defaultValue={params.paymentStatus ?? ""}>
-          <option value="">Any payment</option>
-          {paymentStatuses.map((option) => (
-            <option key={option} value={option}>
-              {labelFromEnum(option)}
-            </option>
-          ))}
-        </Select>
-        <Select name="deliveryStatus" defaultValue={params.deliveryStatus ?? ""}>
-          <option value="">Any delivery</option>
-          {orderDeliveryStatuses.map((option) => (
-            <option key={option} value={option}>
-              {labelFromEnum(option)}
-            </option>
-          ))}
-        </Select>
-        <Select name="staffId" defaultValue={params.staffId ?? ""}>
-          <option value="">Any staff</option>
+      <ReportFilters
+        view={view}
+        params={params}
+        staff={staff}
+        filterVisibility={filterVisibility}
+        selectedStaffId={staffId}
+        hasBalance={activeHasBalance}
+        hasDelivery={activeHasDelivery}
+        completedOnly={activeCompletedOnly}
+        unfinishedOnly={activeUnfinishedOnly}
+        overdueOnly={activeOverdueOnly}
+      />
+
+      {report}
+    </>
+  );
+}
+
+function ReportFilters({
+  view,
+  params,
+  staff,
+  filterVisibility,
+  selectedStaffId,
+  hasBalance,
+  hasDelivery,
+  completedOnly,
+  unfinishedOnly,
+  overdueOnly
+}: {
+  view: ReportView;
+  params: ReportSearchParams;
+  staff: Array<{ id: string; displayName: string }>;
+  filterVisibility: FilterVisibility;
+  selectedStaffId: string | undefined;
+  hasBalance: boolean;
+  hasDelivery: boolean;
+  completedOnly: boolean;
+  unfinishedOnly: boolean;
+  overdueOnly: boolean;
+}) {
+  const {
+    showSearch,
+    showStatus,
+    showPaymentStatus,
+    showDeliveryStatus,
+    showHasBalance,
+    showHasDelivery,
+    showCompletedOnly,
+    showUnfinishedOnly,
+    showOverdueOnly
+  } = filterVisibility;
+  const hasExtraFilters =
+    showHasBalance || showHasDelivery || showCompletedOnly || showUnfinishedOnly || showOverdueOnly;
+  const isOverview = view === "overview";
+
+  return (
+    <form className="mb-6 rounded-lg border border-border bg-panel p-4">
+      <input type="hidden" name="view" value={view} />
+      <div
+        className={
+          isOverview
+            ? "grid gap-3 md:grid-cols-[minmax(220px,1fr)_160px_160px_auto_auto]"
+            : "grid gap-3 md:grid-cols-2 xl:grid-cols-6"
+        }
+      >
+        {showSearch ? (
+          <Input
+            name="q"
+            defaultValue={params.q ?? ""}
+            placeholder={searchPlaceholder(view)}
+            aria-label={searchLabel(view)}
+            className="xl:col-span-2"
+          />
+        ) : null}
+        {showStatus ? (
+          <Select name="status" defaultValue={params.status ?? ""} aria-label={statusLabel(view)}>
+            <option value="">{statusPlaceholder(view)}</option>
+            {statusOptionsForView(view).map((option) => (
+              <option key={option} value={option}>
+                {labelFromEnum(option)}
+              </option>
+            ))}
+          </Select>
+        ) : null}
+        {showPaymentStatus ? (
+          <Select name="paymentStatus" defaultValue={params.paymentStatus ?? ""} aria-label="Payment status">
+            <option value="">Any payment status</option>
+            {paymentStatuses.map((option) => (
+              <option key={option} value={option}>
+                {labelFromEnum(option)}
+              </option>
+            ))}
+          </Select>
+        ) : null}
+        {showDeliveryStatus ? (
+          <Select name="deliveryStatus" defaultValue={params.deliveryStatus ?? ""} aria-label="Delivery status">
+            <option value="">Any delivery status</option>
+            {orderDeliveryStatuses.map((option) => (
+              <option key={option} value={option}>
+                {labelFromEnum(option)}
+              </option>
+            ))}
+          </Select>
+        ) : null}
+        <Select name="staffId" defaultValue={selectedStaffId ?? ""} aria-label={staffLabel(view)}>
+          <option value="">{staffPlaceholder(view)}</option>
           {staff.map((member) => (
             <option key={member.id} value={member.id}>
               {member.displayName}
@@ -619,51 +484,191 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
           ))}
         </Select>
         <div className="grid grid-cols-2 gap-2">
-          <Input name="from" type="date" defaultValue={params.from ?? ""} aria-label="Date from" />
-          <Input name="to" type="date" defaultValue={params.to ?? ""} aria-label="Date to" />
+          <Input name="from" type="date" defaultValue={params.from ?? ""} aria-label={fromDateLabel(view)} />
+          <Input name="to" type="date" defaultValue={params.to ?? ""} aria-label={toDateLabel(view)} />
         </div>
         <Button type="submit" variant="secondary">
           Filter
         </Button>
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground lg:col-span-7">
-          <label className="flex items-center gap-2">
-            <input name="hasBalance" type="checkbox" defaultChecked={hasBalance} />
-            Has balance
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="hasDelivery" type="checkbox" defaultChecked={hasDelivery} />
-            Has delivery
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="completedOnly" type="checkbox" defaultChecked={completedOnly} />
-            Completed only
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="unfinishedOnly" type="checkbox" defaultChecked={unfinishedOnly} />
-            Unfinished only
-          </label>
+        <Link
+          href={reportHref(view)}
+          className="inline-flex min-h-10 items-center justify-center rounded-lg border border-border px-4 text-sm font-semibold text-foreground transition hover:bg-muted/60"
+        >
+          Reset
+        </Link>
+      </div>
+      {isOverview ? <p className="mt-3 text-xs text-muted-foreground">{filterSummary(staff, selectedStaffId, params)}</p> : null}
+      {hasExtraFilters ? (
+        <div className="mt-3 flex flex-wrap gap-4 border-t border-border pt-3 text-xs text-muted-foreground">
+          {showHasBalance ? (
+            <label className="flex items-center gap-2">
+              <input name="hasBalance" type="checkbox" defaultChecked={hasBalance} />
+              Has balance
+            </label>
+          ) : null}
+          {showHasDelivery ? (
+            <label className="flex items-center gap-2">
+              <input name="hasDelivery" type="checkbox" defaultChecked={hasDelivery} />
+              Has delivery
+            </label>
+          ) : null}
+          {showCompletedOnly ? (
+            <label className="flex items-center gap-2">
+              <input name="completedOnly" type="checkbox" defaultChecked={completedOnly} />
+              Completed only
+            </label>
+          ) : null}
+          {showUnfinishedOnly ? (
+            <label className="flex items-center gap-2">
+              <input name="unfinishedOnly" type="checkbox" defaultChecked={unfinishedOnly} />
+              Needs action only
+            </label>
+          ) : null}
+          {showOverdueOnly ? (
+            <label className="flex items-center gap-2">
+              <input name="overdueOnly" type="checkbox" defaultChecked={overdueOnly} />
+              Overdue only
+            </label>
+          ) : null}
         </div>
-      </form>
-
-      {report}
-    </>
+      ) : null}
+    </form>
   );
 }
 
-function statusOptionsForView(view: ReportView) {
-  if (view === "quotations") {
-    return quotationStatuses;
+function filterSummary(
+  staff: Array<{ id: string; displayName: string }>,
+  selectedStaffId: string | undefined,
+  params: ReportSearchParams
+) {
+  const staffName = selectedStaffId
+    ? staff.find((member) => member.id === selectedStaffId)?.displayName ?? "Selected staff"
+    : "all staff";
+  const from = formatSummaryDate(params.from);
+  const to = formatSummaryDate(params.to);
+  let dateLabel = "All dates";
+
+  if (from && to) {
+    dateLabel = `${from} – ${to}`;
+  } else if (from) {
+    dateLabel = `From ${from}`;
+  } else if (to) {
+    dateLabel = `Until ${to}`;
   }
 
+  return `Showing ${staffName} · ${dateLabel}`;
+}
+
+function searchPlaceholder(view: ReportView) {
   if (view === "payments") {
-    return ["RECORDED", "VOIDED", "REFUNDED"] as const;
+    return "Search receipt no., order, customer, reference, or payer";
   }
 
   if (view === "deliveries") {
-    return deliveryStatuses;
+    return "Search delivery no., order, customer, recipient, provider, or reference";
   }
 
-  return orderStatuses;
+  if (view === "quotations") {
+    return "Search quotation, customer, inquiry, or item";
+  }
+
+  if (view === "customers") {
+    return "Search customer, company, contact, phone, Viber, Facebook, or email";
+  }
+
+  return "Search customer, order, contact, item, or reference";
+}
+
+function searchLabel(view: ReportView) {
+  return view === "customers" ? "Search customers" : "Search report rows";
+}
+
+function statusLabel(view: ReportView) {
+  if (view === "payments") {
+    return "Payment record status";
+  }
+
+  if (view === "deliveries") {
+    return "Delivery status";
+  }
+
+  if (view === "quotations") {
+    return "Quotation status";
+  }
+
+  return "Order status";
+}
+
+function statusPlaceholder(view: ReportView) {
+  if (view === "payments") {
+    return "Any payment record status";
+  }
+
+  if (view === "deliveries") {
+    return "Active delivery statuses";
+  }
+
+  if (view === "quotations") {
+    return "Any quotation status";
+  }
+
+  return "Any order status";
+}
+
+function staffLabel(view: ReportView) {
+  if (view === "payments") {
+    return "Received by";
+  }
+
+  if (view === "deliveries") {
+    return "Assigned staff";
+  }
+
+  return "Staff";
+}
+
+function staffPlaceholder(view: ReportView) {
+  if (view === "payments") {
+    return "Any receiver";
+  }
+
+  if (view === "deliveries" || view === "customers") {
+    return "Any assigned staff";
+  }
+
+  return "Any staff";
+}
+
+function fromDateLabel(view: ReportView) {
+  if (view === "balances") {
+    return "Due date from";
+  }
+
+  if (view === "payments") {
+    return "Payment date from";
+  }
+
+  if (view === "deliveries") {
+    return "Scheduled date from";
+  }
+
+  return "Date from";
+}
+
+function toDateLabel(view: ReportView) {
+  if (view === "balances") {
+    return "Due date to";
+  }
+
+  if (view === "payments") {
+    return "Payment date to";
+  }
+
+  if (view === "deliveries") {
+    return "Scheduled date to";
+  }
+
+  return "Date to";
 }
 
 async function getReportData({
@@ -673,12 +678,13 @@ async function getReportData({
   paymentStatus,
   deliveryStatus,
   staffId,
-  createdDateRange,
+  dateRange,
   page,
   hasBalance,
   hasDelivery,
   completedOnly,
   unfinishedOnly,
+  overdueOnly,
   permissions,
   params
 }: {
@@ -688,53 +694,38 @@ async function getReportData({
   paymentStatus: string | undefined;
   deliveryStatus: string | undefined;
   staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   page: number;
   hasBalance: boolean;
   hasDelivery: boolean;
   completedOnly: boolean;
   unfinishedOnly: boolean;
+  overdueOnly: boolean;
   permissions: Permissions;
   params: Awaited<NonNullable<SalesHistoryPageProps["searchParams"]>>;
 }) {
   if (view === "overview") {
-    return getOverviewReport({ createdDateRange, staffId, permissions });
+    return getOverviewReport({ dateRange, staffId, permissions });
   }
 
-  if ((view === "orders" || view === "unfinished") && !permissions.canViewOrders) {
-    return <RestrictedPanel title="order reports" />;
-  }
-
-  if (view === "quotations" && !permissions.canViewQuotations) {
-    return <RestrictedPanel title="quotation history" />;
-  }
-
-  if ((view === "payments" || view === "balances") && !permissions.canViewPayments) {
-    return <RestrictedPanel title={view === "payments" ? "payment history" : "outstanding balances"} />;
-  }
-
-  if (view === "deliveries" && !permissions.canViewDeliveries) {
-    return <RestrictedPanel title="delivery schedule" />;
-  }
-
-  if (view === "customers" && !permissions.canViewCustomers) {
-    return <RestrictedPanel title="customer sales history" />;
+  if (!canAccessReportView(view, permissions)) {
+    return <RestrictedPanel title={restrictedTitle(view)} />;
   }
 
   if (view === "quotations") {
-    return getQuotationReport({ query, status, staffId, createdDateRange, page, permissions, params });
+    return getQuotationReport({ query, status, staffId, dateRange, page, permissions, params });
   }
 
   if (view === "payments") {
-    return getPaymentReport({ query, status, staffId, createdDateRange, page, permissions, params });
+    return getPaymentReport({ query, status, staffId, dateRange, page, permissions, params });
   }
 
   if (view === "deliveries") {
-    return getDeliveryReport({ query, status, staffId, createdDateRange, page, permissions, params });
+    return getDeliveryReport({ query, status, staffId, dateRange, page, permissions, params });
   }
 
   if (view === "customers") {
-    return getCustomerReport({ query, staffId, createdDateRange, permissions });
+    return getCustomerReport({ query, staffId, dateRange, permissions });
   }
 
   const orderWhere = buildOrderWhere({
@@ -743,11 +734,15 @@ async function getReportData({
     paymentStatus,
     deliveryStatus,
     staffId,
-    createdDateRange,
+    dateRange,
+    dateField: view === "balances" ? "paymentDueDate" : "createdAt",
     hasBalance,
     hasDelivery,
     completedOnly,
-    unfinishedOnly: unfinishedOnly || view === "unfinished"
+    unfinishedOnly: unfinishedOnly || view === "unfinished",
+    overdueOnly,
+    canUsePaymentFields: permissions.canViewPayments,
+    canUseDeliveryFields: permissions.canViewDeliveries
   });
 
   if (view === "balances") {
@@ -759,41 +754,65 @@ async function getReportData({
     page,
     permissions,
     params,
-    title: view === "unfinished" ? "Unfinished Sales" : "Order History",
+    title: view === "unfinished" ? "Orders Needing Action" : "Order History",
     mode: view
   });
 }
 
+function restrictedTitle(view: ReportView) {
+  if (view === "payments") {
+    return "payment history";
+  }
+
+  if (view === "balances") {
+    return "outstanding balances";
+  }
+
+  if (view === "deliveries") {
+    return "delivery schedule";
+  }
+
+  if (view === "quotations") {
+    return "quotation history";
+  }
+
+  if (view === "customers") {
+    return "customer sales history";
+  }
+
+  return "order reports";
+}
+
 async function getOverviewReport({
-  createdDateRange,
+  dateRange,
   staffId,
   permissions
 }: {
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   staffId: string | undefined;
   permissions: Permissions;
 }) {
-  const orderDateWhere: Prisma.OrderWhereInput = {
-    createdById: staffId,
-    createdAt: createdDateRange
-  };
+  const orderDateWhere = overviewOrderWhere({ dateRange, staffId });
 
   const paymentDateWhere: Prisma.PaymentWhereInput = {
     receivedById: staffId,
-    paymentDate: createdDateRange
+    paymentDate: dateRange
   };
 
   const deliveryDateWhere: Prisma.DeliveryWhereInput = {
     assignedStaffId: staffId,
-    scheduledDate: createdDateRange
+    scheduledDate: dateRange
   };
 
   const [
     totalOrders,
+    confirmedOrders,
+    otherActiveOrders,
     completedOrders,
+    cancelledOrders,
     unfinishedOrders,
-    financialTotals,
-    paidAmount,
+    ordersWithBalance,
+    salesTotals,
     outstandingBalance,
     paymentCount,
     scheduledDeliveryCount,
@@ -801,28 +820,37 @@ async function getOverviewReport({
   ] = await Promise.all([
     permissions.canViewOrders ? prisma.order.count({ where: orderDateWhere }) : 0,
     permissions.canViewOrders
+      ? prisma.order.count({ where: { ...orderDateWhere, status: "CONFIRMED" } })
+      : 0,
+    permissions.canViewOrders
+      ? prisma.order.count({
+          where: {
+            ...orderDateWhere,
+            status: {
+              notIn: ["CONFIRMED", "COMPLETED", "CANCELLED"]
+            }
+          }
+        })
+      : 0,
+    permissions.canViewOrders
       ? prisma.order.count({ where: { ...orderDateWhere, status: "COMPLETED" } })
+      : 0,
+    permissions.canViewOrders
+      ? prisma.order.count({ where: { ...orderDateWhere, status: "CANCELLED" } })
       : 0,
     permissions.canViewOrders
       ? prisma.order.count({ where: { AND: [orderDateWhere, unfinishedOrderWhere()] } })
       : 0,
     permissions.canViewPayments
-      ? prisma.order.aggregate({
-          where: { ...orderDateWhere, status: { not: "CANCELLED" } },
-          _sum: { totalAmount: true, totalCostAmount: true, grossProfitAmount: true }
+      ? prisma.order.count({
+          where: { ...orderDateWhere, status: { not: "CANCELLED" }, balanceAmount: { gt: 0 } }
         })
       : null,
     permissions.canViewPayments
-      ? prisma.order.aggregate({
-          where: { ...orderDateWhere, status: { not: "CANCELLED" } },
-          _sum: { paidAmount: true }
-        })
+      ? prisma.order.aggregate(overviewSalesAggregateArgs(orderDateWhere))
       : null,
     permissions.canViewPayments
-      ? prisma.order.aggregate({
-          where: { ...orderDateWhere, status: { not: "CANCELLED" }, balanceAmount: { gt: 0 } },
-          _sum: { balanceAmount: true }
-        })
+      ? prisma.order.aggregate(overviewOutstandingBalanceAggregateArgs(orderDateWhere))
       : null,
     permissions.canViewPayments ? prisma.payment.count({ where: paymentDateWhere }) : 0,
     permissions.canViewDeliveries
@@ -830,7 +858,7 @@ async function getOverviewReport({
           where: {
             ...deliveryDateWhere,
             status: {
-              in: ["PLANNED", "SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED"]
+              in: [...activeDeliveryStatuses]
             }
           }
         })
@@ -846,64 +874,91 @@ async function getOverviewReport({
         })
       : 0
   ]);
-  const grossSalesTotal = Number(financialTotals?._sum.totalAmount ?? 0);
-  const grossProfitTotal = Number(financialTotals?._sum.grossProfitAmount ?? 0);
-  const grossMargin =
-    grossSalesTotal > 0 ? `${((grossProfitTotal / grossSalesTotal) * 100).toFixed(1)}%` : "0.0%";
+  const salesTotal = Number(salesTotals?._sum.totalAmount ?? 0);
 
   return (
     <ReportSection
       title="Overview"
-      description="Date-range summary for daily order, payment, balance, and delivery checks."
+      description="Daily snapshot of orders, balances, payments, and deliveries."
     >
-      <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-        <SummaryTile label="Total orders" value={permissions.canViewOrders ? totalOrders.toString() : "Restricted"} />
-        <SummaryTile
-          label="Completed orders"
-          value={permissions.canViewOrders ? completedOrders.toString() : "Restricted"}
-        />
-        <SummaryTile
-          label="Unfinished orders"
-          value={permissions.canViewOrders ? unfinishedOrders.toString() : "Restricted"}
-        />
-        <SummaryTile
-          label="Gross sales total"
-          value={permissions.canViewPayments ? formatMoney(grossSalesTotal) : "Restricted"}
-        />
-        <SummaryTile
-          label="Total cost"
-          value={permissions.canViewPayments ? formatMoney(financialTotals?._sum.totalCostAmount ?? 0) : "Restricted"}
-        />
-        <SummaryTile
-          label="Gross profit"
-          value={permissions.canViewPayments ? formatMoney(grossProfitTotal) : "Restricted"}
-        />
-        <SummaryTile
-          label="Gross margin"
-          value={permissions.canViewPayments ? grossMargin : "Restricted"}
-        />
-        <SummaryTile
-          label="Paid amount"
-          value={permissions.canViewPayments ? formatMoney(paidAmount?._sum.paidAmount ?? 0) : "Restricted"}
-        />
-        <SummaryTile
-          label="Outstanding balance"
-          value={
-            permissions.canViewPayments ? formatMoney(outstandingBalance?._sum.balanceAmount ?? 0) : "Restricted"
-          }
-        />
-        <SummaryTile
-          label="Payments received"
-          value={permissions.canViewPayments ? paymentCount.toString() : "Restricted"}
-        />
-        <SummaryTile
-          label="Scheduled deliveries"
-          value={permissions.canViewDeliveries ? scheduledDeliveryCount.toString() : "Restricted"}
-        />
-        <SummaryTile
-          label="Pending deliveries"
-          value={permissions.canViewDeliveries ? pendingDeliveryCount.toString() : "Restricted"}
-        />
+      <div className="space-y-6 p-5">
+        <div>
+          <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Priority</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <OverviewMetricCard
+              label="Orders Needing Action"
+              value={permissions.canViewOrders ? unfinishedOrders.toString() : "Restricted"}
+              helper="Payment, delivery, or follow-up pending"
+              href={permissions.canViewOrders ? "/sales-history?view=unfinished" : undefined}
+              primary
+            />
+            <OverviewMetricCard
+              label="Outstanding Balance"
+              value={
+                permissions.canViewPayments ? formatMoney(outstandingBalance?._sum.balanceAmount ?? 0) : "Restricted"
+              }
+              helper="Customer balances still open"
+              href={permissions.canViewPayments ? "/sales-history?view=balances" : undefined}
+              primary
+            />
+            <OverviewMetricCard
+              label="Scheduled Deliveries"
+              value={permissions.canViewDeliveries ? scheduledDeliveryCount.toString() : "Restricted"}
+              helper="Active delivery records"
+              href={permissions.canViewDeliveries ? "/sales-history?view=deliveries" : undefined}
+              primary
+            />
+            <OverviewMetricCard
+              label="Payment Records"
+              value={permissions.canViewPayments ? paymentCount.toString() : "Restricted"}
+              helper="Recorded in the selected range"
+              href={permissions.canViewPayments ? "/sales-history?view=payments" : undefined}
+              primary
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-border/70 pt-5">
+          <p className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Order Status</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <OverviewMetricCard
+              label="Total Orders"
+              value={permissions.canViewOrders ? totalOrders.toString() : "Restricted"}
+              helper={permissions.canViewPayments ? `Sales Total: ${formatMoney(salesTotal)}` : "Saved orders in range"}
+              href={permissions.canViewOrders ? "/sales-history?view=orders" : undefined}
+            />
+            <OverviewMetricCard
+              label="Confirmed Orders"
+              value={permissions.canViewOrders ? confirmedOrders.toString() : "Restricted"}
+              helper="Ready for payment or delivery work"
+            />
+            <OverviewMetricCard
+              label="Other Active Orders"
+              value={permissions.canViewOrders ? otherActiveOrders.toString() : "Restricted"}
+              helper="Open statuses outside confirmed"
+            />
+            <OverviewMetricCard
+              label="Completed Orders"
+              value={permissions.canViewOrders ? completedOrders.toString() : "Restricted"}
+              helper="Finished orders"
+            />
+            <OverviewMetricCard
+              label="Cancelled Orders"
+              value={permissions.canViewOrders ? cancelledOrders.toString() : "Restricted"}
+              helper="Cancelled orders"
+            />
+            <OverviewMetricCard
+              label="Orders With Balance"
+              value={permissions.canViewPayments ? (ordersWithBalance ?? 0).toString() : "Restricted"}
+              helper="Orders with customer balance"
+            />
+            <OverviewMetricCard
+              label="Pending Deliveries"
+              value={permissions.canViewDeliveries ? pendingDeliveryCount.toString() : "Restricted"}
+              helper="Planned, scheduled, or in transit"
+            />
+          </div>
+        </div>
       </div>
     </ReportSection>
   );
@@ -913,7 +968,7 @@ async function getQuotationReport({
   query,
   status,
   staffId,
-  createdDateRange,
+  dateRange,
   page,
   permissions,
   params
@@ -921,7 +976,7 @@ async function getQuotationReport({
   query: string | undefined;
   status: string | undefined;
   staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   page: number;
   permissions: Permissions;
   params: Awaited<NonNullable<SalesHistoryPageProps["searchParams"]>>;
@@ -932,7 +987,7 @@ async function getQuotationReport({
       AND: [
         status && quotationStatuses.includes(status as never) ? { status: status as never } : {},
         staffId ? { createdById: staffId } : {},
-        createdDateRange ? { createdAt: createdDateRange } : {},
+        dateRange ? { createdAt: dateRange } : {},
         search ? { OR: search } : {}
       ]
     },
@@ -972,7 +1027,7 @@ async function getQuotationReport({
   const rows = quotations.slice(0, PAGE_SIZE);
 
   return (
-    <ReportSection title="Quotation History" description="Saved quotation records and conversion status.">
+    <ReportSection title="Quotation History" description="Saved quotation history and conversion status.">
       <table className="w-full min-w-[1180px] text-left text-sm">
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
@@ -998,7 +1053,11 @@ async function getQuotationReport({
 
             return (
               <tr key={quotation.id}>
-                <TableCell className="font-medium">{quotation.quotationNumber ?? "Not assigned"}</TableCell>
+                <TableCell className="font-medium">
+                  <Link href={`/quotations/${quotation.id}`} className="text-primary hover:underline">
+                    {quotation.quotationNumber ?? "Not assigned"}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <div className="font-medium text-foreground">{customer.primary}</div>
                   <div className="text-xs">{customer.secondary}</div>
@@ -1015,7 +1074,7 @@ async function getQuotationReport({
                 <TableCell>{quotation.status === "ACCEPTED" ? formatDate(quotation.updatedAt) : "Not accepted"}</TableCell>
                 <TableCell>
                   {order ? (
-                    <Link href="/orders" className="text-primary hover:underline">
+                    <Link href={`/orders?orderId=${order.id}`} className="text-primary hover:underline">
                       {order.orderNumber ?? "Not assigned"}
                     </Link>
                   ) : (
@@ -1046,7 +1105,7 @@ async function getPaymentReport({
   query,
   status,
   staffId,
-  createdDateRange,
+  dateRange,
   page,
   permissions,
   params
@@ -1054,16 +1113,16 @@ async function getPaymentReport({
   query: string | undefined;
   status: string | undefined;
   staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   page: number;
   permissions: Permissions;
   params: Awaited<NonNullable<SalesHistoryPageProps["searchParams"]>>;
 }) {
   const payments = await prisma.payment.findMany({
     where: {
-      status: ["RECORDED", "VOIDED", "REFUNDED"].includes(status ?? "") ? (status as never) : undefined,
+      status: paymentRecordStatuses.includes(status as never) ? (status as never) : undefined,
       receivedById: staffId,
-      paymentDate: createdDateRange,
+      paymentDate: dateRange,
       OR: query
         ? [
             { paymentNumber: { contains: query, mode: "insensitive" } },
@@ -1130,7 +1189,7 @@ async function getPaymentReport({
   const rows = payments.slice(0, PAGE_SIZE);
 
   return (
-    <ReportSection title="Payment History" description="Recorded payments across orders, methods, references, and receipts.">
+    <ReportSection title="Payment History" description="Recorded payments and receipt references.">
       <table className="w-full min-w-[1180px] text-left text-sm">
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
@@ -1162,7 +1221,7 @@ async function getPaymentReport({
                   <div className="text-xs">{customer.secondary}</div>
                 </TableCell>
                 <TableCell>
-                  <Link href="/orders" className="font-medium text-primary hover:underline">
+                  <Link href={`/orders?orderId=${payment.order.id}`} className="font-medium text-primary hover:underline">
                     {payment.order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
@@ -1202,7 +1261,7 @@ async function getDeliveryReport({
   query,
   status,
   staffId,
-  createdDateRange,
+  dateRange,
   page,
   permissions,
   params
@@ -1210,16 +1269,16 @@ async function getDeliveryReport({
   query: string | undefined;
   status: string | undefined;
   staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   page: number;
   permissions: Permissions;
   params: Awaited<NonNullable<SalesHistoryPageProps["searchParams"]>>;
 }) {
   const deliveries = await prisma.delivery.findMany({
     where: {
-      status: deliveryStatuses.includes(status as never) ? (status as never) : undefined,
+      status: deliveryStatuses.includes(status as never) ? (status as never) : { in: [...activeDeliveryStatuses] },
       assignedStaffId: staffId,
-      scheduledDate: createdDateRange,
+      scheduledDate: dateRange,
       OR: query
         ? [
             { deliveryNumber: { contains: query, mode: "insensitive" } },
@@ -1282,7 +1341,7 @@ async function getDeliveryReport({
   const rows = deliveries.slice(0, PAGE_SIZE);
 
   return (
-    <ReportSection title="Delivery Schedule" description="Scheduled and pending delivery records across orders.">
+    <ReportSection title="Delivery Schedule" description="Scheduled and pending deliveries.">
       <table className="w-full min-w-[1280px] text-left text-sm">
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
@@ -1320,7 +1379,7 @@ async function getDeliveryReport({
                   <div className="text-xs">{customer.secondary}</div>
                 </TableCell>
                 <TableCell>
-                  <Link href="/orders" className="text-primary hover:underline">
+                  <Link href={`/orders?orderId=${delivery.order.id}`} className="text-primary hover:underline">
                     {delivery.order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
@@ -1357,7 +1416,14 @@ async function getDeliveryReport({
           })}
         </tbody>
       </table>
-      <EmptyState show={rows.length === 0} label="No deliveries match the current filters." />
+      <EmptyState
+        show={rows.length === 0}
+        label={
+          status
+            ? "No deliveries match the current filters."
+            : "No active scheduled or planned deliveries match the current filters."
+        }
+      />
       <Pagination page={page} hasNext={hasNext} params={params} />
     </ReportSection>
   );
@@ -1391,12 +1457,12 @@ async function getBalancesReport({
     orderBy: [{ paymentDueDate: "asc" }, { updatedAt: "desc" }],
     skip: (page - 1) * PAGE_SIZE,
     take: PAGE_SIZE + 1,
-    include: orderListInclude(permissions)
+    select: orderListSelect(permissions)
   });
   const hasNext = orders.length > PAGE_SIZE;
 
   return (
-    <ReportSection title="Outstanding Balances" description="Orders and customers with remaining balances.">
+    <ReportSection title="Outstanding Balances" description="Orders with remaining customer balances.">
       <OrderTable orders={orders.slice(0, PAGE_SIZE)} mode="balances" permissions={permissions} />
       <Pagination page={page} hasNext={hasNext} params={params} />
     </ReportSection>
@@ -1423,7 +1489,7 @@ async function getOrderReport({
     orderBy: mode === "unfinished" ? { updatedAt: "desc" } : { createdAt: "desc" },
     skip: (page - 1) * PAGE_SIZE,
     take: PAGE_SIZE + 1,
-    include: orderListInclude(permissions)
+    select: orderListSelect(permissions)
   });
   const hasNext = orders.length > PAGE_SIZE;
 
@@ -1432,63 +1498,14 @@ async function getOrderReport({
       title={title}
       description={
         mode === "unfinished"
-          ? "Orders that still need payment, delivery, or operational follow-up."
-          : "Searchable order history with payment, delivery, staff, quotation, and inquiry context."
+          ? "Orders that still need payment, delivery, or follow-up."
+          : "Saved order history with customer and status context."
       }
     >
       <OrderTable orders={orders.slice(0, PAGE_SIZE)} mode={mode} permissions={permissions} />
       <Pagination page={page} hasNext={hasNext} params={params} />
     </ReportSection>
   );
-}
-
-function orderListInclude(permissions: Permissions) {
-  return {
-    createdBy: {
-      select: {
-        displayName: true
-      }
-    },
-    quotation: permissions.canViewQuotations
-        ? {
-          select: {
-            id: true,
-            quotationNumber: true
-          }
-        }
-      : false,
-    inquiry: permissions.canViewInquiries
-      ? {
-          select: {
-            id: true,
-            sourceReference: true
-          }
-        }
-      : false,
-    deliveries: permissions.canViewDeliveries
-      ? {
-          where: {
-            status: {
-              in: ["PLANNED", "SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED"]
-            }
-          },
-          orderBy: {
-            scheduledDate: "asc"
-          },
-          take: 1,
-          select: {
-            scheduledDate: true
-          }
-        }
-      : false,
-    _count: {
-      select: {
-        payments: true,
-        deliveries: true,
-        documents: true
-      }
-    }
-  } satisfies Prisma.OrderInclude;
 }
 
 function salesWorkflowDetails(order: {
@@ -1510,9 +1527,39 @@ function salesWorkflowDetails(order: {
   ].filter(Boolean);
 }
 
-type OrderListRow = Prisma.OrderGetPayload<{
-  include: ReturnType<typeof orderListInclude>;
-}>;
+type OrderListRow = {
+  id: string;
+  orderNumber: string | null;
+  customerDisplayNameSnapshot: string;
+  companyNameSnapshot: string | null;
+  contactPersonNameSnapshot: string | null;
+  status: string;
+  deliveryStatus: string;
+  paymentStatus?: string;
+  paymentDueTiming?: string | null;
+  paymentDueDate?: Date | null;
+  totalAmount?: unknown;
+  paidAmount?: unknown;
+  balanceAmount?: unknown;
+  lastPaymentAt?: Date | null;
+  needsAssembly: boolean;
+  salesInvoiceRequested: boolean;
+  modeOfDelivery: string | null;
+  deliveryMethod: string | null;
+  paymentTerms: string | null;
+  specialInstructions: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: { displayName: string } | null;
+  quotation?: { id: string; quotationNumber: string | null } | null;
+  inquiry?: { id: string; sourceReference: string | null } | null;
+  deliveries?: Array<{ scheduledDate: Date | null }>;
+  _count: {
+    payments?: number;
+    deliveries?: number;
+    documents?: number;
+  };
+};
 
 function OrderTable({
   orders,
@@ -1523,6 +1570,9 @@ function OrderTable({
   mode: "orders" | "unfinished" | "balances";
   permissions: Permissions;
 }) {
+  const showPaymentColumns = permissions.canViewPayments;
+  const showDeliverySchedule = permissions.canViewDeliveries;
+
   return (
     <>
       <table className="w-full min-w-[1320px] text-left text-sm">
@@ -1532,16 +1582,14 @@ function OrderTable({
             <TableHead>Customer</TableHead>
             <TableHead>Assigned staff</TableHead>
             <TableHead>Order status</TableHead>
-            <TableHead>Payment status</TableHead>
+            {showPaymentColumns ? <TableHead>Payment status</TableHead> : null}
             <TableHead>Delivery status</TableHead>
             {mode === "unfinished" ? <TableHead>Needed action</TableHead> : null}
-            <TableHead>Total</TableHead>
-            {permissions.canViewPayments ? <TableHead>Cost</TableHead> : null}
-            {permissions.canViewPayments ? <TableHead>Gross profit</TableHead> : null}
-            <TableHead>Paid</TableHead>
-            <TableHead>Balance</TableHead>
-            <TableHead>Last payment</TableHead>
-            <TableHead>Next delivery</TableHead>
+            {showPaymentColumns ? <TableHead>Total</TableHead> : null}
+            {showPaymentColumns ? <TableHead>Paid</TableHead> : null}
+            {showPaymentColumns ? <TableHead>Balance</TableHead> : null}
+            {showPaymentColumns ? <TableHead>Last payment</TableHead> : null}
+            {showDeliverySchedule ? <TableHead>Next delivery</TableHead> : null}
             {mode === "balances" ? <TableHead>Due timing</TableHead> : null}
             <TableHead>Created</TableHead>
             <TableHead>Updated</TableHead>
@@ -1555,13 +1603,13 @@ function OrderTable({
             const customer = orderSnapshotCustomer(order, permissions.canViewCustomers);
             const quotation = "quotation" in order ? order.quotation : null;
             const inquiry = "inquiry" in order ? order.inquiry : null;
-            const deliveries = "deliveries" in order ? order.deliveries : [];
+            const deliveries = "deliveries" in order ? (order.deliveries ?? []) : [];
             const salesDetails = salesWorkflowDetails(order);
 
             return (
               <tr key={order.id}>
                 <TableCell>
-                  <Link href="/orders" className="font-medium text-primary hover:underline">
+                  <Link href={`/orders?orderId=${order.id}`} className="font-medium text-primary hover:underline">
                     {order.orderNumber ?? "Not assigned"}
                   </Link>
                 </TableCell>
@@ -1573,24 +1621,34 @@ function OrderTable({
                 <TableCell>
                   <StatusPill tone={statusTone(order.status)}>{labelFromEnum(order.status)}</StatusPill>
                 </TableCell>
-                <TableCell>
-                  <StatusPill tone={statusTone(order.paymentStatus)}>
-                    {labelFromEnum(order.paymentStatus)}
-                  </StatusPill>
-                </TableCell>
+                {showPaymentColumns ? (
+                  <TableCell>
+                    <StatusPill tone={statusTone(order.paymentStatus)}>
+                      {labelFromEnum(order.paymentStatus)}
+                    </StatusPill>
+                  </TableCell>
+                ) : null}
                 <TableCell>
                   <StatusPill tone={statusTone(order.deliveryStatus)}>
                     {labelFromEnum(order.deliveryStatus)}
                   </StatusPill>
                 </TableCell>
-                {mode === "unfinished" ? <TableCell>{neededAction({ ...order, deliveries })}</TableCell> : null}
-                <TableCell>{permissions.canViewPayments ? formatMoney(order.totalAmount) : "Restricted"}</TableCell>
-                {permissions.canViewPayments ? <TableCell>{formatMoney(order.totalCostAmount)}</TableCell> : null}
-                {permissions.canViewPayments ? <TableCell>{formatMoney(order.grossProfitAmount)}</TableCell> : null}
-                <TableCell>{permissions.canViewPayments ? formatMoney(order.paidAmount) : "Restricted"}</TableCell>
-                <TableCell>{permissions.canViewPayments ? formatMoney(order.balanceAmount) : "Restricted"}</TableCell>
-                <TableCell>{permissions.canViewPayments ? formatDate(order.lastPaymentAt) : "Restricted"}</TableCell>
-                <TableCell>{permissions.canViewDeliveries ? formatDate(deliveries[0]?.scheduledDate) : "Restricted"}</TableCell>
+                {mode === "unfinished" ? (
+                  <TableCell>
+                    {neededAction({
+                      deliveryStatus: order.deliveryStatus,
+                      deliveries,
+                      paymentStatus: order.paymentStatus,
+                      paymentDueDate: order.paymentDueDate,
+                      balanceAmount: order.balanceAmount
+                    })}
+                  </TableCell>
+                ) : null}
+                {showPaymentColumns ? <TableCell>{formatMoney(order.totalAmount)}</TableCell> : null}
+                {showPaymentColumns ? <TableCell>{formatMoney(order.paidAmount)}</TableCell> : null}
+                {showPaymentColumns ? <TableCell>{formatMoney(order.balanceAmount)}</TableCell> : null}
+                {showPaymentColumns ? <TableCell>{formatDate(order.lastPaymentAt)}</TableCell> : null}
+                {showDeliverySchedule ? <TableCell>{formatDate(deliveries[0]?.scheduledDate)}</TableCell> : null}
                 {mode === "balances" ? (
                   <TableCell>
                     <div>{labelFromEnum(order.paymentDueTiming)}</div>
@@ -1601,7 +1659,16 @@ function OrderTable({
                 <TableCell>{formatDate(order.updatedAt)}</TableCell>
                 {mode === "orders" ? (
                   <TableCell>
-                    <div>Quotation {quotation ? (quotation.quotationNumber ?? "Not assigned") : "None"}</div>
+                    <div>
+                      Quotation{" "}
+                      {quotation ? (
+                        <Link href={`/quotations/${quotation.id}`} className="text-primary hover:underline">
+                          {quotation.quotationNumber ?? "Not assigned"}
+                        </Link>
+                      ) : (
+                        "None"
+                      )}
+                    </div>
                     <div className="text-xs">Inquiry {inquiry?.sourceReference ?? inquiry?.id?.slice(0, 8) ?? "None"}</div>
                     {salesDetails.map((detail) => (
                       <div key={detail} className="text-xs text-muted-foreground">
@@ -1611,10 +1678,7 @@ function OrderTable({
                   </TableCell>
                 ) : null}
                 {mode === "orders" ? (
-                  <TableCell>
-                    {order._count.payments} payments · {order._count.deliveries} deliveries ·{" "}
-                    {order._count.documents} docs
-                  </TableCell>
+                  <TableCell>{orderCountSummary(order, permissions)}</TableCell>
                 ) : null}
                 <TableCell>
                   {permissions.canExportDocuments ? (
@@ -1630,27 +1694,57 @@ function OrderTable({
           })}
         </tbody>
       </table>
-      <EmptyState show={orders.length === 0} label="No orders match the current filters." />
+      <EmptyState show={orders.length === 0} label={orderEmptyLabel(mode)} />
     </>
   );
+}
+
+function orderEmptyLabel(mode: "orders" | "unfinished" | "balances") {
+  if (mode === "unfinished") {
+    return "No orders needing action match the current filters.";
+  }
+
+  if (mode === "balances") {
+    return "No outstanding balances match the current filters.";
+  }
+
+  return "No orders match the current filters.";
+}
+
+function orderCountSummary(order: OrderListRow, permissions: Permissions) {
+  const parts = [];
+
+  if (permissions.canViewPayments) {
+    parts.push(`${order._count.payments ?? 0} payment records`);
+  }
+
+  if (permissions.canViewDeliveries) {
+    parts.push(`${order._count.deliveries ?? 0} deliveries`);
+  }
+
+  if (permissions.canViewDocuments || permissions.canExportDocuments) {
+    parts.push(`${order._count.documents ?? 0} docs`);
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : "Restricted";
 }
 
 async function getCustomerReport({
   query,
   staffId,
-  createdDateRange,
+  dateRange,
   permissions
 }: {
   query: string | undefined;
   staffId: string | undefined;
-  createdDateRange: { gte?: Date; lte?: Date } | undefined;
+  dateRange: { gte?: Date; lte?: Date } | undefined;
   permissions: Permissions;
 }) {
   const customers = await prisma.customer.findMany({
     where: {
       archivedAt: null,
       assignedStaffId: staffId,
-      createdAt: createdDateRange,
+      createdAt: dateRange,
       OR: query
         ? [
             { displayName: { contains: query, mode: "insensitive" } },
@@ -1714,19 +1808,7 @@ async function getCustomerReport({
               updatedAt: "desc"
             },
             take: 3,
-            select: {
-              id: true,
-              orderNumber: true,
-              status: true,
-              paymentStatus: true,
-              deliveryStatus: true,
-              totalAmount: true,
-              totalCostAmount: true,
-              grossProfitAmount: true,
-              paidAmount: true,
-              balanceAmount: true,
-              updatedAt: true
-            }
+            select: customerHistoryOrderSelect(permissions)
           }
         : false,
       payments: permissions.canViewPayments
@@ -1746,12 +1828,7 @@ async function getCustomerReport({
           }
         : false,
       _count: {
-        select: {
-          inquiries: true,
-          quotations: true,
-          orders: true,
-          payments: true
-        }
+        select: customerHistoryCountSelect(permissions)
       }
     }
   });
@@ -1794,7 +1871,7 @@ async function getCustomerReport({
   return (
     <ReportSection
       title="Customer Sales History"
-      description="Customer profile summaries with related activity composed by module permissions."
+      description="Customer-level sales activity summary."
     >
       <div className="divide-y divide-border">
         {customers.map((customer) => {
@@ -1803,9 +1880,9 @@ async function getCustomerReport({
           const inquiries = "inquiries" in customer ? customer.inquiries : [];
           const payments = "payments" in customer ? customer.payments : [];
           const deliveries = deliveriesByCustomerId.get(customer.id) ?? [];
-          const outstandingBalance = orders.reduce((sum, order) => sum + Number(order.balanceAmount), 0);
-          const totalCost = orders.reduce((sum, order) => sum + Number(order.totalCostAmount), 0);
-          const grossProfit = orders.reduce((sum, order) => sum + Number(order.grossProfitAmount), 0);
+          const outstandingBalance = permissions.canViewPayments
+            ? orders.reduce((sum, order) => sum + Number(order.balanceAmount ?? 0), 0)
+            : 0;
 
           return (
             <article key={customer.id} className="px-5 py-5">
@@ -1823,22 +1900,14 @@ async function getCustomerReport({
                     Latest activity {formatDate(customer.updatedAt)}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-center text-xs text-muted-foreground sm:grid-cols-7">
-                  <MiniCount label="Inquiries" value={permissions.canViewInquiries ? customer._count.inquiries : null} />
-                  <MiniCount label="Quotes" value={permissions.canViewQuotations ? customer._count.quotations : null} />
-                  <MiniCount label="Orders" value={permissions.canViewOrders ? customer._count.orders : null} />
-                  <MiniCount label="Payments" value={permissions.canViewPayments ? customer._count.payments : null} />
+                <div className="grid grid-cols-2 gap-2 text-center text-xs text-muted-foreground sm:grid-cols-5">
+                  <MiniCount label="Inquiries" value={permissions.canViewInquiries ? customer._count.inquiries ?? 0 : null} />
+                  <MiniCount label="Quotes" value={permissions.canViewQuotations ? customer._count.quotations ?? 0 : null} />
+                  <MiniCount label="Orders" value={permissions.canViewOrders ? customer._count.orders ?? 0 : null} />
+                  <MiniCount label="Payment Records" value={permissions.canViewPayments ? customer._count.payments ?? 0 : null} />
                   <MiniCount
                     label="Balance"
                     value={permissions.canViewPayments ? formatMoney(outstandingBalance) : null}
-                  />
-                  <MiniCount
-                    label="Cost"
-                    value={permissions.canViewPayments ? formatMoney(totalCost) : null}
-                  />
-                  <MiniCount
-                    label="Profit"
-                    value={permissions.canViewPayments ? formatMoney(grossProfit) : null}
                   />
                 </div>
               </div>
@@ -1856,6 +1925,7 @@ async function getCustomerReport({
                       key={quotation.id}
                       title={quotation.quotationNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(quotation.status)} · ${formatMoney(quotation.totalAmount)}`}
+                      href={`/quotations/${quotation.id}`}
                     />
                   ))}
                   <EmptyInline show={quotations.length === 0} label="No visible quotations" />
@@ -1866,8 +1936,9 @@ async function getCustomerReport({
                       key={order.id}
                       title={order.orderNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(order.status)} · ${labelFromEnum(order.deliveryStatus)}${
-                        permissions.canViewPayments ? ` · Profit ${formatMoney(order.grossProfitAmount)}` : ""
+                        permissions.canViewPayments ? ` · Balance ${formatMoney(order.balanceAmount ?? 0)}` : ""
                       }`}
+                      href={`/orders?orderId=${order.id}`}
                     />
                   ))}
                   <EmptyInline show={orders.length === 0} label="No visible orders" />
@@ -1878,6 +1949,7 @@ async function getCustomerReport({
                       key={payment.id}
                       title={payment.paymentNumber ?? "Not assigned"}
                       meta={`${labelFromEnum(payment.paymentType)} · ${formatMoney(payment.amount)}`}
+                      href={permissions.canExportDocuments ? `/api/documents/payment-receipt/${payment.id}` : undefined}
                     />
                   ))}
                   <EmptyInline show={payments.length === 0} label="No visible payments" />
@@ -1888,6 +1960,7 @@ async function getCustomerReport({
                       key={delivery.id}
                       title={delivery.deliveryNumber ?? "Not assigned"}
                       meta={`${delivery.order.orderNumber ?? "Order"} · ${labelFromEnum(delivery.status)}`}
+                      href={permissions.canExportDocuments ? `/api/documents/delivery-receipt/${delivery.id}` : undefined}
                     />
                   ))}
                   <EmptyInline show={deliveries.length === 0} label="No visible deliveries" />
@@ -1902,12 +1975,42 @@ async function getCustomerReport({
   );
 }
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <section className="rounded-lg border border-border bg-background px-5 py-4">
-      <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-    </section>
+function OverviewMetricCard({
+  label,
+  value,
+  helper,
+  href,
+  primary = false
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  href?: string;
+  primary?: boolean;
+}) {
+  const className = [
+    "block rounded-lg border border-border/70 bg-background px-5 transition",
+    primary ? "min-h-32 py-5" : "min-h-28 py-4",
+    href ? "hover:border-primary/35 hover:bg-soft-accent/30" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const content = (
+    <>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className={primary ? "mt-4 text-3xl font-semibold text-foreground" : "mt-3 text-2xl font-semibold text-foreground"}>
+        {value}
+      </p>
+      {helper ? <p className="mt-3 text-xs leading-5 text-muted-foreground">{helper}</p> : null}
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className={className}>
+      {content}
+    </Link>
+  ) : (
+    <section className={className}>{content}</section>
   );
 }
 
@@ -1951,10 +2054,20 @@ function CustomerHistoryBlock({
   );
 }
 
-function CompactRow({ title, meta }: { title: string; meta: string }) {
+function CompactRow({ title, meta, href }: { title: string; meta: string; href?: string }) {
   return (
     <div>
-      <div className="font-medium text-foreground">{title}</div>
+      {href?.startsWith("/api/") ? (
+        <a href={href} className="font-medium text-primary hover:underline">
+          {title}
+        </a>
+      ) : href ? (
+        <Link href={href} className="font-medium text-primary hover:underline">
+          {title}
+        </Link>
+      ) : (
+        <div className="font-medium text-foreground">{title}</div>
+      )}
       <div className="text-xs text-muted-foreground">{meta}</div>
     </div>
   );

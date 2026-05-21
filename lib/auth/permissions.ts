@@ -58,7 +58,8 @@ export const staffDefaultPermissions: Partial<Record<ModuleKey, ActionKey[]>> = 
   ORDERS: ["VIEW", "CREATE", "UPDATE"],
   PAYMENTS: ["VIEW", "CREATE", "UPDATE"],
   DELIVERIES: ["VIEW", "CREATE", "UPDATE"],
-  DOCUMENTS: ["VIEW", "CREATE", "UPDATE", "EXPORT"]
+  DOCUMENTS: ["VIEW", "CREATE", "UPDATE", "EXPORT"],
+  SALES_HISTORY: ["VIEW"]
 };
 
 export type UserWithPermissions = UserProfile & {

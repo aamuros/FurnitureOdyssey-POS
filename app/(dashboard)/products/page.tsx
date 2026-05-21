@@ -66,6 +66,7 @@ function productsHref(
 
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const user = await requirePermission("PRODUCTS", "VIEW");
+  const canViewProductCost = hasPermission(user, "PAYMENTS", "VIEW");
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const status =
@@ -105,6 +106,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         description: true,
         specifications: true,
         referencePrice: true,
+        referenceCost: canViewProductCost,
         currency: true,
         status: true,
         updatedAt: true,
@@ -197,6 +199,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         canCreate={hasPermission(user, "PRODUCTS", "CREATE")}
         canUpdate={hasPermission(user, "PRODUCTS", "UPDATE")}
         canDelete={hasPermission(user, "PRODUCTS", "DELETE")}
+        canViewProductCost={canViewProductCost}
         hasActiveFilters={hasActiveFilters}
         categories={categoryOptions}
         products={products.map((product) => {
@@ -210,6 +213,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             description: product.description,
             specifications: product.specifications,
             referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
+            referenceCost:
+              canViewProductCost && "referenceCost" in product && product.referenceCost
+                ? Number(product.referenceCost)
+                : null,
             currency: product.currency,
             status: product.status,
             primaryImage: primaryImage
