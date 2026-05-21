@@ -9,7 +9,6 @@ import {
   ArrowLeft,
   CalendarClock,
   Download,
-  ListChecks,
   MoreHorizontal,
   PackageSearch,
   Plus,
@@ -35,7 +34,6 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
 import {
   deliveryStatusLabel,
-  orderStatusLabel,
   paymentDueTimingLabel,
   paymentStatusLabel,
   paymentTypeLabel,
@@ -238,13 +236,7 @@ type OrderNextStep = {
   blocked?: boolean;
   tone: StatusTone;
 };
-type WorkflowStepState = "complete" | "current" | "blocked" | "pending" | "restricted";
-type OrderWorkflowStep = {
-  key: string;
-  label: string;
-  state: WorkflowStepState;
-  detail: string;
-};
+type OrderDetailTab = "overview" | "items" | "payments" | "deliveries" | "documents" | "notes";
 
 type NewOrderLauncherProps = Pick<
   OrderWorkspaceProps,
@@ -555,20 +547,21 @@ function DeliveryForm({ order }: { order: OrderRow }) {
     : [];
 
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} className="space-y-5 text-sm">
       <input type="hidden" name="orderId" value={order.id} />
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
-      <label className="block space-y-2 text-sm font-medium">
+      <label className="block space-y-2 text-[14px] font-medium text-foreground">
         Scheduled date
-        <Input name="scheduledDate" type="date" required aria-label="Scheduled date" />
+        <Input name="scheduledDate" type="date" required aria-label="Scheduled date" className="text-[15px]" />
       </label>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
-        <label className="space-y-2 text-sm font-medium">
+      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
+        <label className="space-y-2 text-[14px] font-medium text-foreground">
           Item
           <Select
             value={orderItemId}
             onChange={(event) => setOrderItemId(event.target.value)}
             aria-label="Delivery item"
+            className="text-[15px]"
           >
             {order.items.map((item) => (
               <option key={item.id} value={item.id}>
@@ -577,7 +570,7 @@ function DeliveryForm({ order }: { order: OrderRow }) {
             ))}
           </Select>
         </label>
-        <label className="space-y-2 text-sm font-medium">
+        <label className="space-y-2 text-[14px] font-medium text-foreground">
           Quantity
           <Input
             type="number"
@@ -587,47 +580,74 @@ function DeliveryForm({ order }: { order: OrderRow }) {
             value={quantityPlanned}
             onChange={(event) => setQuantityPlanned(Number(event.target.value))}
             aria-label="Delivery quantity"
+            className="text-[15px]"
           />
         </label>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="space-y-2 text-sm font-medium">
-          Provider type
-          <Select name="deliveryProviderType" defaultValue="" aria-label="Delivery provider type">
-            <option value="">Provider type optional</option>
+      <fieldset className="space-y-2">
+        <legend className="text-[14px] font-medium text-foreground">Provider</legend>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select
+            name="deliveryProviderType"
+            defaultValue=""
+            aria-label="Delivery provider type"
+            className="text-[15px]"
+          >
+            <option value="">Provider type</option>
             <option value="IN_HOUSE">In-house</option>
             <option value="CUSTOMER_PICKUP">Customer pickup</option>
             <option value="THIRD_PARTY">Third-party</option>
             <option value="OTHER">Other</option>
           </Select>
-        </label>
-        <label className="space-y-2 text-sm font-medium">
-          Provider name
-          <Input name="deliveryProviderName" placeholder="Provider name optional" />
-        </label>
-      </div>
-      <label className="block space-y-2 text-sm font-medium">
+          <Input
+            name="deliveryProviderName"
+            placeholder="Provider name"
+            aria-label="Delivery provider name"
+            className="text-[15px]"
+          />
+        </div>
+      </fieldset>
+      <label className="block space-y-2 text-[14px] font-medium text-foreground">
         Address
-        <Input name="deliveryAddress" placeholder="Address optional" />
+        <Input name="deliveryAddress" placeholder="Address optional" className="text-[15px]" />
       </label>
-      <details className="rounded-lg border border-border bg-background p-3">
-        <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">More details</summary>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Input name="deliveryProviderReference" placeholder="Provider reference" />
-          <Input name="scheduledTimeWindow" placeholder="Time window" />
-          <Input name="recipientName" placeholder="Recipient" />
-          <Input name="recipientPhone" placeholder="Phone" />
-          <Textarea name="deliveryNotes" placeholder="Delivery notes" />
-          <Textarea name="internalNotes" placeholder="Internal notes" />
+      <details className="rounded-md border border-dashed border-border bg-panel/55 px-4 py-3">
+        <summary className="cursor-pointer text-[14px] font-medium text-muted-foreground">
+          Additional delivery details
+        </summary>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="space-y-2 text-[13px] font-medium">
+            Provider reference
+            <Input name="deliveryProviderReference" placeholder="Reference optional" className="text-[14px]" />
+          </label>
+          <label className="space-y-2 text-[13px] font-medium">
+            Time window
+            <Input name="scheduledTimeWindow" placeholder="Example: 1 PM - 4 PM" className="text-[14px]" />
+          </label>
+          <label className="space-y-2 text-[13px] font-medium">
+            Recipient
+            <Input name="recipientName" placeholder="Recipient optional" className="text-[14px]" />
+          </label>
+          <label className="space-y-2 text-[13px] font-medium">
+            Phone
+            <Input name="recipientPhone" placeholder="Phone optional" className="text-[14px]" />
+          </label>
+          <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
+            Delivery notes
+            <Textarea name="deliveryNotes" placeholder="Delivery notes optional" className="text-[14px]" />
+          </label>
+          <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
+            Internal notes
+            <Textarea name="internalNotes" placeholder="Internal notes optional" className="text-[14px]" />
+          </label>
         </div>
       </details>
-      <div className="rounded-md bg-background px-3 py-2 text-sm text-muted-foreground">
-        New deliveries are created as Scheduled. Use delivery progress to move them forward.
+      <div className="pt-0">
+        <Button disabled={pending || !orderItemId || remainingQuantity <= 0 || quantityPlanned <= 0} className="w-full text-[15px]">
+          <Truck className="h-4 w-4" />
+          Schedule delivery
+        </Button>
       </div>
-      <Button disabled={pending || !orderItemId || remainingQuantity <= 0} className="w-full">
-        <Truck className="h-4 w-4" />
-        Schedule delivery
-      </Button>
       {state.message ? (
         <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
       ) : null}
@@ -1021,10 +1041,6 @@ function deliverySupportSummary(order: OrderRow) {
   };
 }
 
-function hasScheduledDelivery(order: OrderRow) {
-  return order.deliveries.some((delivery) => !["CANCELLED", "FAILED"].includes(delivery.status));
-}
-
 function getDeliveryProgressTarget(order: OrderRow) {
   return (
     order.deliveries.find((delivery) =>
@@ -1141,7 +1157,7 @@ function getOrderNextStep({
     return {
       label: "Schedule delivery",
       reason: canCreateDeliveries
-        ? "Payment complete. Delivery can now be scheduled."
+        ? "Payment is complete. Choose a delivery date and provider."
         : "Delivery can be scheduled, but your role cannot create deliveries.",
       ctaLabel: "Schedule delivery",
       action: canCreateDeliveries ? "delivery" : null,
@@ -1195,80 +1211,6 @@ function getOrderNextStep({
   };
 }
 
-function getOrderWorkflowSteps(
-  order: OrderRow,
-  canViewPayments: boolean,
-  canViewDeliveries: boolean,
-  canExportDocuments: boolean
-): OrderWorkflowStep[] {
-  return [
-    {
-      key: "confirmed",
-      label: "Order confirmed",
-      state: order.status === "CANCELLED" ? "blocked" : order.status === "DRAFT" ? "current" : "complete",
-      detail: orderStatusLabel(order.status)
-    },
-    {
-      key: "payment",
-      label: "Payment",
-      state: !canViewPayments
-        ? "restricted"
-        : isPaymentPaid(order)
-          ? "complete"
-          : hasBalanceDue(order)
-            ? "current"
-            : "pending",
-      detail: canViewPayments ? paymentSupportSummary(order).value : "Restricted"
-    },
-    {
-      key: "delivery-scheduled",
-      label: "Delivery scheduled",
-      state: !canViewDeliveries
-        ? "restricted"
-        : hasScheduledDelivery(order)
-          ? "complete"
-          : order.canScheduleDelivery
-            ? "current"
-            : "pending",
-      detail: canViewDeliveries ? deliverySupportSummary(order).value : "Restricted"
-    },
-    {
-      key: "delivered",
-      label: "Delivered",
-      state: !canViewDeliveries
-        ? "restricted"
-        : isDeliveryComplete(order)
-          ? "complete"
-          : isDeliveryPartiallyDelivered(order) || isDeliveryScheduled(order)
-            ? "current"
-            : "pending",
-      detail: canViewDeliveries ? deliveryStatusLabel(order.deliveryStatus) : "Restricted"
-    },
-    {
-      key: "completed",
-      label: "Completed",
-      state: order.status === "COMPLETED" ? "complete" : order.canCompleteOrder ? "current" : "pending",
-      detail: order.status === "COMPLETED" ? "Closed" : order.canCompleteOrder ? "Ready" : "Pending"
-    },
-    {
-      key: "documents",
-      label: "Documents",
-      state: !canExportDocuments
-        ? "restricted"
-        : order.documents.length > 0
-          ? "complete"
-          : order.salesInvoiceRequested || order.status === "COMPLETED"
-            ? "current"
-            : "pending",
-      detail: canExportDocuments
-        ? order.documents.length > 0
-          ? `${order.documents.length} saved`
-          : "Available below"
-        : "Restricted"
-    }
-  ];
-}
-
 function staffDisplayName(name: string | null) {
   if (!name) {
     return "Unassigned";
@@ -1294,6 +1236,27 @@ function orderMetaLine(order: OrderRow) {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+function orderDrawerMetaLine(order: OrderRow) {
+  return [
+    order.relatedQuotationNumber ? `Quote ${order.relatedQuotationNumber}` : null,
+    readableLabel(order.sourceType),
+    itemCountLabel(order.items.length),
+    order.totalAmount
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function remainingItemLines(order: OrderRow) {
+  return order.items.filter((item) => item.remainingQuantity > 0);
+}
+
+function remainingItemCountLabel(order: OrderRow) {
+  const count = remainingItemLines(order).length;
+
+  return `${count} ${count === 1 ? "item" : "items"} remaining`;
 }
 
 function canScheduleDelivery(order: OrderRow, canViewDeliveries: boolean, canCreateDeliveries: boolean) {
@@ -3260,6 +3223,7 @@ function OrderDetailPanel({
   onActionChange: (actionKey: ActiveOrderAction, source?: OrderActionSource) => void;
 }) {
   const panelRef = useRef<HTMLElement | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<OrderDetailTab>("overview");
   const nextStep = getOrderNextStep({
     order,
     canUpdateOrders,
@@ -3269,6 +3233,10 @@ function OrderDetailPanel({
     canCreateDeliveries,
     canUpdateDeliveries
   });
+
+  useEffect(() => {
+    setActiveDetailTab("overview");
+  }, [order.id]);
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -3301,7 +3269,7 @@ function OrderDetailPanel({
         aria-labelledby="order-detail-title"
         aria-describedby="order-detail-description"
         tabIndex={-1}
-        className="relative ml-auto flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-border bg-panel shadow-xl focus-visible:outline-none"
+        className="relative ml-auto flex h-full w-full max-w-[780px] flex-col overflow-hidden border-l border-border bg-background shadow-xl focus-visible:outline-none"
       >
         <OrderPanelHeader
           order={order}
@@ -3310,11 +3278,11 @@ function OrderDetailPanel({
           onClose={onClose}
         />
 
-        <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-5">
+        <div className="flex-1 overflow-y-auto px-6 py-6">
           <p id="order-detail-description" className="sr-only">
-            Order workflow details for {order.displayId} and {order.customerName}.
+            Order details for {order.displayId} and {order.customerName}.
           </p>
-          <div className="mx-auto max-w-4xl space-y-5 pb-8">
+          <div className="w-full space-y-6 pb-10">
             <OrderNextStepCard
               order={order}
               nextStep={nextStep}
@@ -3327,44 +3295,53 @@ function OrderDetailPanel({
               canUpdateDeliveries={canUpdateDeliveries}
               onActionChange={(action) => onActionChange(action, "next")}
             />
-            <OrderWorkflowTimeline
-              order={order}
-              canViewPayments={canViewPayments}
-              canViewDeliveries={canViewDeliveries}
-              canExportDocuments={canExportDocuments}
-            />
-            <OrderSummarySection
-              order={order}
-              canViewPayments={canViewPayments}
-              canViewDeliveries={canViewDeliveries}
-            />
-            <ItemsSection
-              order={order}
-              canViewPayments={canViewPayments}
-              canViewDeliveries={canViewDeliveries}
-            />
-            <PaymentSection
-              order={order}
-              canUpdateOrders={canUpdateOrders}
-              canViewPayments={canViewPayments}
-              canCreatePayments={canCreatePayments}
-              activeAction={activeActionSource === "section" ? activeAction : null}
-              onActionChange={(action) => onActionChange(action, "section")}
-            />
-            <DeliverySection
-              order={order}
-              canViewDeliveries={canViewDeliveries}
-              canCreateDeliveries={canCreateDeliveries}
-              canUpdateDeliveries={canUpdateDeliveries}
-              activeAction={activeActionSource === "section" ? activeAction : null}
-              onActionChange={(action) => onActionChange(action, "section")}
-            />
-            <DocumentsSection order={order} canExportDocuments={canExportDocuments} />
-            <NotesSection
-              order={order}
-              canViewPayments={canViewPayments}
-              canViewDeliveries={canViewDeliveries}
-            />
+            <div className="space-y-5">
+              <OrderDetailTabs activeTab={activeDetailTab} onTabChange={setActiveDetailTab} />
+              {activeDetailTab === "overview" ? (
+                <OrderOverviewSummary
+                  order={order}
+                  canViewPayments={canViewPayments}
+                  canViewDeliveries={canViewDeliveries}
+                />
+              ) : null}
+              {activeDetailTab === "items" ? (
+                <ItemsSection
+                  order={order}
+                  canViewPayments={canViewPayments}
+                  canViewDeliveries={canViewDeliveries}
+                />
+              ) : null}
+              {activeDetailTab === "payments" ? (
+                <PaymentSection
+                  order={order}
+                  canUpdateOrders={canUpdateOrders}
+                  canViewPayments={canViewPayments}
+                  canCreatePayments={canCreatePayments}
+                  activeAction={activeActionSource === "section" ? activeAction : null}
+                  onActionChange={(action) => onActionChange(action, "section")}
+                />
+              ) : null}
+              {activeDetailTab === "deliveries" ? (
+                <DeliverySection
+                  order={order}
+                  canViewDeliveries={canViewDeliveries}
+                  canCreateDeliveries={canCreateDeliveries}
+                  canUpdateDeliveries={canUpdateDeliveries}
+                  activeAction={activeActionSource === "section" ? activeAction : null}
+                  onActionChange={(action) => onActionChange(action, "section")}
+                />
+              ) : null}
+              {activeDetailTab === "documents" ? (
+                <DocumentsSection order={order} canExportDocuments={canExportDocuments} />
+              ) : null}
+              {activeDetailTab === "notes" ? (
+                <NotesSection
+                  order={order}
+                  canViewPayments={canViewPayments}
+                  canViewDeliveries={canViewDeliveries}
+                />
+              ) : null}
+            </div>
           </div>
         </div>
       </aside>
@@ -3384,36 +3361,43 @@ function OrderPanelHeader({
   onClose: () => void;
 }) {
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-panel/95 px-4 py-3 backdrop-blur sm:px-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="order-detail-title" className="truncate text-base font-semibold sm:text-lg">
-            {order.displayId} · {order.customerName}
+    <header className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-5 backdrop-blur">
+      <div className="w-full">
+        <div className="flex items-start justify-between gap-4">
+          <h2 id="order-detail-title" className="min-w-0 text-[21px] font-semibold leading-7">
+            <span className="tabular-nums">{order.displayId}</span>
+            <span className="mx-2 text-muted-foreground">·</span>
+            <span>{order.customerName}</span>
           </h2>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <StatusPill tone={statusTone(order.status)}>{orderStatusLabel(order.status)}</StatusPill>
-            {canViewPayments ? (
-              <StatusPill tone={statusTone(order.paymentStatus)}>
-                {paymentStatusLabel(order.paymentStatus)}
-              </StatusPill>
-            ) : null}
-            {canViewDeliveries ? (
-              <StatusPill tone={statusTone(order.deliveryStatus)}>
-                {deliveryStatusLabel(order.deliveryStatus)}
-              </StatusPill>
-            ) : null}
-          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            aria-label="Close order details"
+            className="h-9 min-h-9 w-9 shrink-0 rounded-md p-0"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close order details</span>
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label="Close order details"
-          className="h-9 min-h-9 w-9 shrink-0 rounded-md p-0"
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close order details</span>
-        </Button>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          {canViewPayments ? (
+            <StatusPill tone={statusTone(order.paymentStatus)}>
+              {paymentStatusLabel(order.paymentStatus)}
+            </StatusPill>
+          ) : null}
+          {canViewDeliveries ? (
+            <StatusPill tone={statusTone(order.deliveryStatus)}>
+              {deliveryStatusLabel(order.deliveryStatus)}
+            </StatusPill>
+          ) : null}
+          {canViewDeliveries ? (
+            <span className="inline-flex min-h-6 items-center rounded-full border border-border bg-background px-2.5 text-xs font-medium text-muted-foreground">
+              {remainingItemCountLabel(order)}
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-3 text-[14px] leading-6 text-muted-foreground">{orderDrawerMetaLine(order)}</p>
       </div>
     </header>
   );
@@ -3443,7 +3427,9 @@ function OrderNextStepCard({
   onActionChange: (actionKey: ActiveOrderAction) => void;
 }) {
   const formAction = nextStep.action && nextStep.action !== "complete" ? nextStep.action : null;
-  const isExpanded = formAction !== null && activeAction === formAction;
+  const isDeliveryAction = formAction === "delivery";
+  const isExpanded = formAction !== null && (isDeliveryAction || activeAction === formAction);
+  const expandedAction = isDeliveryAction ? formAction : activeAction;
 
   function handleReviewClick() {
     document.getElementById("order-summary")?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -3452,57 +3438,55 @@ function OrderNextStepCard({
   return (
     <section
       className={cn(
-        "rounded-lg border p-4",
+        "rounded-lg border bg-panel p-5 shadow-sm sm:p-6",
         nextStep.tone === "warning"
-          ? "border-warning/30 bg-warning/10"
+          ? "border-warning/25"
           : nextStep.tone === "success"
-            ? "border-success/30 bg-success/10"
-            : "border-primary/20 bg-primary/5"
+            ? "border-success/25"
+            : "border-primary/20"
       )}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="studio-kicker flex items-center gap-2">
-            <ListChecks className="h-4 w-4" />
-            Next step
-          </p>
-          <h3 className="mt-2 text-lg font-semibold">{nextStep.label}</h3>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{nextStep.reason}</p>
+          <p className="text-[13px] font-medium text-muted-foreground">Next action</p>
+          <h3 className="mt-1 text-[19px] font-semibold leading-7">{nextStep.label}</h3>
+          <p className="mt-1.5 max-w-2xl text-[14px] leading-6 text-muted-foreground">{nextStep.reason}</p>
         </div>
-        <div className="shrink-0">
-          {nextStep.action === "complete" && canUpdateOrders ? (
-            <CompleteOrderForm order={order} variant="primary" buttonClassName="w-full sm:w-auto" />
-          ) : (
-            <Button
-              type="button"
-              variant={formAction && !nextStep.blocked ? "primary" : "secondary"}
-              disabled={nextStep.blocked}
-              className="w-full sm:w-auto"
-              onClick={() => {
-                if (formAction) {
-                  onActionChange(isExpanded ? null : formAction);
-                  return;
-                }
+        {!isDeliveryAction ? (
+          <div className="shrink-0">
+            {nextStep.action === "complete" && canUpdateOrders ? (
+              <CompleteOrderForm order={order} variant="primary" buttonClassName="w-full sm:w-auto" />
+            ) : (
+              <Button
+                type="button"
+                variant={formAction && !nextStep.blocked ? "primary" : "secondary"}
+                disabled={nextStep.blocked}
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (formAction) {
+                    onActionChange(isExpanded ? null : formAction);
+                    return;
+                  }
 
-                onActionChange(null);
-                handleReviewClick();
-              }}
-            >
-              {nextStep.action === "payment" ? <ReceiptText className="h-4 w-4" /> : null}
-              {nextStep.action === "delivery" ? <Truck className="h-4 w-4" /> : null}
-              {typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") ? (
-                <Save className="h-4 w-4" />
-              ) : null}
-              {nextStep.ctaLabel}
-            </Button>
-          )}
-        </div>
+                  onActionChange(null);
+                  handleReviewClick();
+                }}
+              >
+                {nextStep.action === "payment" ? <ReceiptText className="h-4 w-4" /> : null}
+                {typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") ? (
+                  <Save className="h-4 w-4" />
+                ) : null}
+                {nextStep.ctaLabel}
+              </Button>
+            )}
+          </div>
+        ) : null}
       </div>
-      {isExpanded && activeAction ? (
-        <div className="mt-4 border-t border-border/70 pt-4">
+      {isExpanded && expandedAction ? (
+        <div className={cn("mt-6", !isDeliveryAction && "border-t border-border/70 pt-5")}>
           <OrderInlineActionForm
             order={order}
-            action={activeAction}
+            action={expandedAction}
             canUpdateOrders={canUpdateOrders}
             canViewPayments={canViewPayments}
             canCreatePayments={canCreatePayments}
@@ -3573,78 +3557,135 @@ function OrderInlineActionForm({
   return <DeliveryProgressForm delivery={delivery} />;
 }
 
-function workflowStepStateClass(state: WorkflowStepState) {
-  if (state === "complete") {
-    return "border-success/30 bg-success/10 text-success";
-  }
+const orderDetailTabs: Array<{ key: OrderDetailTab; label: string }> = [
+  { key: "overview", label: "Overview" },
+  { key: "items", label: "Items" },
+  { key: "payments", label: "Payments" },
+  { key: "deliveries", label: "Deliveries" },
+  { key: "documents", label: "Documents" },
+  { key: "notes", label: "Notes" }
+];
 
-  if (state === "current") {
-    return "border-primary/30 bg-primary/10 text-primary";
-  }
-
-  if (state === "blocked") {
-    return "border-danger/30 bg-danger/10 text-danger";
-  }
-
-  return "border-border bg-background text-muted-foreground";
+function OrderDetailTabs({
+  activeTab,
+  onTabChange
+}: {
+  activeTab: OrderDetailTab;
+  onTabChange: (tab: OrderDetailTab) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-max gap-1 rounded-lg bg-muted/30 p-1 sm:min-w-0" role="tablist">
+        {orderDetailTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            className={cn(
+              "min-h-10 whitespace-nowrap rounded-md px-3.5 text-[14px] font-medium text-muted-foreground transition hover:bg-panel/70 hover:text-foreground",
+              activeTab === tab.key && "bg-panel text-foreground shadow-sm"
+            )}
+            onClick={() => onTabChange(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function workflowStepDotClass(state: WorkflowStepState) {
-  if (state === "complete") {
-    return "border-success bg-success text-white";
-  }
-
-  if (state === "current") {
-    return "border-primary bg-primary text-primary-foreground";
-  }
-
-  if (state === "blocked") {
-    return "border-danger bg-danger text-white";
-  }
-
-  return "border-border bg-panel text-muted-foreground";
+function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[128px_minmax(0,1fr)] items-start gap-3 text-[14px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right font-medium">{value}</span>
+    </div>
+  );
 }
 
-function OrderWorkflowTimeline({
+function CompactRemainingItems({
+  order,
+  canViewDeliveries,
+  canViewPayments
+}: {
+  order: OrderRow;
+  canViewDeliveries: boolean;
+  canViewPayments: boolean;
+}) {
+  const items = canViewDeliveries ? remainingItemLines(order) : order.items;
+
+  if (items.length === 0) {
+    return <EmptyPanel message="No remaining item quantities." />;
+  }
+
+  return (
+    <div className="divide-y divide-border rounded-md border border-border bg-panel text-[14px] shadow-sm">
+      {items.slice(0, 4).map((item) => (
+        <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{item.itemName}</p>
+            <p className="text-[13px] text-muted-foreground">
+              {canViewDeliveries ? `${item.remainingQuantity} remaining` : `${item.quantity} ordered`}
+            </p>
+          </div>
+          {canViewPayments ? (
+            <span className="shrink-0 text-sm font-semibold tabular-nums">{item.lineTotal}</span>
+          ) : null}
+        </div>
+      ))}
+      {items.length > 4 ? (
+        <div className="px-4 py-2 text-[13px] text-muted-foreground">
+          {items.length - 4} more {items.length - 4 === 1 ? "item" : "items"} in Items.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OrderOverviewSummary({
   order,
   canViewPayments,
-  canViewDeliveries,
-  canExportDocuments
+  canViewDeliveries
 }: {
   order: OrderRow;
   canViewPayments: boolean;
   canViewDeliveries: boolean;
-  canExportDocuments: boolean;
 }) {
-  const steps = getOrderWorkflowSteps(order, canViewPayments, canViewDeliveries, canExportDocuments);
-
   return (
-    <section aria-label="Order workflow" className="space-y-3">
-      <div>
-        <p className="studio-kicker">Workflow</p>
-        <h3 className="mt-1 text-sm font-semibold">Order path</h3>
-      </div>
-      <ol className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-        {steps.map((step, index) => (
-          <li
-            key={step.key}
-            className={cn("rounded-md border px-3 py-3 text-sm", workflowStepStateClass(step.state))}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold",
-                  workflowStepDotClass(step.state)
-                )}
-              >
-                {step.state === "complete" ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
-              </span>
-              <span className="font-semibold text-foreground">{step.label}</span>
+    <section id="order-summary" className="space-y-4">
+      <div className="grid gap-4 text-[14px] md:grid-cols-[1fr_.9fr]">
+        <div className="space-y-2">
+          <h3 className="text-[16px] font-semibold">Overview</h3>
+          <div className="rounded-md border border-border bg-panel p-5">
+            <div className="space-y-3">
+              <SummaryRow label="Customer" value={order.customerName} />
+              <SummaryRow label="Total" value={order.totalAmount} />
+              {canViewPayments ? (
+                <>
+                  <SummaryRow label="Paid" value={order.paidAmount} />
+                  <SummaryRow label="Balance" value={order.balanceAmount} />
+                </>
+              ) : null}
+              {canViewDeliveries ? (
+                <>
+                  <SummaryRow label="Delivery status" value={deliveryStatusLabel(order.deliveryStatus)} />
+                  <SummaryRow label="Remaining items" value={remainingItemCountLabel(order)} />
+                </>
+              ) : null}
             </div>
-            <p className="mt-2 truncate text-xs text-muted-foreground">{step.detail}</p>
-          </li>
-        ))}
-      </ol>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-[16px] font-semibold">Items</h3>
+          <CompactRemainingItems
+            order={order}
+            canViewDeliveries={canViewDeliveries}
+            canViewPayments={canViewPayments}
+          />
+        </div>
+      </div>
     </section>
   );
 }
@@ -3663,64 +3704,30 @@ function OrderPanelSection({
   className?: string;
 }) {
   return (
-    <section id={id} className={cn("space-y-3 border-t border-border pt-5", className)}>
+    <section id={id} className={cn("space-y-4", className)}>
       <div>
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+        <h3 className="text-[17px] font-semibold">{title}</h3>
+        {description ? <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{description}</p> : null}
       </div>
       {children}
     </section>
   );
 }
 
-function OrderSummarySection({
-  order,
-  canViewPayments,
-  canViewDeliveries
+function DetailField({
+  label,
+  value,
+  muted
 }: {
-  order: OrderRow;
-  canViewPayments: boolean;
-  canViewDeliveries: boolean;
+  label: string;
+  value: ReactNode;
+  muted?: boolean;
 }) {
-  const paymentSupport = paymentSupportSummary(order);
-  const deliverySupport = deliverySupportSummary(order);
-
   return (
-    <OrderPanelSection id="order-summary" title="Customer & order summary">
-      <div className="grid gap-4 text-sm lg:grid-cols-[1.2fr_.8fr]">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Customer</p>
-            <p className="mt-1 font-semibold">{order.customerName}</p>
-            {order.companyName ? <p className="text-muted-foreground">{order.companyName}</p> : null}
-            {order.contactPersonName ? <p className="text-muted-foreground">{order.contactPersonName}</p> : null}
-            {order.contactSnapshot ? <p className="text-muted-foreground">{order.contactSnapshot}</p> : null}
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Sales details</p>
-            <p className="mt-1">{readableLabel(order.sourceType)}</p>
-            <p className="text-muted-foreground">Staff: {staffDisplayName(order.assignedStaff)}</p>
-            <p className="text-muted-foreground">Updated {compactUpdatedAtLabel(order.updatedAt)}</p>
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-          {canViewPayments ? (
-            <div>
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Payment</p>
-              <p className="mt-1 font-semibold tabular-nums">{paymentSupport.value}</p>
-              <p className="text-muted-foreground">{paymentSupport.detail}</p>
-            </div>
-          ) : null}
-          {canViewDeliveries ? (
-            <div>
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Delivery</p>
-              <p className="mt-1 font-semibold">{deliverySupport.value}</p>
-              <p className="text-muted-foreground">{deliverySupport.detail}</p>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </OrderPanelSection>
+    <div className="space-y-1.5">
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
+      <div className={cn("text-[14px] leading-6 font-medium", muted && "font-normal text-muted-foreground")}>{value}</div>
+    </div>
   );
 }
 
@@ -3735,33 +3742,33 @@ function ItemsSection({
 }) {
   return (
     <OrderPanelSection title="Items">
-      <div className="overflow-x-auto rounded-lg border border-border bg-panel">
+      <div className="overflow-x-auto rounded-md border border-border bg-panel shadow-sm">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="border-b border-border text-xs uppercase text-muted-foreground">
             <tr>
-              <th className="py-2 pl-3 font-medium">Item</th>
-              <th className="py-2 font-medium">Qty</th>
-              {canViewDeliveries ? <th className="py-2 font-medium">Scheduled</th> : null}
-              {canViewDeliveries ? <th className="py-2 font-medium">Delivered</th> : null}
-              {canViewPayments ? <th className="py-2 font-medium">Unit</th> : null}
-              {canViewPayments ? <th className="py-2 font-medium">Discount</th> : null}
-              {canViewPayments ? <th className="py-2 pr-3 font-medium">Line total</th> : null}
+              <th className="py-2.5 pl-3.5 font-medium">Item</th>
+              <th className="py-2.5 font-medium">Qty</th>
+              {canViewDeliveries ? <th className="py-2.5 font-medium">Scheduled</th> : null}
+              {canViewDeliveries ? <th className="py-2.5 font-medium">Delivered</th> : null}
+              {canViewPayments ? <th className="py-2.5 font-medium">Unit</th> : null}
+              {canViewPayments ? <th className="py-2.5 font-medium">Discount</th> : null}
+              {canViewPayments ? <th className="py-2.5 pr-3.5 font-medium">Line total</th> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {order.items.map((item) => (
               <tr key={item.id}>
-                <td className="py-3 pl-3 font-medium">{item.itemName}</td>
-                <td className="py-3 text-muted-foreground">{item.quantity}</td>
+                <td className="py-3.5 pl-3.5 font-medium">{item.itemName}</td>
+                <td className="py-3.5 text-muted-foreground">{item.quantity}</td>
                 {canViewDeliveries ? (
-                  <td className="py-3 text-muted-foreground">{item.plannedQuantity}</td>
+                  <td className="py-3.5 text-muted-foreground">{item.plannedQuantity}</td>
                 ) : null}
                 {canViewDeliveries ? (
-                  <td className="py-3 text-muted-foreground">{item.deliveredQuantity}</td>
+                  <td className="py-3.5 text-muted-foreground">{item.deliveredQuantity}</td>
                 ) : null}
-                {canViewPayments ? <td className="py-3 text-muted-foreground">{item.unitPrice}</td> : null}
-                {canViewPayments ? <td className="py-3 text-muted-foreground">{item.discountAmount}</td> : null}
-                {canViewPayments ? <td className="py-3 pr-3 font-semibold">{item.lineTotal}</td> : null}
+                {canViewPayments ? <td className="py-3.5 text-muted-foreground">{item.unitPrice}</td> : null}
+                {canViewPayments ? <td className="py-3.5 text-muted-foreground">{item.discountAmount}</td> : null}
+                {canViewPayments ? <td className="py-3.5 pr-3.5 font-semibold">{item.lineTotal}</td> : null}
               </tr>
             ))}
           </tbody>
@@ -4062,7 +4069,7 @@ function DocumentsSection({
   canExportDocuments: boolean;
 }) {
   return (
-    <section className="space-y-4">
+    <OrderPanelSection title="Documents">
       <DocumentLinks order={order} canExportDocuments={canExportDocuments} />
       {canExportDocuments && order.documents.length > 0 ? (
         <div className="divide-y divide-border rounded-lg border border-border bg-panel text-sm">
@@ -4079,7 +4086,7 @@ function DocumentsSection({
           ))}
         </div>
       ) : null}
-    </section>
+    </OrderPanelSection>
   );
 }
 
@@ -4093,88 +4100,97 @@ function NotesSection({
   canViewDeliveries: boolean;
 }) {
   return (
-    <section className="grid gap-4 text-sm lg:grid-cols-2">
-      <div className="space-y-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Customer snapshot</p>
-          <p className="mt-1 font-semibold">{order.customerName}</p>
-          {order.companyName ? <p className="text-muted-foreground">{order.companyName}</p> : null}
-          {order.contactPersonName ? <p className="text-muted-foreground">{order.contactPersonName}</p> : null}
-          {order.contactSnapshot ? <p className="text-muted-foreground">{order.contactSnapshot}</p> : null}
-        </div>
-        {canViewDeliveries ? (
-          <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Delivery address</p>
-            <p className="mt-1">{order.deliveryAddressSnapshot ?? "No delivery address snapshot"}</p>
-          </div>
-        ) : null}
-        {order.relatedQuotationId || order.relatedInquiryId ? (
-          <div className="border-t border-border pt-3">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Related quotation / inquiry</p>
-            {order.relatedQuotationId ? (
-              <p className="mt-1 text-muted-foreground">
-                Quotation: {order.relatedQuotationNumber ?? "Not assigned"}
-                {order.relatedQuotationStatus ? ` · ${readableLabel(order.relatedQuotationStatus)}` : ""}
-              </p>
-            ) : null}
-            {order.relatedInquiryId ? (
-              <p className="mt-1 text-muted-foreground">
-                Inquiry: {order.relatedInquiryLabel ?? order.relatedInquiryId.slice(0, 8)}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-      <div className="space-y-3">
-        <div className="grid gap-2">
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Needs assembly</span>
-            <span className="font-medium">{order.needsAssembly ? "Yes" : "No"}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-muted-foreground">Sales invoice</span>
-            <span className="font-medium">{order.salesInvoiceRequested ? "Requested" : "No"}</span>
-          </div>
+    <OrderPanelSection title="Notes">
+      <div className="grid gap-4 text-sm lg:grid-cols-2">
+        <div className="space-y-4 rounded-lg border border-border bg-panel p-4">
+          <DetailField
+            label="Customer snapshot"
+            value={
+              <>
+                <p>{order.customerName}</p>
+                {order.companyName ? <p className="font-normal text-muted-foreground">{order.companyName}</p> : null}
+                {order.contactPersonName ? (
+                  <p className="font-normal text-muted-foreground">{order.contactPersonName}</p>
+                ) : null}
+                {order.contactSnapshot ? (
+                  <p className="font-normal text-muted-foreground">{order.contactSnapshot}</p>
+                ) : null}
+              </>
+            }
+          />
           {canViewDeliveries ? (
-            <>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Mode of delivery</span>
-                <span className="font-medium text-right">{order.modeOfDelivery ?? "Not specified"}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Delivery method</span>
-                <span className="font-medium text-right">{order.deliveryMethod ?? "Not specified"}</span>
-              </div>
-            </>
+            <DetailField
+              label="Delivery address"
+              value={order.deliveryAddressSnapshot ?? "No delivery address snapshot"}
+              muted={!order.deliveryAddressSnapshot}
+            />
           ) : null}
-          {canViewPayments ? (
-            <div>
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Payment terms</p>
-              <p className="mt-1">{order.paymentTerms ?? "Not specified"}</p>
+          {order.relatedQuotationId || order.relatedInquiryId ? (
+            <DetailField
+              label="Related quotation / inquiry"
+              value={
+                <div className="space-y-1">
+                  {order.relatedQuotationId ? (
+                    <p>
+                      Quotation: {order.relatedQuotationNumber ?? "Not assigned"}
+                      {order.relatedQuotationStatus ? ` · ${readableLabel(order.relatedQuotationStatus)}` : ""}
+                    </p>
+                  ) : null}
+                  {order.relatedInquiryId ? (
+                    <p>
+                      Inquiry: {order.relatedInquiryLabel ?? order.relatedInquiryId.slice(0, 8)}
+                    </p>
+                  ) : null}
+                </div>
+              }
+            />
+          ) : null}
+        </div>
+        <div className="space-y-4 rounded-lg border border-border bg-panel p-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <DetailField label="Needs assembly" value={order.needsAssembly ? "Yes" : "No"} />
+            <DetailField label="Sales invoice" value={order.salesInvoiceRequested ? "Requested" : "No"} />
+            {canViewDeliveries ? (
+              <>
+                <DetailField
+                  label="Mode of delivery"
+                  value={order.modeOfDelivery ?? "Not specified"}
+                  muted={!order.modeOfDelivery}
+                />
+                <DetailField
+                  label="Delivery method"
+                  value={order.deliveryMethod ?? "Not specified"}
+                  muted={!order.deliveryMethod}
+                />
+              </>
+            ) : null}
+          </div>
+          <div className="space-y-4 border-t border-border pt-4">
+            {canViewPayments ? (
+              <DetailField
+                label="Payment terms"
+                value={order.paymentTerms ?? "Not specified"}
+                muted={!order.paymentTerms}
+              />
+            ) : null}
+            <DetailField
+              label="Remarks / special instructions"
+              value={order.specialInstructions ?? "Not specified"}
+              muted={!order.specialInstructions}
+            />
+          </div>
+          {order.customerNotes || order.internalNotes ? (
+            <div className="space-y-4 border-t border-border pt-4">
+              {order.customerNotes ? (
+                <DetailField label="Customer notes" value={order.customerNotes} />
+              ) : null}
+              {order.internalNotes ? (
+                <DetailField label="Internal notes" value={order.internalNotes} />
+              ) : null}
             </div>
           ) : null}
-          <div>
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Remarks / special instructions</p>
-            <p className="mt-1">{order.specialInstructions ?? "Not specified"}</p>
-          </div>
         </div>
-        {order.customerNotes || order.internalNotes ? (
-          <div className="space-y-2 border-t border-border pt-3">
-            {order.customerNotes ? (
-              <div>
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Customer notes</p>
-                <p className="mt-1">{order.customerNotes}</p>
-              </div>
-            ) : null}
-            {order.internalNotes ? (
-              <div>
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Internal notes</p>
-                <p className="mt-1">{order.internalNotes}</p>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
       </div>
-    </section>
+    </OrderPanelSection>
   );
 }
