@@ -95,8 +95,11 @@ type QuotationBuilderProps = {
     customer: SelectedCustomer;
     items: ItemDraft[];
     quotationDiscountValue: number;
+    additionalFees?: number;
     needsAssembly: boolean;
+    assemblyFeeRate?: number;
     salesInvoiceRequested: boolean;
+    salesInvoiceFeePercentage?: number;
     modeOfDelivery: string;
     deliveryMethod: string;
     paymentTerms: string;
@@ -169,6 +172,7 @@ type ItemDraft = {
   quantity: number;
   unitPrice: number;
   unitCostSnapshot: number;
+  requiresAssembly: boolean;
   discountValue: number;
   customerNotes: string;
   internalNotes: string;
@@ -195,8 +199,10 @@ const initialState: ActionState = {
 
 const pdfLinkClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-2 text-sm font-semibold text-foreground transition hover:bg-soft-accent";
-const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "CANCELLED"] as const;
 const quotationViewOptions = ["active", "converted", "all"] as const;
+const defaultAssemblyFeeRate = 100;
+const defaultSalesInvoiceFeePercentage = 8;
 
 function normalizeStatusFilter(value: string | undefined) {
   return quotationStatusFilterOptions.find((option) => option === value) ?? "";
@@ -237,7 +243,24 @@ function lineProfit(item: ItemDraft) {
   return roundMoney(lineTotal(item) - lineCostTotal(item));
 }
 
-function createCustomItem(sortOrder: number): ItemDraft {
+function assemblyFeeTotal(items: ItemDraft[], needsAssembly: boolean, assemblyFeeRate: number) {
+  if (!needsAssembly) {
+    return 0;
+  }
+
+  return roundMoney(
+    items.reduce(
+      (sum, item) => (item.requiresAssembly ? sum + item.quantity * assemblyFeeRate : sum),
+      0
+    )
+  );
+}
+
+function signedMoney(value: number, sign: "+" | "-") {
+  return `${sign}${money(value)}`;
+}
+
+function createCustomItem(sortOrder: number, requiresAssembly = false): ItemDraft {
   return {
     itemType: "CUSTOM_ITEM",
     sortOrder,
@@ -247,6 +270,7 @@ function createCustomItem(sortOrder: number): ItemDraft {
     quantity: 1,
     unitPrice: 0,
     unitCostSnapshot: 0,
+    requiresAssembly,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -288,13 +312,15 @@ function MoneyInput({
   onValueChange,
   max,
   "aria-label": ariaLabel,
-  placeholder = "0"
+  placeholder = "0",
+  className
 }: {
   value: number;
   onValueChange: (value: number) => void;
   max?: number;
   "aria-label"?: string;
   placeholder?: string;
+  className?: string;
 }) {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
@@ -330,6 +356,7 @@ function MoneyInput({
       }}
       aria-label={ariaLabel}
       placeholder={placeholder}
+      className={className}
     />
   );
 }
@@ -399,11 +426,12 @@ function friendlyActionMessage(message: string) {
   return message;
 }
 
-function toActionItems(items: ItemDraft[]) {
+function toActionItems(items: ItemDraft[], needsAssembly: boolean) {
   return items.map((item, index) => ({
     ...item,
     sortOrder: index,
     quantity: normalizeQuantity(item.quantity),
+    requiresAssembly: needsAssembly ? item.requiresAssembly : false,
     discountType: item.discountValue > 0 ? "FIXED_AMOUNT" : undefined,
     discountValue: item.discountValue > 0 ? item.discountValue : undefined,
     description: item.description || undefined,
@@ -442,7 +470,7 @@ function productImageStyle(product: ProductOption) {
     : undefined;
 }
 
-function createCatalogItem(product: ProductOption, sortOrder: number): ItemDraft {
+function createCatalogItem(product: ProductOption, sortOrder: number, requiresAssembly = false): ItemDraft {
   const primaryImage = product.primaryImage
     ? [
         {
@@ -472,6 +500,7 @@ function createCatalogItem(product: ProductOption, sortOrder: number): ItemDraft
     quantity: 1,
     unitPrice: product.referencePrice ?? 0,
     unitCostSnapshot: product.referenceCost ?? 0,
+    requiresAssembly,
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
@@ -819,12 +848,12 @@ function CustomerSelector({
   );
 
   return (
-    <section className="space-y-3">
-      <div>
+    <section className="studio-card">
+      <div className="studio-card-header">
         <p className="studio-kicker">Customer / Lead</p>
         <h2 className="text-sm font-semibold">Resolve the buyer record</h2>
       </div>
-      <div className="studio-subpanel p-4">
+      <div className="p-5">
         {selectedCustomer ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-3">
             <div>
@@ -1058,14 +1087,36 @@ function ProductPicker({
 
 function QuotationItemTable({
   items,
+  showAssemblyColumn,
+  needsAssembly,
+  onNeedsAssemblyChange,
+  assemblyFeeRate,
+  onAssemblyFeeRateChange,
+  assemblyFee,
+  salesInvoiceRequested,
+  onSalesInvoiceRequestedChange,
+  salesInvoiceFeePercentage,
+  onSalesInvoiceFeePercentageChange,
+  salesInvoiceFee,
   updateItem,
   removeItem,
-  finalTotal
+  subtotalAmount
 }: {
   items: ItemDraft[];
+  showAssemblyColumn: boolean;
+  needsAssembly: boolean;
+  onNeedsAssemblyChange: (checked: boolean) => void;
+  assemblyFeeRate: number;
+  onAssemblyFeeRateChange: (value: number) => void;
+  assemblyFee: number;
+  salesInvoiceRequested: boolean;
+  onSalesInvoiceRequestedChange: (checked: boolean) => void;
+  salesInvoiceFeePercentage: number;
+  onSalesInvoiceFeePercentageChange: (value: number) => void;
+  salesInvoiceFee: number;
   updateItem: (index: number, patch: Partial<ItemDraft>) => void;
   removeItem: (index: number) => void;
-  finalTotal: number;
+  subtotalAmount: number;
 }) {
   function confirmRemoveItem(index: number) {
     const itemName = items[index]?.itemName?.trim() || `item ${index + 1}`;
@@ -1078,7 +1129,15 @@ function QuotationItemTable({
   return (
     <div className="space-y-3">
       <div className="hidden overflow-x-auto rounded-lg border border-border bg-panel lg:block">
-        <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground">
+        <div
+          className={cn(
+            "grid gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground",
+            showAssemblyColumn
+              ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+              : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+          )}
+        >
+          {showAssemblyColumn ? <span className="text-center">Assemble</span> : null}
           <span>Item</span>
           <span className="text-left">Qty</span>
           <span className="text-left">Cost</span>
@@ -1090,7 +1149,27 @@ function QuotationItemTable({
         </div>
         {items.map((item, index) => (
           <div key={index} className="border-b border-border last:border-b-0">
-            <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] items-start gap-4 px-4 py-4">
+            <div
+              className={cn(
+                "grid items-start gap-4 px-4 py-4",
+                showAssemblyColumn
+                  ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+                  : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+              )}
+            >
+              {showAssemblyColumn ? (
+                <label className="flex min-h-10 items-center justify-center">
+                  <input
+                    type="checkbox"
+                    checked={item.requiresAssembly}
+                    onChange={(event) =>
+                      updateItem(index, { requiresAssembly: event.target.checked })
+                    }
+                    aria-label={`Requires assembly for ${item.itemName || `item ${index + 1}`}`}
+                    className="h-4 w-4 rounded border-border"
+                  />
+                </label>
+              ) : null}
               <div className="flex min-w-0 items-start gap-3">
                 <ItemThumb item={item} />
                 <div className="min-w-0 flex-1">
@@ -1177,6 +1256,19 @@ function QuotationItemTable({
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
+              {showAssemblyColumn ? (
+                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-soft-accent/30 px-3 text-sm font-medium sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={item.requiresAssembly}
+                    onChange={(event) =>
+                      updateItem(index, { requiresAssembly: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-border"
+                  />
+                  Requires assembly
+                </label>
+              ) : null}
               <label className="grid gap-1 text-xs font-semibold uppercase text-muted-foreground sm:col-span-2">
                 Item
                 <Input
@@ -1234,42 +1326,140 @@ function QuotationItemTable({
         ))}
       </div>
 
-      <QuotationItemCostProfitSummary items={items} finalTotal={finalTotal} />
+      <QuotationItemCostProfitSummary
+        items={items}
+        showAssemblyColumn={showAssemblyColumn}
+        subtotalAmount={subtotalAmount}
+        needsAssembly={needsAssembly}
+        onNeedsAssemblyChange={onNeedsAssemblyChange}
+        assemblyFeeRate={assemblyFeeRate}
+        onAssemblyFeeRateChange={onAssemblyFeeRateChange}
+        assemblyFee={assemblyFee}
+        salesInvoiceRequested={salesInvoiceRequested}
+        onSalesInvoiceRequestedChange={onSalesInvoiceRequestedChange}
+        salesInvoiceFeePercentage={salesInvoiceFeePercentage}
+        onSalesInvoiceFeePercentageChange={onSalesInvoiceFeePercentageChange}
+        salesInvoiceFee={salesInvoiceFee}
+      />
     </div>
   );
 }
 
 function QuotationItemCostProfitSummary({
   items,
-  finalTotal
+  showAssemblyColumn,
+  subtotalAmount,
+  needsAssembly,
+  onNeedsAssemblyChange,
+  assemblyFeeRate,
+  onAssemblyFeeRateChange,
+  assemblyFee,
+  salesInvoiceRequested,
+  onSalesInvoiceRequestedChange,
+  salesInvoiceFeePercentage,
+  onSalesInvoiceFeePercentageChange,
+  salesInvoiceFee
 }: {
   items: ItemDraft[];
-  finalTotal: number;
+  showAssemblyColumn: boolean;
+  subtotalAmount: number;
+  needsAssembly: boolean;
+  onNeedsAssemblyChange: (checked: boolean) => void;
+  assemblyFeeRate: number;
+  onAssemblyFeeRateChange: (value: number) => void;
+  assemblyFee: number;
+  salesInvoiceRequested: boolean;
+  onSalesInvoiceRequestedChange: (checked: boolean) => void;
+  salesInvoiceFeePercentage: number;
+  onSalesInvoiceFeePercentageChange: (value: number) => void;
+  salesInvoiceFee: number;
 }) {
   const totalCost = roundMoney(items.reduce((sum, item) => sum + lineCostTotal(item), 0));
-  const grossProfit = roundMoney(finalTotal - totalCost);
+  const grossProfit = roundMoney(subtotalAmount - totalCost);
+
+  const feeControls = (
+    <div className="flex max-w-[520px] flex-wrap gap-3">
+      <div className="grid w-full min-w-[220px] flex-1 gap-2 rounded-md border border-border bg-panel/70 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex min-h-6 items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              checked={needsAssembly}
+              onChange={(event) => onNeedsAssemblyChange(event.target.checked)}
+              className="h-4 w-4 rounded border-border"
+            />
+            Needs Assemble
+          </label>
+          <span className="font-semibold text-foreground">{money(assemblyFee)}</span>
+        </div>
+        <label className="grid grid-cols-[auto_minmax(96px,1fr)] items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+          Rate per
+          <MoneyInput
+            value={assemblyFeeRate}
+            onValueChange={onAssemblyFeeRateChange}
+            aria-label="Needs Assemble rate per item"
+          />
+        </label>
+      </div>
+      <div className="grid w-full min-w-[220px] flex-1 gap-2 rounded-md border border-border bg-panel/70 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex min-h-6 items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              checked={salesInvoiceRequested}
+              onChange={(event) => onSalesInvoiceRequestedChange(event.target.checked)}
+              className="h-4 w-4 rounded border-border"
+            />
+            Sales Invoice
+          </label>
+          <span className="font-semibold text-foreground">{money(salesInvoiceFee)}</span>
+        </div>
+        <label className="grid grid-cols-[auto_minmax(96px,1fr)] items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+          Percent
+          <MoneyInput
+            max={100}
+            value={salesInvoiceFeePercentage}
+            onValueChange={onSalesInvoiceFeePercentageChange}
+            aria-label="Sales Invoice percentage"
+          />
+        </label>
+      </div>
+    </div>
+  );
 
   return (
     <>
       <div className="hidden overflow-x-auto lg:block">
-        <div className="grid min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px] gap-4 rounded-lg border border-border bg-soft-accent/45 px-4 py-3 text-sm">
-          <div className="col-start-3">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Total cost</p>
+        <div
+          className={cn(
+            "grid items-center gap-4 rounded-lg border border-border bg-soft-accent/45 px-4 py-3 text-sm",
+            showAssemblyColumn
+              ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+              : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+          )}
+        >
+          <div className={showAssemblyColumn ? "col-span-3" : "col-span-2"}>
+            {feeControls}
+          </div>
+          <div className="self-center">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Total Cost</p>
             <p className="mt-1 font-semibold text-foreground">{money(totalCost)}</p>
           </div>
-          <div className="col-start-5">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Gross profit</p>
+          <div aria-hidden="true" />
+          <div className="self-center">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Gross Profit</p>
             <p className="mt-1 font-semibold text-foreground">{money(grossProfit)}</p>
           </div>
         </div>
       </div>
       <div className="grid gap-3 rounded-lg border border-border bg-soft-accent/45 p-4 text-sm sm:grid-cols-2 lg:hidden">
+        <div className="sm:col-span-2">{feeControls}</div>
         <div>
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Total cost</p>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Total Cost</p>
           <p className="mt-1 font-semibold text-foreground">{money(totalCost)}</p>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Gross profit</p>
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Gross Profit</p>
           <p className="mt-1 font-semibold text-foreground">{money(grossProfit)}</p>
         </div>
       </div>
@@ -1316,12 +1506,20 @@ export function QuotationBuilder({
   const [additionalDiscount, setAdditionalDiscount] = useState(
     initialQuotation?.quotationDiscountValue ?? 0
   );
+  const [additionalFees, setAdditionalFees] = useState(initialQuotation?.additionalFees ?? 0);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [customerNotes, setCustomerNotes] = useState(initialQuotation?.customerNotes ?? "");
   const [needsAssembly, setNeedsAssembly] = useState(initialQuotation?.needsAssembly ?? false);
+  const [assemblyFeeRate, setAssemblyFeeRate] = useState(
+    initialQuotation?.assemblyFeeRate ?? defaultAssemblyFeeRate
+  );
   const [salesInvoiceRequested, setSalesInvoiceRequested] = useState(
     initialQuotation?.salesInvoiceRequested ?? false
+  );
+  const [salesInvoiceFeePercentage, setSalesInvoiceFeePercentage] = useState(
+    initialQuotation?.salesInvoiceFeePercentage ?? defaultSalesInvoiceFeePercentage
   );
   const [modeOfDelivery, setModeOfDelivery] = useState(initialQuotation?.modeOfDelivery ?? "");
   const [deliveryMethod, setDeliveryMethod] = useState(initialQuotation?.deliveryMethod ?? "");
@@ -1343,16 +1541,38 @@ export function QuotationBuilder({
     const itemDiscountTotal = roundMoney(items.reduce((sum, item) => sum + itemDiscount(item), 0));
     const postItemDiscountTotal = roundMoney(items.reduce((sum, item) => sum + lineTotal(item), 0));
     const quotationDiscountAmount = roundMoney(Math.max(additionalDiscount || 0, 0));
+    const totalDiscount = roundMoney(itemDiscountTotal + quotationDiscountAmount);
+    const assemblyFee = assemblyFeeTotal(items, needsAssembly, assemblyFeeRate);
+    const saleBaseBeforeInvoiceFee = roundMoney(
+      Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + assemblyFee
+    );
+    const salesInvoiceFee = salesInvoiceRequested
+      ? roundMoney(saleBaseBeforeInvoiceFee * (salesInvoiceFeePercentage / 100))
+      : 0;
+    const additionalFeeAmount = roundMoney(Math.max(additionalFees || 0, 0));
+    const totalAdditionalFees = roundMoney(assemblyFee + salesInvoiceFee + additionalFeeAmount);
 
     return {
       subtotalAmount,
       itemDiscountTotal,
       postItemDiscountTotal,
       quotationDiscountAmount,
-      totalDiscount: roundMoney(itemDiscountTotal + quotationDiscountAmount),
-      totalAmount: roundMoney(Math.max(postItemDiscountTotal - quotationDiscountAmount, 0))
+      assemblyFee,
+      salesInvoiceFee,
+      additionalFeeAmount,
+      totalAdditionalFees,
+      totalDiscount,
+      totalAmount: roundMoney(subtotalAmount - totalDiscount + totalAdditionalFees)
     };
-  }, [items, additionalDiscount]);
+  }, [
+    additionalDiscount,
+    additionalFees,
+    assemblyFeeRate,
+    items,
+    needsAssembly,
+    salesInvoiceFeePercentage,
+    salesInvoiceRequested
+  ]);
 
   const validationMessages = useMemo(() => {
     const messages: string[] = [];
@@ -1391,11 +1611,31 @@ export function QuotationBuilder({
       messages.push("Additional discount cannot exceed subtotal after item discounts.");
     }
 
+    if (assemblyFeeRate < 0) {
+      messages.push("Needs Assemble rate cannot be negative.");
+    }
+
+    if (salesInvoiceFeePercentage < 0 || salesInvoiceFeePercentage > 100) {
+      messages.push("Sales Invoice percentage must be between 0 and 100.");
+    }
+
+    if (additionalFees < 0) {
+      messages.push("Additional Fees cannot be negative.");
+    }
+
     return messages;
-  }, [additionalDiscount, items, selectedCustomer?.id, totals.postItemDiscountTotal]);
+  }, [
+    additionalDiscount,
+    additionalFees,
+    assemblyFeeRate,
+    items,
+    salesInvoiceFeePercentage,
+    selectedCustomer?.id,
+    totals.postItemDiscountTotal
+  ]);
 
   function addCustomItem() {
-    setItems((current) => [...current, createCustomItem(current.length)]);
+    setItems((current) => [...current, createCustomItem(current.length, needsAssembly)]);
   }
 
   function addProduct(product: ProductOption) {
@@ -1420,8 +1660,18 @@ export function QuotationBuilder({
         );
       }
 
-      return [...current, createCatalogItem(product, current.length)];
+      return [...current, createCatalogItem(product, current.length, needsAssembly)];
     });
+  }
+
+  function handleNeedsAssemblyChange(checked: boolean) {
+    setNeedsAssembly(checked);
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        requiresAssembly: checked
+      }))
+    );
   }
 
   function updateItem(index: number, patch: Partial<ItemDraft>) {
@@ -1479,23 +1729,26 @@ export function QuotationBuilder({
           <input type="hidden" name="quotationId" value={initialQuotation.id} />
         ) : null}
         <input type="hidden" name="customerId" value={selectedCustomer?.id ?? ""} />
-        <input type="hidden" name="items" value={JSON.stringify(toActionItems(items))} />
+        <input type="hidden" name="items" value={JSON.stringify(toActionItems(items, needsAssembly))} />
         <input
           type="hidden"
           name="quotationDiscountType"
           value={additionalDiscount > 0 ? "FIXED_AMOUNT" : ""}
         />
         <input type="hidden" name="quotationDiscountValue" value={additionalDiscount} />
+        <input type="hidden" name="additionalFees" value={additionalFees} />
         <input
           type="hidden"
           name="needsAssembly"
           value={needsAssembly ? "true" : "false"}
         />
+        <input type="hidden" name="assemblyFeeRate" value={assemblyFeeRate} />
         <input
           type="hidden"
           name="salesInvoiceRequested"
           value={salesInvoiceRequested ? "true" : "false"}
         />
+        <input type="hidden" name="salesInvoiceFeePercentage" value={salesInvoiceFeePercentage} />
 
         <section className="space-y-5">
           <section className="studio-card">
@@ -1519,9 +1772,20 @@ export function QuotationBuilder({
               {items.length ? (
                 <QuotationItemTable
                   items={items}
+                  showAssemblyColumn={needsAssembly}
+                  needsAssembly={needsAssembly}
+                  onNeedsAssemblyChange={handleNeedsAssemblyChange}
+                  assemblyFeeRate={assemblyFeeRate}
+                  onAssemblyFeeRateChange={setAssemblyFeeRate}
+                  assemblyFee={totals.assemblyFee}
+                  salesInvoiceRequested={salesInvoiceRequested}
+                  onSalesInvoiceRequestedChange={setSalesInvoiceRequested}
+                  salesInvoiceFeePercentage={salesInvoiceFeePercentage}
+                  onSalesInvoiceFeePercentageChange={setSalesInvoiceFeePercentage}
+                  salesInvoiceFee={totals.salesInvoiceFee}
                   updateItem={updateItem}
                   removeItem={removeItem}
-                  finalTotal={totals.totalAmount}
+                  subtotalAmount={totals.subtotalAmount}
                 />
               ) : (
                 <div className="studio-empty flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
@@ -1544,50 +1808,14 @@ export function QuotationBuilder({
 
           <details
             className="studio-card"
-            open={noteOpen}
-            onToggle={(event) => setNoteOpen(event.currentTarget.open)}
+            open={termsOpen}
+            onToggle={(event) => setTermsOpen(event.currentTarget.open)}
           >
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold">
-              <span>Quotation note</span>
-              <ChevronDown className={cn("h-4 w-4 transition", noteOpen ? "rotate-180" : undefined)} />
+              <span className="studio-kicker">Terms, delivery, and instructions</span>
+              <ChevronDown className={cn("h-4 w-4 transition", termsOpen ? "rotate-180" : undefined)} />
             </summary>
-            <div className="border-t border-border p-5">
-              <Textarea
-                name="customerNotes"
-                value={customerNotes}
-                onChange={(event) => setCustomerNotes(event.target.value)}
-                placeholder="Optional note for this quotation"
-                className="min-h-24"
-              />
-            </div>
-          </details>
-
-          <section className="studio-card">
-            <div className="studio-card-header">
-              <p className="studio-kicker">Terms</p>
-              <h2 className="text-sm font-semibold">Terms, delivery, and instructions</h2>
-            </div>
-            <div className="grid gap-4 p-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={needsAssembly}
-                    onChange={(event) => setNeedsAssembly(event.target.checked)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  Needs assembly
-                </label>
-                <label className="flex min-h-10 items-center gap-3 rounded-lg border border-border bg-background px-3 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={salesInvoiceRequested}
-                    onChange={(event) => setSalesInvoiceRequested(event.target.checked)}
-                    className="h-4 w-4 rounded border-border"
-                  />
-                  Sales invoice requested
-                </label>
-              </div>
+            <div className="grid gap-4 border-t border-border p-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="grid gap-2 text-sm font-medium">
                   <span className="text-muted-foreground">Mode of delivery</span>
@@ -1624,7 +1852,7 @@ export function QuotationBuilder({
                   name="specialInstructions"
                   value={specialInstructions}
                   onChange={(event) => setSpecialInstructions(event.target.value)}
-                  placeholder="Delivery access, assembly notes, customer requests"
+                  placeholder="Delivery access, assemble notes, customer requests"
                   className="min-h-24"
                 />
               </label>
@@ -1639,10 +1867,30 @@ export function QuotationBuilder({
                 />
               </label>
             </div>
-          </section>
+          </details>
+
+          <details
+            className="studio-card"
+            open={noteOpen}
+            onToggle={(event) => setNoteOpen(event.currentTarget.open)}
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold">
+              <span className="studio-kicker">Quotation note</span>
+              <ChevronDown className={cn("h-4 w-4 transition", noteOpen ? "rotate-180" : undefined)} />
+            </summary>
+            <div className="border-t border-border p-5">
+              <Textarea
+                name="customerNotes"
+                value={customerNotes}
+                onChange={(event) => setCustomerNotes(event.target.value)}
+                placeholder="Optional note for this quotation"
+                className="min-h-24"
+              />
+            </div>
+          </details>
         </section>
 
-        <aside className="xl:sticky xl:top-6 xl:self-start">
+        <aside className="xl:sticky xl:top-24 xl:self-start">
           <section className="studio-card">
             <div className="studio-card-header">
               <p className="studio-kicker">Summary</p>
@@ -1690,19 +1938,18 @@ export function QuotationBuilder({
                   <div className="py-4 text-muted-foreground">No items added yet.</div>
                 ) : null}
               </div>
-              <div className="space-y-3 py-4">
-                <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="font-medium">{money(totals.subtotalAmount)}</span>
-                </div>
-                {totals.itemDiscountTotal > 0 ? (
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted-foreground">Item discounts</span>
-                    <span className="font-medium">-{money(totals.itemDiscountTotal)}</span>
-                  </div>
-                ) : null}
-                <label className="grid gap-2 font-medium">
-                  <span className="text-muted-foreground">Additional discount</span>
+              <div className="space-y-3 border-b border-border py-4">
+                <label className="grid gap-2 font-medium sm:grid-cols-[1fr_9.5rem] sm:items-center">
+                  <span className="text-emerald-800">Additional Fees</span>
+                  <MoneyInput
+                    value={additionalFees}
+                    onValueChange={setAdditionalFees}
+                    aria-label="Additional Fees"
+                    className="font-semibold text-emerald-800"
+                  />
+                </label>
+                <label className="grid gap-2 font-medium sm:grid-cols-[1fr_9.5rem] sm:items-center">
+                  <span className="text-danger">Additional Discount</span>
                   <MoneyInput
                     max={totals.postItemDiscountTotal}
                     value={additionalDiscount}
@@ -1710,11 +1957,29 @@ export function QuotationBuilder({
                     aria-label="Additional discount"
                   />
                 </label>
+              </div>
+              <div className="space-y-3 py-4">
                 <div className="flex justify-between gap-4">
-                  <span className="text-muted-foreground">Total discount</span>
-                  <span className="font-medium">-{money(totals.totalDiscount)}</span>
+                  <span className="text-muted-foreground">Subtotal for Items</span>
+                  <span className="font-medium">{money(totals.postItemDiscountTotal)}</span>
                 </div>
-                <div className="flex justify-between gap-4 border-t border-border pt-4 text-base">
+                <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+                  <span className="font-medium">Assemble Fee</span>
+                  <span className="font-medium">{signedMoney(totals.assemblyFee, "+")}</span>
+                </div>
+                <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+                  <span className="font-medium">Sales Invoice Fee</span>
+                  <span className="font-medium">{signedMoney(totals.salesInvoiceFee, "+")}</span>
+                </div>
+                <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+                  <span className="font-medium">Additional Fees</span>
+                  <span className="font-medium">{signedMoney(totals.additionalFeeAmount, "+")}</span>
+                </div>
+                <div className="flex justify-between gap-4 rounded-md bg-danger/10 px-3 py-2 text-danger">
+                  <span className="font-medium">Additional Discount</span>
+                  <span className="font-medium">{signedMoney(totals.quotationDiscountAmount, "-")}</span>
+                </div>
+                <div className="flex justify-between gap-4 rounded-lg border border-border bg-soft-accent/55 px-3 py-3 text-base">
                   <span className="font-semibold">Final total</span>
                   <span className="text-lg font-semibold">{money(totals.totalAmount)}</span>
                 </div>
@@ -2159,7 +2424,6 @@ export function QuotationRecordsList({
               <option value="DRAFT">Draft</option>
               <option value="SENT">Sent</option>
               <option value="ACCEPTED">Accepted</option>
-              <option value="DECLINED">Declined</option>
               <option value="CANCELLED">Cancelled</option>
             </Select>
             <Button>

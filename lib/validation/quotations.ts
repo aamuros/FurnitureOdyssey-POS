@@ -31,6 +31,13 @@ const money = z.coerce
   })
   .min(0, "Amount cannot be negative.");
 
+const percentage = z.coerce
+  .number({
+    invalid_type_error: "Enter a valid percentage."
+  })
+  .min(0, "Percentage cannot be negative.")
+  .max(100, "Percentage cannot exceed 100.");
+
 const quantity = z.coerce
   .number({
     invalid_type_error: "Enter a valid quantity."
@@ -65,6 +72,7 @@ export const quotationItemSchema = z
     unitPrice: money,
     unitCostSnapshot: money.optional(),
     unitCost: money.optional(),
+    requiresAssembly: formBoolean.default(false),
     discountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
     discountValue: money.optional(),
     customerNotes: optionalText,
@@ -96,7 +104,10 @@ export const createQuotationSchema = z
     quotationDiscountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
     quotationDiscountValue: money.optional(),
     needsAssembly: formBoolean.default(false),
+    assemblyFeeRate: money.default(100),
     salesInvoiceRequested: formBoolean.default(false),
+    salesInvoiceFeePercentage: percentage.default(8),
+    additionalFees: money.default(0),
     modeOfDelivery: optionalTextMax(255, "Mode of delivery is too long."),
     deliveryMethod: optionalTextMax(255, "Delivery method is too long."),
     paymentTerms: optionalTextMax(1000, "Payment terms must be 1000 characters or fewer."),
@@ -109,6 +120,12 @@ export const createQuotationSchema = z
     items: z.array(quotationItemSchema).min(1, "Add at least one quotation item.")
   })
   .superRefine((value, context) => {
+    if (!value.needsAssembly) {
+      value.items.forEach((item) => {
+        item.requiresAssembly = false;
+      });
+    }
+
     if (
       value.quotationDiscountType === "PERCENTAGE" &&
       (value.quotationDiscountValue ?? 0) > 100

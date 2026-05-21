@@ -17,7 +17,7 @@ type QuotationsPageProps = {
 };
 
 const PAGE_SIZE = 25;
-const QUOTATION_STATUS_FILTERS = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+const QUOTATION_STATUS_FILTERS = ["DRAFT", "SENT", "ACCEPTED", "CANCELLED"] as const;
 const QUOTATION_VIEW_FILTERS = ["active", "converted", "all"] as const;
 
 function validStatusFilter(value: string | undefined) {

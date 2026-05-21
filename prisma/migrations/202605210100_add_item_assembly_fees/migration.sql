@@ -1,0 +1,11 @@
+ALTER TABLE "Quotation"
+ADD COLUMN "assemblyFeeTotal" DECIMAL(12, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE "QuotationItem"
+ADD COLUMN "requiresAssembly" BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE "Order"
+ADD COLUMN "assemblyFeeTotal" DECIMAL(12, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE "OrderItem"
+ADD COLUMN "requiresAssembly" BOOLEAN NOT NULL DEFAULT false;

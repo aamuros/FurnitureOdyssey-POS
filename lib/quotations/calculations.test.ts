@@ -8,11 +8,14 @@ const baseItem = {
   itemName: "Custom sofa",
   quantity: 1,
   unitPrice: 1000,
+  requiresAssembly: false,
   images: []
 };
 
 test("calculateQuotationTotals handles a single custom item", () => {
   const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
     items: [baseItem]
   });
 
@@ -24,6 +27,8 @@ test("calculateQuotationTotals handles a single custom item", () => {
 
 test("calculateQuotationTotals handles multiple catalog and custom item totals", () => {
   const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
     items: [
       {
         ...baseItem,
@@ -68,6 +73,8 @@ test("calculateQuotationItem applies quantity times unit price and fixed item di
 
 test("calculateQuotationTotals applies percentage quotation discounts after item discounts", () => {
   const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
     quotationDiscountType: "PERCENTAGE",
     quotationDiscountValue: 10,
     items: [
@@ -89,6 +96,8 @@ test("calculateQuotationTotals applies percentage quotation discounts after item
 
 test("calculateQuotationTotals applies fixed quotation discounts and zero discount defaults", () => {
   const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
     quotationDiscountType: "FIXED_AMOUNT",
     quotationDiscountValue: 300,
     items: [
@@ -105,13 +114,15 @@ test("calculateQuotationTotals applies fixed quotation discounts and zero discou
   assert.equal(totals.quotationDiscountAmount, 300);
   assert.equal(totals.totalAmount, 1700);
   assert.equal(totals.totalCostAmount, 1200);
-  assert.equal(totals.grossProfitAmount, 500);
+  assert.equal(totals.grossProfitAmount, 800);
 });
 
 test("calculateQuotationTotals rejects discounts larger than subtotal", () => {
   assert.throws(
     () =>
       calculateQuotationTotals({
+        needsAssembly: false,
+        salesInvoiceRequested: false,
         quotationDiscountType: "FIXED_AMOUNT",
         quotationDiscountValue: 2000,
         items: [baseItem]
@@ -132,6 +143,8 @@ test("calculateQuotationTotals rejects discounts larger than subtotal", () => {
 
 test("calculateQuotationTotals rounds currency values to cents", () => {
   const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
     quotationDiscountType: "PERCENTAGE",
     quotationDiscountValue: 12.5,
     items: [
@@ -146,4 +159,116 @@ test("calculateQuotationTotals rounds currency values to cents", () => {
   assert.equal(totals.subtotalAmount, 100.56);
   assert.equal(totals.quotationDiscountAmount, 12.57);
   assert.equal(totals.totalAmount, 87.99);
+});
+
+test("calculateQuotationTotals adds assemble fees for selected item quantities", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: true,
+    salesInvoiceRequested: false,
+    items: [
+      {
+        ...baseItem,
+        itemName: "Dining chair",
+        quantity: 2,
+        requiresAssembly: true
+      },
+      {
+        ...baseItem,
+        itemName: "Coffee table",
+        quantity: 1,
+        requiresAssembly: true
+      },
+      {
+        ...baseItem,
+        itemName: "Console",
+        quantity: 4
+      }
+    ]
+  });
+
+  assert.equal(totals.assemblyFeeTotal, 300);
+  assert.equal(totals.totalAmount, 7300);
+});
+
+test("calculateQuotationTotals ignores item assemble selections when assemble is off", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: false,
+    salesInvoiceRequested: false,
+    items: [
+      {
+        ...baseItem,
+        quantity: 2,
+        requiresAssembly: true
+      }
+    ]
+  });
+
+  assert.equal(totals.assemblyFeeTotal, 0);
+  assert.equal(totals.totalAmount, 2000);
+});
+
+test("calculateQuotationTotals adds sales invoice fee from post-discount base plus non-invoice fees", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: true,
+    salesInvoiceRequested: true,
+    quotationDiscountType: "FIXED_AMOUNT",
+    quotationDiscountValue: 100,
+    items: [
+      {
+        ...baseItem,
+        quantity: 2,
+        unitPrice: 1000,
+        requiresAssembly: true
+      }
+    ]
+  });
+
+  assert.equal(totals.assemblyFeeTotal, 200);
+  assert.equal(totals.salesInvoiceFeeTotal, 168);
+  assert.equal(totals.totalAdditionalFees, 368);
+  assert.equal(totals.totalAmount, 2268);
+});
+
+test("calculateQuotationTotals uses editable fee inputs", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: true,
+    assemblyFeeRate: 150,
+    salesInvoiceRequested: true,
+    salesInvoiceFeePercentage: 5,
+    additionalFees: 250,
+    items: [
+      {
+        ...baseItem,
+        quantity: 2,
+        unitPrice: 1000,
+        requiresAssembly: true
+      }
+    ]
+  });
+
+  assert.equal(totals.assemblyFeeTotal, 300);
+  assert.equal(totals.salesInvoiceFeeTotal, 115);
+  assert.equal(totals.additionalFees, 250);
+  assert.equal(totals.totalAmount, 2665);
+});
+
+test("calculateQuotationTotals keeps gross profit based on item subtotal only", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: true,
+    salesInvoiceRequested: true,
+    quotationDiscountType: "FIXED_AMOUNT",
+    quotationDiscountValue: 300,
+    items: [
+      {
+        ...baseItem,
+        quantity: 2,
+        unitPrice: 1000,
+        unitCostSnapshot: 600,
+        requiresAssembly: true
+      }
+    ]
+  });
+
+  assert.equal(totals.totalCostAmount, 1200);
+  assert.equal(totals.grossProfitAmount, 800);
 });

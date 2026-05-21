@@ -396,6 +396,8 @@ async function createOrderFromQuotationTx(
       orderDiscountType: quotation.quotationDiscountType,
       orderDiscountValue: quotation.quotationDiscountValue,
       orderDiscountAmount: quotation.quotationDiscountAmount,
+      assemblyFeeTotal: quotation.assemblyFeeTotal,
+      salesInvoiceFeeTotal: quotation.salesInvoiceFeeTotal,
       totalAmount: quotation.totalAmount,
       totalCostAmount,
       grossProfitAmount,
@@ -433,6 +435,7 @@ async function createOrderFromQuotationTx(
           unitCostSnapshot: calculatedItems[index].unitCostSnapshot,
           lineCostTotal: calculatedItems[index].lineCostTotal,
           lineProfit: calculatedItems[index].lineProfit,
+          requiresAssembly: item.requiresAssembly,
           customerNotes: item.customerNotes,
           internalNotes: item.internalNotes,
           images: item.images.length
@@ -498,6 +501,8 @@ async function createOrderFromQuotationTx(
           totalCostAmount,
           grossProfitAmount,
           needsAssembly: quotation.needsAssembly,
+          assemblyFeeTotal: Number(quotation.assemblyFeeTotal),
+          salesInvoiceFeeTotal: Number(quotation.salesInvoiceFeeTotal),
           salesInvoiceRequested: quotation.salesInvoiceRequested
         }
       }

@@ -127,6 +127,15 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
   }
 
   const primaryContact = quotation.customer.contacts[0];
+  const additionalFees = Math.max(
+    Number(quotation.totalAmount) -
+      (Number(quotation.subtotalAmount) -
+        Number(quotation.itemDiscountTotal) -
+        Number(quotation.quotationDiscountAmount) +
+        Number(quotation.assemblyFeeTotal) +
+        Number(quotation.salesInvoiceFeeTotal)),
+    0
+  );
 
   return (
     <>
@@ -180,6 +189,9 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <table className="studio-table w-full min-w-[980px] text-left text-sm">
                 <thead className="border-b border-border text-xs uppercase text-muted-foreground">
                   <tr>
+                    {quotation.needsAssembly ? (
+                      <th className="px-5 py-3 font-medium">Assemble</th>
+                    ) : null}
                     <th className="px-5 py-3 font-medium">Item</th>
                     <th className="px-5 py-3 font-medium">Product code</th>
                     <th className="px-5 py-3 font-medium">Description / specs</th>
@@ -192,6 +204,11 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
                 <tbody className="divide-y divide-border">
                   {quotation.items.map((item) => (
                     <tr key={item.id}>
+                      {quotation.needsAssembly ? (
+                        <td className="px-5 py-3 text-muted-foreground">
+                          {item.requiresAssembly ? "Yes" : "No"}
+                        </td>
+                      ) : null}
                       <td className="px-5 py-3 font-medium">{item.itemName}</td>
                       <td className="px-5 py-3 text-muted-foreground">
                         {item.snapshotProductCode ?? "Custom"}
@@ -271,7 +288,7 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
             </div>
             <div className="space-y-3 p-5 text-sm">
               <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Subtotal</span>
+                <span className="text-muted-foreground">Subtotal for Items</span>
                 <span className="font-medium">{formatMoney(quotation.subtotalAmount)}</span>
               </div>
               <div className="flex justify-between gap-4">
@@ -281,6 +298,18 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Additional discount</span>
                 <span className="font-medium">-{formatMoney(quotation.quotationDiscountAmount)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Assembly fee</span>
+                <span className="font-medium">{formatMoney(quotation.assemblyFeeTotal)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Sales invoice fee</span>
+                <span className="font-medium">{formatMoney(quotation.salesInvoiceFeeTotal)}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-muted-foreground">Additional fees</span>
+                <span className="font-medium">{formatMoney(additionalFees)}</span>
               </div>
               <div className="flex justify-between gap-4 rounded-lg bg-soft-accent/70 px-3 py-3 text-base">
                 <span className="font-semibold">Final total</span>

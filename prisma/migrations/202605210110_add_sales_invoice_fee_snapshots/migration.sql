@@ -1,0 +1,5 @@
+ALTER TABLE "Quotation"
+ADD COLUMN "salesInvoiceFeeTotal" DECIMAL(12, 2) NOT NULL DEFAULT 0;
+
+ALTER TABLE "Order"
+ADD COLUMN "salesInvoiceFeeTotal" DECIMAL(12, 2) NOT NULL DEFAULT 0;
