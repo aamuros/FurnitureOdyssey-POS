@@ -15,12 +15,22 @@ type ProductsPageProps = {
     q?: string;
     status?: string;
     category?: string;
-    website?: string;
     page?: string;
   }>;
 };
 
 const pageSize = 25;
+const defaultProductCategories = [
+  "Sofa",
+  "Chair",
+  "Dining",
+  "Bed",
+  "Table",
+  "Storage",
+  "Office",
+  "Outdoor",
+  "Decor"
+];
 
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -61,13 +71,11 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const status =
     params.status === "ACTIVE" || params.status === "INACTIVE" ? params.status : undefined;
   const category = params.category?.trim() || undefined;
-  const website =
-    params.website === "visible" ? true : params.website === "hidden" ? false : undefined;
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
+  const hasActiveFilters = Boolean(query || status || category);
   const productWhere: Prisma.ProductWhereInput = {
     status,
     category,
-    isWebsiteVisible: website,
     OR: query
       ? [
           { name: { contains: query, mode: "insensitive" } },
@@ -97,12 +105,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         description: true,
         specifications: true,
         referencePrice: true,
-        referenceCost: true,
         currency: true,
         status: true,
-        isWebsiteVisible: true,
-        websiteSortOrder: true,
-        internalNotes: true,
         updatedAt: true,
         images: {
           orderBy: [
@@ -118,12 +122,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
           ],
           take: 1,
           select: {
-            id: true,
-            cloudinaryPublicId: true,
             secureUrl: true,
-            altText: true,
-            sortOrder: true,
-            isPrimary: true
+            altText: true
           }
         }
       }
@@ -150,21 +150,26 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const pageParams = {
     q: params.q,
     status: params.status,
-    category: params.category,
-    website: params.website
+    category: params.category
   };
+  const categoryOptions = Array.from(
+    new Set([
+      ...defaultProductCategories,
+      ...categories.flatMap((item) => (item.category ? [item.category] : []))
+    ])
+  );
 
   return (
     <>
       <PageHeader
         title="Products"
-        description="Admin catalog records used by internal quotations and orders, with image metadata and future website visibility controls."
+        description="Reusable product references for quotations and orders."
       />
-      <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[1.4fr_0.75fr_0.9fr_0.9fr_auto]">
+      <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[1.4fr_0.75fr_0.9fr_auto]">
         <Input
           name="q"
           defaultValue={params.q ?? ""}
-          placeholder="Search name, code, category, description, or specifications"
+          placeholder="Search name, code, category, or details"
         />
         <Select name="status" defaultValue={params.status ?? ""}>
           <option value="">Any status</option>
@@ -173,26 +178,27 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         </Select>
         <Select name="category" defaultValue={params.category ?? ""}>
           <option value="">All categories</option>
-          {categories.map((item) =>
-            item.category ? (
-              <option key={item.category} value={item.category}>
-                {item.category}
-              </option>
-            ) : null
-          )}
+          {categoryOptions.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
         </Select>
-        <Select name="website" defaultValue={params.website ?? ""}>
-          <option value="">Any website visibility</option>
-          <option value="visible">Website visible</option>
-          <option value="hidden">Website hidden</option>
-        </Select>
-        <Button type="submit" variant="secondary">
-          Filter
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" variant="secondary">
+            Filter
+          </Button>
+          <Link href="/products" className="text-sm font-medium text-accent transition hover:text-accent/80">
+            Reset filters
+          </Link>
+        </div>
       </form>
       <ProductWorkspace
         canCreate={hasPermission(user, "PRODUCTS", "CREATE")}
         canUpdate={hasPermission(user, "PRODUCTS", "UPDATE")}
+        canDelete={hasPermission(user, "PRODUCTS", "DELETE")}
+        hasActiveFilters={hasActiveFilters}
+        categories={categoryOptions}
         products={products.map((product) => {
           const primaryImage = product.images[0] ?? null;
 
@@ -204,27 +210,14 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             description: product.description,
             specifications: product.specifications,
             referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
-            referenceCost: product.referenceCost ? Number(product.referenceCost) : null,
             currency: product.currency,
             status: product.status,
-            isWebsiteVisible: product.isWebsiteVisible,
-            websiteSortOrder: product.websiteSortOrder,
-            internalNotes: product.internalNotes,
             primaryImage: primaryImage
               ? {
                   secureUrl: primaryImage.secureUrl,
                   altText: primaryImage.altText
                 }
               : null,
-            images: product.images.map((image) => ({
-              id: image.id,
-              cloudinaryPublicId: image.cloudinaryPublicId,
-              secureUrl: image.secureUrl,
-              altText: image.altText ?? "",
-              sortOrder: image.sortOrder,
-              isPrimary: image.isPrimary
-            })),
-            imagesLoaded: false,
             updatedAt: formatDate(product.updatedAt)
           };
         })}

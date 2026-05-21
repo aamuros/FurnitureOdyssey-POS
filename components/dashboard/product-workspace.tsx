@@ -1,28 +1,31 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { ImagePlus, PackageOpen, Pencil, Plus, Save, Star, Trash2, Upload } from "lucide-react";
+import {
+  AlertCircle,
+  Ban,
+  CheckCircle2,
+  ImagePlus,
+  PackageOpen,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  X
+} from "lucide-react";
 import {
   createProductAction,
-  removeProductImageAction,
-  setPrimaryProductImageAction,
+  deleteProductAction,
   updateProductAction,
-  uploadProductImageAction
+  updateProductStatusAction
 } from "@/app/actions/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
-
-type ProductImageDraft = {
-  id?: string;
-  cloudinaryPublicId: string;
-  secureUrl: string;
-  altText: string;
-  sortOrder: number;
-  isPrimary: boolean;
-};
 
 type ProductRow = {
   id: string;
@@ -32,18 +35,12 @@ type ProductRow = {
   description: string | null;
   specifications: string | null;
   referencePrice: number | null;
-  referenceCost: number | null;
   currency: string;
   status: "ACTIVE" | "INACTIVE";
-  isWebsiteVisible: boolean;
-  websiteSortOrder: number;
-  internalNotes: string | null;
   primaryImage: {
     secureUrl: string;
     altText: string | null;
   } | null;
-  images: ProductImageDraft[];
-  imagesLoaded: boolean;
   updatedAt: string;
 };
 
@@ -51,12 +48,54 @@ type ProductWorkspaceProps = {
   products: ProductRow[];
   canCreate: boolean;
   canUpdate: boolean;
+  canDelete: boolean;
+  hasActiveFilters: boolean;
+  categories: string[];
 };
+
+type ActionState = {
+  ok: boolean;
+  message: string;
+};
+
+type ProductFormProps = {
+  mode: "create" | "edit";
+  product?: ProductRow;
+  state: ActionState;
+  pending: boolean;
+  action: (formData: FormData) => void;
+  onCancel: () => void;
+  categories: string[];
+  canUploadImage: boolean;
+};
+
+const fieldClassName = "flex min-h-[78px] flex-col gap-2 text-sm font-medium";
+const essentialCategories = [
+  "Sofa",
+  "Chair",
+  "Dining",
+  "Bed",
+  "Table",
+  "Storage",
+  "Office",
+  "Outdoor",
+  "Decor"
+];
 
 const initialState = {
   ok: false,
   message: ""
 };
+
+function uniqueCategories(categories: string[], currentCategory?: string | null) {
+  return Array.from(
+    new Set(
+      [...essentialCategories, ...categories, currentCategory ?? ""]
+        .map((category) => category.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 function statusTone(status: ProductRow["status"]) {
   return status === "ACTIVE" ? "success" : "neutral";
@@ -73,465 +112,509 @@ function formatMoney(value: number | null, currency: string) {
   }).format(value);
 }
 
-function ProductImageManager({
-  productId,
-  productName,
-  images,
-  loadingImages,
-  imageError
-}: {
-  productId: string;
-  productName: string;
-  images: ProductImageDraft[];
-  loadingImages: boolean;
-  imageError: string | null;
-}) {
-  async function uploadImage(formData: FormData) {
-    await uploadProductImageAction(formData);
-  }
-
-  async function setPrimaryImage(formData: FormData) {
-    await setPrimaryProductImageAction(formData);
-  }
-
-  async function removeImage(formData: FormData) {
-    await removeProductImageAction(formData);
-  }
+function ProductForm({
+  mode,
+  product,
+  state,
+  pending,
+  action,
+  onCancel,
+  categories,
+  canUploadImage
+}: ProductFormProps) {
+  const isEdit = mode === "edit";
+  const categoryOptions = uniqueCategories(categories, product?.category);
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">Product images</h3>
+    <section className="border-y border-border bg-muted/20">
+      <div className="px-5 pb-3 pt-5">
+        <p className="studio-kicker">{isEdit ? "Edit Product" : "Furniture Catalog"}</p>
+        <h2 className="text-base font-semibold">
+          {isEdit ? `Edit product: ${product?.name ?? "Product"}` : "New product"}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Keep the catalog details simple. Pricing can still be adjusted later in quotations.
+        </p>
       </div>
-      <form action={uploadImage} className="studio-subpanel grid gap-3 p-3 sm:grid-cols-[1fr_1fr_96px_auto]">
-        <input type="hidden" name="productId" value={productId} />
-        <label className="space-y-2 text-sm font-medium">
-          Image file
-          <Input name="file" type="file" accept="image/jpeg,image/png,image/webp" required />
-        </label>
-        <label className="space-y-2 text-sm font-medium">
-          Alt text
-          <Input name="altText" placeholder={productName} />
-        </label>
-        <label className="space-y-2 text-sm font-medium">
-          Sort
-          <Input name="sortOrder" type="number" min="0" defaultValue={images.length} />
-        </label>
-        <div className="flex items-end gap-3">
-          <label className="flex min-h-10 items-center gap-2 text-sm text-muted-foreground">
-            <input name="isPrimary" type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" />
-            Primary
-          </label>
-          <Button type="submit" variant="secondary" className="min-h-10 px-3">
-            <Upload className="h-4 w-4" />
-            Upload
+      <form key={product?.id ?? "new"} action={action}>
+        {isEdit && product ? <input type="hidden" name="productId" value={product.id} /> : null}
+
+        <div className="space-y-4 px-5 pb-5 pt-2">
+          <div className="grid gap-4 md:grid-cols-[1.1fr_0.7fr]">
+            <label className={fieldClassName}>
+              Name
+              <Input name="name" required defaultValue={product?.name ?? ""} placeholder="Product name" />
+            </label>
+            <label className={fieldClassName}>
+              Code
+              <Input name="code" defaultValue={product?.code ?? ""} placeholder="Optional code" />
+              <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                Optional. Use this only when a supplier or internal code helps.
+              </span>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className={fieldClassName}>
+              Category
+              <Select name="category" defaultValue={product?.category ?? ""}>
+                <option value="">Choose category</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className={fieldClassName}>
+              Reference price
+              <Input
+                name="referencePrice"
+                type="number"
+                min="0"
+                step="0.01"
+                defaultValue={product?.referencePrice ?? ""}
+              />
+              <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                Optional. This can still be changed in a quotation.
+              </span>
+            </label>
+            <label className={fieldClassName}>
+              Status
+              <Select name="status" defaultValue={product?.status ?? "ACTIVE"}>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </Select>
+              <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                Inactive products are hidden from normal quotation selection.
+              </span>
+            </label>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              Description
+              <Textarea name="description" defaultValue={product?.description ?? ""} className="h-32 resize-y" />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-medium">
+              Specifications
+              <Textarea name="specifications" defaultValue={product?.specifications ?? ""} className="h-32 resize-y" />
+            </label>
+          </div>
+
+          {!isEdit && canUploadImage ? (
+            <div className="rounded-lg border border-border bg-panel/70 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/55">
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Product photo</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Optional. Add one main photo for the catalog thumbnail.
+                    </p>
+                  </div>
+                </div>
+                <Input
+                  name="imageFile"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="max-w-sm bg-background"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {state.message && !state.ok ? (
+            <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{state.message}</p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-border bg-panel/70 px-5 py-4">
+          <Button disabled={pending}>
+            <Save className="h-4 w-4" />
+            {isEdit ? "Update product" : "Save product"}
+          </Button>
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            <X className="h-4 w-4" />
+            Cancel
           </Button>
         </div>
       </form>
-      {loadingImages ? (
-        <p className="rounded-md bg-panel px-3 py-2 text-sm text-muted-foreground">
-          Loading saved images...
+    </section>
+  );
+}
+
+function ProductEmptyState({
+  canCreate,
+  hasActiveFilters,
+  onCreate
+}: {
+  canCreate: boolean;
+  hasActiveFilters: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="studio-empty m-5 flex flex-col items-start gap-3 px-5 py-6 text-sm">
+      <PackageOpen className="h-5 w-5 text-accent" />
+      <div>
+        <p className="font-medium text-foreground">
+          {hasActiveFilters ? "No products match your filters." : "No products yet."}
         </p>
-      ) : null}
-      {imageError ? (
-        <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{imageError}</p>
-      ) : null}
-      {images.map((image, index) => (
-        <div key={image.id ?? index} className="studio-subpanel grid gap-3 p-3 lg:grid-cols-[96px_1fr]">
-          <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
-            {image.secureUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={image.secureUrl}
-                alt={image.altText || "Product preview"}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <ImagePlus className="h-5 w-5 text-muted-foreground" />
-            )}
-          </div>
-          <div className="space-y-3">
-            <div>
-              <p className="text-sm font-medium">{image.altText || productName}</p>
-              <p className="break-all text-xs text-muted-foreground">{image.cloudinaryPublicId}</p>
-              <p className="text-xs text-muted-foreground">Sort {image.sortOrder}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <form action={setPrimaryImage}>
-                <input type="hidden" name="productId" value={productId} />
-                <input type="hidden" name="imageId" value={image.id ?? ""} />
-                <Button type="submit" variant={image.isPrimary ? "secondary" : "ghost"} className="min-h-9 px-3" disabled={image.isPrimary}>
-                  <Star className="h-4 w-4" />
-                  {image.isPrimary ? "Primary" : "Set primary"}
-                </Button>
-              </form>
-              <form action={removeImage}>
-                <input type="hidden" name="productId" value={productId} />
-                <input type="hidden" name="imageId" value={image.id ?? ""} />
-                <Button type="submit" variant="ghost" className="min-h-9 px-2">
-                <Trash2 className="h-4 w-4" />
-                  Remove
-                </Button>
-              </form>
-            </div>
-          </div>
-        </div>
-      ))}
-      {images.length === 0 ? (
-        <p className="studio-empty px-3 py-4 text-sm">
-          Upload product photos after saving the product record.
-        </p>
-      ) : null}
+        {!hasActiveFilters ? (
+          <p className="mt-1 text-muted-foreground">
+            Create reusable product references for quotations and orders.
+          </p>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        {hasActiveFilters ? (
+          <Link href="/products" className="text-sm font-medium text-accent transition hover:text-accent/80">
+            Reset filters
+          </Link>
+        ) : null}
+        {canCreate ? (
+          <Button type="button" variant="secondary" onClick={onCreate}>
+            <Plus className="h-4 w-4" />
+            New product
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-export function ProductWorkspace({ products, canCreate, canUpdate }: ProductWorkspaceProps) {
+function ProductNotice({
+  message,
+  tone,
+  onDismiss
+}: {
+  message: string;
+  tone: "success" | "danger";
+  onDismiss: () => void;
+}) {
+  const isDanger = tone === "danger";
+
+  return (
+    <div
+      className={
+        isDanger
+          ? "mx-5 mb-5 flex items-start gap-3 rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger"
+          : "mx-5 mb-5 flex items-start gap-3 rounded-md border border-success/20 bg-success/10 px-3 py-2 text-sm text-success"
+      }
+      role="status"
+    >
+      {isDanger ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+      <p className="min-w-0 flex-1">{message}</p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="rounded-md p-1 transition hover:bg-background/50"
+        aria-label="Dismiss notification"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function ProductTable({
+  products,
+  canUpdate,
+  canDelete,
+  selectedProductId,
+  statusAction,
+  statusPending,
+  deleteAction,
+  deletePending,
+  onEdit
+}: {
+  products: ProductRow[];
+  canUpdate: boolean;
+  canDelete: boolean;
+  selectedProductId: string;
+  statusAction: (formData: FormData) => void;
+  statusPending: boolean;
+  deleteAction: (formData: FormData) => void;
+  deletePending: boolean;
+  onEdit: (product: ProductRow) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="studio-table w-full min-w-[880px] table-fixed text-left text-sm">
+        <colgroup>
+          <col className="w-[76px]" />
+          <col className="w-[30%]" />
+          <col className="w-[15%]" />
+          <col className="w-[132px]" />
+          <col className="w-[104px]" />
+          <col className="w-[112px]" />
+          {canUpdate || canDelete ? <col className="w-[230px]" /> : null}
+        </colgroup>
+        <thead className="border-b border-border text-xs uppercase text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 font-medium">Image</th>
+            <th className="px-4 py-3 font-medium">Product</th>
+            <th className="px-4 py-3 font-medium">Category</th>
+            <th className="px-4 py-3 text-right font-medium">Reference price</th>
+            <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Updated</th>
+            {canUpdate || canDelete ? <th className="px-4 py-3 font-medium">Action</th> : null}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {products.map((product) => {
+            const nextStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+            const statusLabel = product.status === "ACTIVE" ? "Deactivate" : "Reactivate";
+
+            return (
+              <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/35" : undefined}>
+                <td className="px-4 py-4 align-middle">
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
+                    {product.primaryImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={product.primaryImage.secureUrl}
+                        alt={product.primaryImage.altText ?? product.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <PackageOpen className="h-4 w-4 text-muted-foreground/80" />
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-4 align-middle">
+                  <p className="font-semibold text-foreground">{product.name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{product.code ?? "No code"}</p>
+                </td>
+                <td className="px-4 py-4 align-middle text-muted-foreground">{product.category ?? "Uncategorized"}</td>
+                <td className="px-4 py-4 text-right align-middle tabular-nums text-muted-foreground">
+                  {formatMoney(product.referencePrice, product.currency)}
+                </td>
+                <td className="px-4 py-4 align-middle">
+                  <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
+                </td>
+                <td className="px-4 py-4 align-middle text-muted-foreground">{product.updatedAt}</td>
+                {canUpdate || canDelete ? (
+                  <td className="px-4 py-4 align-middle">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {canUpdate ? (
+                        <Button type="button" variant="secondary" onClick={() => onEdit(product)} className="min-h-9 px-2.5">
+                          <Pencil className="h-4 w-4" />
+                          Edit
+                        </Button>
+                      ) : null}
+                      {canUpdate ? (
+                        <form action={statusAction}>
+                          <input type="hidden" name="productId" value={product.id} />
+                          <input type="hidden" name="status" value={nextStatus} />
+                          <Button
+                            type="submit"
+                            variant="ghost"
+                            disabled={statusPending}
+                            className="min-h-9 px-2.5"
+                            onClick={(event) => {
+                              if (
+                                product.status === "ACTIVE" &&
+                                !window.confirm(`Deactivate ${product.name}? It will be hidden from normal quotation selection.`)
+                              ) {
+                                event.preventDefault();
+                              }
+                            }}
+                          >
+                            {product.status === "ACTIVE" ? (
+                              <Ban className="h-4 w-4" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4" />
+                            )}
+                            {statusLabel}
+                          </Button>
+                        </form>
+                      ) : null}
+                      {canDelete ? (
+                        <form action={deleteAction}>
+                          <input type="hidden" name="productId" value={product.id} />
+                          <Button
+                            type="submit"
+                            variant="danger"
+                            disabled={deletePending}
+                            className="min-h-9 px-2.5"
+                            onClick={(event) => {
+                              if (
+                                !window.confirm(
+                                  `Delete ${product.name}? Only unused products can be deleted. Products already used in quotations or orders should be deactivated instead.`
+                                )
+                              ) {
+                                event.preventDefault();
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Delete
+                          </Button>
+                        </form>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ProductWorkspace({
+  products,
+  canCreate,
+  canUpdate,
+  canDelete,
+  hasActiveFilters,
+  categories
+}: ProductWorkspaceProps) {
   const [createState, createAction, createPending] = useActionState(createProductAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateProductAction, initialState);
-  const [productRows, setProductRows] = useState(products);
-  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id ?? "");
-  const [loadingImagesProductId, setLoadingImagesProductId] = useState<string | null>(null);
-  const [imageError, setImageError] = useState<string | null>(null);
+  const [statusState, statusAction, statusPending] = useActionState(updateProductStatusAction, initialState);
+  const [deleteState, deleteAction, deletePending] = useActionState(deleteProductAction, initialState);
+  const [selectedProductId, setSelectedProductId] = useState("");
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"success" | "danger">("success");
 
   useEffect(() => {
-    setProductRows(products);
     setSelectedProductId((current) =>
-      current && products.some((product) => product.id === current) ? current : (products[0]?.id ?? "")
+      current && products.some((product) => product.id === current) ? current : ""
     );
   }, [products]);
 
-  const selectedProduct = useMemo(
-    () => productRows.find((product) => product.id === selectedProductId) ?? null,
-    [productRows, selectedProductId]
-  );
+  useEffect(() => {
+    if (createState.ok && createState.message) {
+      setNotice(createState.message);
+      setNoticeTone("success");
+      setShowCreateForm(false);
+      setSelectedProductId("");
+    }
+  }, [createState.ok, createState.message]);
 
   useEffect(() => {
-    if (!canUpdate || !selectedProduct || selectedProduct.imagesLoaded) {
-      return;
+    if (updateState.ok && updateState.message) {
+      setNotice(updateState.message);
+      setNoticeTone("success");
+      setShowCreateForm(false);
+      setSelectedProductId("");
     }
+  }, [updateState.ok, updateState.message]);
 
-    let cancelled = false;
-    const productId = selectedProduct.id;
-
-    async function loadImages() {
-      setLoadingImagesProductId(productId);
-      setImageError(null);
-
-      try {
-        const response = await fetch(`/api/products/${productId}/images`, {
-          headers: {
-            Accept: "application/json"
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error("Unable to load product images.");
-        }
-
-        const data = (await response.json()) as { images: ProductImageDraft[] };
-
-        if (cancelled) {
-          return;
-        }
-
-        setProductRows((current) =>
-          current.map((product) => {
-            if (product.id !== productId) {
-              return product;
-            }
-
-            const primaryImage = data.images.find((image) => image.isPrimary) ?? data.images[0] ?? null;
-
-            return {
-              ...product,
-              primaryImage: primaryImage
-                ? {
-                    secureUrl: primaryImage.secureUrl,
-                    altText: primaryImage.altText
-                  }
-                : null,
-              images: data.images,
-              imagesLoaded: true
-            };
-          })
-        );
-      } catch (error) {
-        if (!cancelled) {
-          setImageError(error instanceof Error ? error.message : "Unable to load product images.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingImagesProductId(null);
-        }
-      }
+  useEffect(() => {
+    if (statusState.message) {
+      setNotice(statusState.message);
+      setNoticeTone(statusState.ok ? "success" : "danger");
+      setSelectedProductId("");
+      setShowCreateForm(false);
     }
+  }, [statusState.message, statusState.ok]);
 
-    void loadImages();
+  useEffect(() => {
+    if (deleteState.message) {
+      setNotice(deleteState.message);
+      setNoticeTone(deleteState.ok ? "success" : "danger");
+      setSelectedProductId("");
+      setShowCreateForm(false);
+    }
+  }, [deleteState.message, deleteState.ok]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [canUpdate, selectedProduct]);
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === selectedProductId) ?? null,
+    [products, selectedProductId]
+  );
 
-  function selectProduct(product: ProductRow) {
+  function openCreateForm() {
+    setNotice("");
+    setSelectedProductId("");
+    setShowCreateForm(true);
+  }
+
+  function openEditForm(product: ProductRow) {
+    setNotice("");
+    setShowCreateForm(false);
     setSelectedProductId(product.id);
   }
 
+  function closeForm() {
+    setShowCreateForm(false);
+    setSelectedProductId("");
+  }
+
   return (
-    <div className="grid gap-6 2xl:grid-cols-[0.95fr_1.05fr]">
-      <div className="space-y-6">
-        {canCreate ? (
-          <section className="studio-card">
-            <div className="studio-card-header">
-              <p className="studio-kicker">Catalog Piece</p>
-              <h2 className="text-sm font-semibold">New product</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Create catalog records for quotation and order selection.
-              </p>
-            </div>
-            <form action={createAction} className="space-y-4 p-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2 text-sm font-medium">
-                  Code
-                  <Input name="code" placeholder="Optional unique code" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Name
-                  <Input name="name" required placeholder="Product name" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Category
-                  <Input name="category" placeholder="Sofa, dining, bed frame" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Currency
-                  <Input name="currency" defaultValue="PHP" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Reference price
-                  <Input name="referencePrice" type="number" min="0" step="0.01" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Reference cost
-                  <Input name="referenceCost" type="number" min="0" step="0.01" />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Status
-                  <Select name="status" defaultValue="ACTIVE">
-                    <option value="ACTIVE">Active</option>
-                    <option value="INACTIVE">Inactive</option>
-                  </Select>
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Website sort order
-                  <Input name="websiteSortOrder" type="number" min="0" defaultValue="0" />
-                </label>
-              </div>
-              <label className="block space-y-2 text-sm font-medium">
-                Description
-                <Textarea name="description" />
-              </label>
-              <label className="block space-y-2 text-sm font-medium">
-                Specifications
-                <Textarea name="specifications" />
-              </label>
-              <label className="block space-y-2 text-sm font-medium">
-                Internal notes
-                <Textarea name="internalNotes" />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input name="isWebsiteVisible" type="checkbox" className="h-4 w-4 accent-[hsl(var(--primary))]" />
-                Visible on future customer website
-              </label>
-              {createState.message ? (
-                <p className={createState.ok ? "text-sm text-success" : "text-sm text-danger"}>
-                  {createState.message}
-                </p>
-              ) : null}
-              <Button disabled={createPending}>
-                <Save className="h-4 w-4" />
-                Save product
-              </Button>
-            </form>
-          </section>
+    <div className="space-y-6">
+      <section className="studio-card">
+        <div className="studio-card-header flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="studio-kicker">Furniture Catalog</p>
+            <h2 className="text-sm font-semibold">Product list</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Find products, adjust basic details, or deactivate items no longer offered.
+            </p>
+          </div>
+          {canCreate ? (
+            <Button type="button" variant="secondary" onClick={openCreateForm}>
+              <Plus className="h-4 w-4" />
+              New product
+            </Button>
+          ) : null}
+        </div>
+
+        {notice ? (
+          <ProductNotice message={notice} tone={noticeTone} onDismiss={() => setNotice("")} />
+        ) : null}
+
+        {canCreate && showCreateForm ? (
+          <ProductForm
+            mode="create"
+            state={createState}
+            pending={createPending}
+            action={createAction}
+            onCancel={closeForm}
+            categories={categories}
+            canUploadImage={canUpdate}
+          />
         ) : null}
 
         {canUpdate && selectedProduct ? (
-          <section className="studio-card">
-            <div className="studio-card-header">
-              <p className="studio-kicker">Catalog Details</p>
-              <h2 className="text-sm font-semibold">Edit product</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Select a row from the product list to update catalog details.
-              </p>
-            </div>
-            <form key={selectedProduct.id} action={updateAction} className="space-y-4 p-5">
-              <input type="hidden" name="productId" value={selectedProduct.id} />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2 text-sm font-medium">
-                  Code
-                  <Input name="code" defaultValue={selectedProduct.code ?? ""} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Name
-                  <Input name="name" required defaultValue={selectedProduct.name} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Category
-                  <Input name="category" defaultValue={selectedProduct.category ?? ""} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Currency
-                  <Input name="currency" defaultValue={selectedProduct.currency} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Reference price
-                  <Input name="referencePrice" type="number" min="0" step="0.01" defaultValue={selectedProduct.referencePrice ?? ""} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Reference cost
-                  <Input name="referenceCost" type="number" min="0" step="0.01" defaultValue={selectedProduct.referenceCost ?? ""} />
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Status
-                  <Select name="status" defaultValue={selectedProduct.status}>
-                    <option value="ACTIVE">Active</option>
-                    <option value="INACTIVE">Inactive</option>
-                  </Select>
-                </label>
-                <label className="space-y-2 text-sm font-medium">
-                  Website sort order
-                  <Input name="websiteSortOrder" type="number" min="0" defaultValue={selectedProduct.websiteSortOrder} />
-                </label>
-              </div>
-              <label className="block space-y-2 text-sm font-medium">
-                Description
-                <Textarea name="description" defaultValue={selectedProduct.description ?? ""} />
-              </label>
-              <label className="block space-y-2 text-sm font-medium">
-                Specifications
-                <Textarea name="specifications" defaultValue={selectedProduct.specifications ?? ""} />
-              </label>
-              <label className="block space-y-2 text-sm font-medium">
-                Internal notes
-                <Textarea name="internalNotes" defaultValue={selectedProduct.internalNotes ?? ""} />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  name="isWebsiteVisible"
-                  type="checkbox"
-                  defaultChecked={selectedProduct.isWebsiteVisible}
-                  className="h-4 w-4 accent-[hsl(var(--primary))]"
-                />
-                Visible on future customer website
-              </label>
-              {updateState.message ? (
-                <p className={updateState.ok ? "text-sm text-success" : "text-sm text-danger"}>
-                  {updateState.message}
-                </p>
-              ) : null}
-              <Button disabled={updatePending}>
-                <Save className="h-4 w-4" />
-                Update product
-              </Button>
-            </form>
-            <div className="border-t border-border p-5">
-              <ProductImageManager
-                productId={selectedProduct.id}
-                productName={selectedProduct.name}
-                images={selectedProduct.images}
-                loadingImages={loadingImagesProductId === selectedProduct.id}
-                imageError={imageError}
-              />
-            </div>
-          </section>
+          <ProductForm
+            mode="edit"
+            product={selectedProduct}
+            state={updateState}
+            pending={updatePending}
+            action={updateAction}
+            onCancel={closeForm}
+            categories={categories}
+            canUploadImage={false}
+          />
         ) : null}
-      </div>
 
-      <section className="studio-card">
-        <div className="studio-card-header">
-          <p className="studio-kicker">Furniture Catalog</p>
-          <h2 className="text-sm font-semibold">Product catalog</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Search and filter from the page controls above this list.
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="studio-table w-full min-w-[1060px] text-left text-sm">
-            <thead className="border-b border-border text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-5 py-3 font-medium">Image</th>
-                <th className="px-5 py-3 font-medium">Product</th>
-                <th className="px-5 py-3 font-medium">Category</th>
-                <th className="px-5 py-3 font-medium">Reference price</th>
-                <th className="px-5 py-3 font-medium">Reference cost</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Website</th>
-                <th className="px-5 py-3 font-medium">Updated</th>
-                {canUpdate ? <th className="px-5 py-3 font-medium">Action</th> : null}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {productRows.map((product) => (
-                <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/45" : undefined}>
-                  <td className="px-5 py-3">
-                    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
-                      {product.primaryImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={product.primaryImage.secureUrl}
-                          alt={product.primaryImage.altText ?? product.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Plus className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3">
-                    <p className="font-medium">{product.name}</p>
-                    <p className="text-xs text-muted-foreground">{product.code ?? "No code"}</p>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{product.category ?? "Uncategorized"}</td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {formatMoney(product.referencePrice, product.currency)}
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {formatMoney(product.referenceCost, product.currency)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
-                  </td>
-                  <td className="px-5 py-3">
-                    <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
-                      {product.isWebsiteVisible ? "VISIBLE" : "HIDDEN"}
-                    </StatusPill>
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">{product.updatedAt}</td>
-                  {canUpdate ? (
-                    <td className="px-5 py-3">
-                      <Button type="button" variant="secondary" onClick={() => selectProduct(product)} className="min-h-9 px-3">
-                        <Pencil className="h-4 w-4" />
-                        Edit
-                      </Button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-              {productRows.length === 0 ? (
-                <tr>
-                  <td className="px-5 py-8 text-sm text-muted-foreground" colSpan={canUpdate ? 9 : 8}>
-                    <div className="studio-empty flex items-center gap-3 px-4 py-4">
-                      <PackageOpen className="h-5 w-5 text-accent" />
-                      <span>No products match the current filters.</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        {products.length ? (
+          <ProductTable
+            products={products}
+            canUpdate={canUpdate}
+            canDelete={canDelete}
+            selectedProductId={selectedProductId}
+            statusAction={statusAction}
+            statusPending={statusPending}
+            deleteAction={deleteAction}
+            deletePending={deletePending}
+            onEdit={openEditForm}
+          />
+        ) : (
+          <ProductEmptyState
+            canCreate={canCreate}
+            hasActiveFilters={hasActiveFilters}
+            onCreate={openCreateForm}
+          />
+        )}
       </section>
     </div>
   );

@@ -1,10 +1,13 @@
 import { z } from "zod";
 
-const optionalText = z
-  .string()
-  .trim()
-  .transform((value) => (value.length ? value : undefined))
-  .optional();
+const optionalText = z.preprocess(
+  (value) => (value === null || value === undefined || value === "" ? undefined : value),
+  z
+    .string()
+    .trim()
+    .transform((value) => (value.length ? value : undefined))
+    .optional()
+);
 
 const optionalMoney = z.preprocess(
   (value) => (value === "" || value === null ? undefined : value),

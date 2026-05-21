@@ -42,6 +42,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname === "/" ||
     request.nextUrl.pathname.startsWith("/dashboard") ||
     request.nextUrl.pathname.startsWith("/customers") ||
+    request.nextUrl.pathname.startsWith("/products") ||
     request.nextUrl.pathname.startsWith("/inquiries") ||
     request.nextUrl.pathname.startsWith("/quotations") ||
     request.nextUrl.pathname.startsWith("/orders") ||
