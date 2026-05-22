@@ -1058,9 +1058,9 @@ function ProductPicker({
 
   function ProductCard({ product }: { product: ProductOption }) {
     return (
-      <article className="flex min-h-[300px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
+      <article className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
         <div
-          className="flex h-36 shrink-0 items-center justify-center border-b border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground sm:h-40 lg:h-44"
+          className="flex h-48 shrink-0 items-center justify-center border-b border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground sm:h-56 lg:h-60"
           style={productImageStyle(product)}
         >
           {!product.primaryImage ? <ImagePlus className="h-8 w-8" /> : null}
@@ -1526,7 +1526,7 @@ function QuotationItemCostProfitSummary({
 function ItemThumb({ item }: { item: ItemDraft }) {
   return (
     <div
-      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground"
+      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground"
       style={item.images[0]?.secureUrl ? { backgroundImage: `url("${item.images[0].secureUrl}")` } : undefined}
     >
       {!item.images[0]?.secureUrl ? <ImagePlus className="h-4 w-4" /> : null}
