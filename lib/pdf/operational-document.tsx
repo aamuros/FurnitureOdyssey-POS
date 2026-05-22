@@ -34,10 +34,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     textAlign: "center",
     paddingBottom: 8,
-    borderBottom: `1.2px solid ${accent}`
+    borderBottom: `1.2px solid ${accent}`,
+    marginBottom: 10
   },
   finalSummaryHeader: {
-    paddingBottom: 5
+    paddingBottom: 5,
+    marginBottom: 10
   },
   logo: {
     width: 92,
@@ -72,7 +74,7 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   documentLabel: {
-    marginTop: 7,
+    marginTop: 0,
     marginBottom: 9,
     textAlign: "center",
     fontSize: 15,
@@ -82,7 +84,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase"
   },
   finalSummaryDocumentLabel: {
-    marginTop: 4,
+    marginTop: 0,
     marginBottom: 5,
     fontSize: 14
   },
