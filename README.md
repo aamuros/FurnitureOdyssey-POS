@@ -90,10 +90,13 @@ CLOUDINARY_API_KEY="your-cloudinary-api-key"
 CLOUDINARY_API_SECRET="your-cloudinary-api-secret"
 FIRST_ADMIN_AUTH_USER_ID=""
 FIRST_ADMIN_EMAIL="admin@example.com"
+FIRST_ADMIN_PASSWORD="change-this-local-admin-password"
 FIRST_ADMIN_NAME="Furniture Odyssey Admin"
 ```
 
-`FIRST_ADMIN_*` values are only needed when running the seed script to create the first active Admin profile. The auth user must already exist in Supabase Auth.
+`FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD`, and `FIRST_ADMIN_NAME` are used by the seed script to create or update the first active local Admin. `FIRST_ADMIN_AUTH_USER_ID` is optional; leave it empty for normal local setup so the seed can create or find the Supabase Auth user automatically. Set it only when you intentionally want to bind the Admin profile to a specific existing Supabase Auth user ID.
+
+`SUPABASE_SERVICE_ROLE_KEY` is server-only and is used by local scripts/server code for Supabase Admin API calls. Do not expose it through `NEXT_PUBLIC_*` variables or browser code.
 
 `CLOUDINARY_*` values are server-only credentials used by product image uploads and future stored document/media upload actions. Do not expose the API secret through `NEXT_PUBLIC_*` variables.
 
@@ -146,13 +149,15 @@ Apply the committed Prisma migrations to the configured local database:
 npm run prisma:migrate:dev
 ```
 
-Create a local Supabase Auth test user in Supabase Studio or through the Auth Admin API. Use that auth user's ID as `FIRST_ADMIN_AUTH_USER_ID`, then seed the first Admin profile and sample products:
+Set `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD`, and `FIRST_ADMIN_NAME`, then seed the first Admin Auth user, Admin profile, and sample products:
 
 ```bash
 npm run seed
 ```
 
-This creates the Admin user and 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata is committed in `prisma/seed-data/cloudinary-images.json`, so no Cloudinary uploads happen during seeding.
+The seed creates the Supabase Auth user when missing, confirms its email, updates the password for an existing matching Auth user, and then creates or updates the matching active Admin profile. `FIRST_ADMIN_AUTH_USER_ID` is optional and should usually stay empty after `supabase db reset` so the profile does not point at a stale Auth user ID.
+
+This also creates 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata is hardcoded in the seed script, so no Cloudinary uploads happen during seeding.
 
 Start the development server:
 
@@ -222,7 +227,7 @@ The seed script is for environment bootstrap only:
 npm run seed
 ```
 
-It creates or updates the first active Admin profile when `FIRST_ADMIN_AUTH_USER_ID` and `FIRST_ADMIN_EMAIL` are set. The Supabase Auth user must already exist. It also seeds 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata (public IDs, URLs, dimensions) is hardcoded in the seed script, so no Cloudinary credentials or uploads are needed to seed products. Products are upserted by product code and images are deduplicated by public ID, so the seed is safe to run repeatedly.
+It creates or updates the first local Supabase Auth Admin user when `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD`, `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are set, then creates or updates the active Prisma Admin profile. `FIRST_ADMIN_AUTH_USER_ID` is optional; if present, it overrides Auth user lookup and the seed updates that Auth user. If empty, the seed finds an existing Auth user by email or creates one with `email_confirm: true`. It also seeds 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata (public IDs, URLs, dimensions) is hardcoded in the seed script, so no Cloudinary credentials or uploads are needed to seed products. Products are upserted by product code and images are deduplicated by public ID, so the seed is safe to run repeatedly.
 
 Do not put customer records, orders, payments, deliveries, or pilot business data in the seed script. Real operational data should be entered through the app or imported through reviewed one-off scripts.
 

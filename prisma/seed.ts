@@ -1,5 +1,6 @@
 import { PrismaClient, type PermissionAction, type PermissionModule } from "@prisma/client";
 import { moduleActions } from "../lib/auth/permissions";
+import { createSupabaseAdminClient } from "../lib/supabase/admin";
 
 const prisma = new PrismaClient();
 
@@ -7,47 +8,184 @@ const prisma = new PrismaClient();
 // Seed: Admin user
 // ---------------------------------------------------------------------------
 
-async function seedAdminUser() {
-  const authUserId = process.env.FIRST_ADMIN_AUTH_USER_ID;
-  const email = process.env.FIRST_ADMIN_EMAIL;
+type BootstrapAuthUserResult = {
+  id: string;
+  status: "created" | "reused" | "updated";
+};
+
+function normalizeOptionalEnv(value: string | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+async function findAuthUserByEmail(email: string) {
+  const supabase = createSupabaseAdminClient();
+  const normalizedEmail = email.toLowerCase();
+  let page = 1;
+
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage: 100,
+    });
+
+    if (error) {
+      throw new Error(`Could not list Supabase Auth users: ${error.message}`);
+    }
+
+    const user = data.users.find((authUser) => authUser.email?.toLowerCase() === normalizedEmail);
+
+    if (user) {
+      return user;
+    }
+
+    if (!data.nextPage) {
+      return null;
+    }
+
+    page = data.nextPage;
+  }
+}
+
+async function bootstrapFirstAdminAuthUser(): Promise<BootstrapAuthUserResult | null> {
+  const overrideAuthUserId = normalizeOptionalEnv(process.env.FIRST_ADMIN_AUTH_USER_ID);
+  const email = normalizeOptionalEnv(process.env.FIRST_ADMIN_EMAIL);
+  const password = normalizeOptionalEnv(process.env.FIRST_ADMIN_PASSWORD);
   const displayName = process.env.FIRST_ADMIN_NAME ?? "Furniture Odyssey Admin";
 
-  if (!authUserId || !email) {
+  if (!email) {
     console.log(
-      "Skipping admin seed. Set FIRST_ADMIN_AUTH_USER_ID and FIRST_ADMIN_EMAIL to create the first Admin profile."
+      "Skipping admin seed. Set FIRST_ADMIN_EMAIL and FIRST_ADMIN_PASSWORD to bootstrap the first local Admin."
     );
     return null;
   }
 
-  const admin = await prisma.userProfile.upsert({
-    where: { authUserId },
-    update: {
+  if (!password) {
+    throw new Error("FIRST_ADMIN_PASSWORD is required to bootstrap the first local Admin Auth user.");
+  }
+
+  const supabase = createSupabaseAdminClient();
+
+  if (overrideAuthUserId) {
+    const { data, error } = await supabase.auth.admin.updateUserById(overrideAuthUserId, {
       email,
-      displayName,
-      role: "ADMIN",
-      status: "ACTIVE",
-    },
-    create: {
-      authUserId,
+      password,
+      email_confirm: true,
+      user_metadata: { display_name: displayName },
+    });
+
+    if (error) {
+      throw new Error(`Could not update override Supabase Auth user: ${error.message}`);
+    }
+
+    if (!data.user) {
+      throw new Error(`No Supabase Auth user found for FIRST_ADMIN_AUTH_USER_ID=${overrideAuthUserId}.`);
+    }
+
+    console.log(`✅ Updated Supabase Auth admin user from FIRST_ADMIN_AUTH_USER_ID (${data.user.id}).`);
+    return { id: data.user.id, status: "updated" };
+  }
+
+  const existingUser = await findAuthUserByEmail(email);
+
+  if (existingUser) {
+    const { data, error } = await supabase.auth.admin.updateUserById(existingUser.id, {
       email,
-      displayName,
-      role: "ADMIN",
-      status: "ACTIVE",
-      permissions: {
-        createMany: {
-          data: Object.entries(moduleActions).flatMap(([module, actions]) =>
-            actions.map((action) => ({
-              module: module as PermissionModule,
-              action: action as PermissionAction,
-              allowed: true,
-            }))
-          ),
-        },
-      },
-    },
+      password,
+      email_confirm: true,
+      user_metadata: { display_name: displayName },
+    });
+
+    if (error) {
+      throw new Error(`Could not update existing Supabase Auth admin user: ${error.message}`);
+    }
+
+    console.log(`✅ Reused and updated existing Supabase Auth admin user for ${email} (${existingUser.id}).`);
+    return { id: data.user?.id ?? existingUser.id, status: "updated" };
+  }
+
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { display_name: displayName },
   });
 
-  console.log(`✅ Seeded active Admin profile for ${email}.`);
+  if (error) {
+    throw new Error(`Could not create Supabase Auth admin user: ${error.message}`);
+  }
+
+  if (!data.user) {
+    throw new Error("Supabase Auth admin user creation succeeded without returning a user.");
+  }
+
+  console.log(`✅ Created Supabase Auth admin user for ${email} (${data.user.id}).`);
+  return { id: data.user.id, status: "created" };
+}
+
+async function seedAdminUser() {
+  const authUser = await bootstrapFirstAdminAuthUser();
+  const email = normalizeOptionalEnv(process.env.FIRST_ADMIN_EMAIL);
+  const displayName = process.env.FIRST_ADMIN_NAME ?? "Furniture Odyssey Admin";
+
+  if (!authUser || !email) {
+    return null;
+  }
+
+  const existingAdmin = await prisma.userProfile.findFirst({
+    where: {
+      OR: [{ authUserId: authUser.id }, { email }],
+    },
+    select: { id: true },
+  });
+
+  const admin = existingAdmin
+    ? await prisma.userProfile.update({
+        where: { id: existingAdmin.id },
+        data: {
+          authUserId: authUser.id,
+          email,
+          displayName,
+          role: "ADMIN",
+          status: "ACTIVE",
+        },
+      })
+    : await prisma.userProfile.create({
+        data: {
+          authUserId: authUser.id,
+          email,
+          displayName,
+          role: "ADMIN",
+          status: "ACTIVE",
+          permissions: {
+            createMany: {
+              data: Object.entries(moduleActions).flatMap(([module, actions]) =>
+                actions.map((action) => ({
+                  module: module as PermissionModule,
+                  action: action as PermissionAction,
+                  allowed: true,
+                }))
+              ),
+            },
+          },
+        },
+      });
+
+  await prisma.userPermission.createMany({
+    data: Object.entries(moduleActions).flatMap(([module, actions]) =>
+      actions.map((action) => ({
+        userId: admin.id,
+        module: module as PermissionModule,
+        action: action as PermissionAction,
+        allowed: true,
+      }))
+    ),
+    skipDuplicates: true,
+  });
+
+  console.log(
+    `✅ Seeded active Admin profile for ${email} using ${authUser.status} Supabase Auth user ${authUser.id}.`
+  );
   return admin;
 }
 
