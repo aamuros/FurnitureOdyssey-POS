@@ -366,9 +366,31 @@ function CustomerDetailDrawer({
   customer: CustomerRow;
   onClose: () => void;
 }) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-40 bg-foreground/35 p-3 backdrop-blur-sm md:p-6" role="dialog" aria-modal="true">
-      <div className="ml-auto flex h-full w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-xl">
+    <div
+      className="fixed inset-0 z-40 bg-foreground/35 p-3 backdrop-blur-sm md:p-6"
+      role="dialog"
+      aria-modal="true"
+      onMouseDown={onClose}
+    >
+      <div
+        className="ml-auto flex h-full w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <p className="studio-kicker">Customer</p>

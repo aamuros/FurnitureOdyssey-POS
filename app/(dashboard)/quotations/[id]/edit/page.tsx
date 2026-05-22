@@ -204,8 +204,8 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
             category: product.category,
             description: product.description,
             specifications: product.specifications,
-            referencePrice: product.referencePrice ? Number(product.referencePrice) : null,
-            referenceCost: product.referenceCost ? Number(product.referenceCost) : null,
+            referencePrice: product.referencePrice !== null ? Number(product.referencePrice) : null,
+            referenceCost: product.referenceCost !== null ? Number(product.referenceCost) : null,
             primaryImage: primaryImage
               ? {
                   id: primaryImage.id,
