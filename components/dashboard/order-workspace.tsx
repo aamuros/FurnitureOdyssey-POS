@@ -338,6 +338,34 @@ function decimalInputValue(value: number) {
   return Number.isFinite(value) ? String(roundQuantity(value)) : "";
 }
 
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
+function formatDateChipLabel(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric"
+  }).format(new Date(year, month - 1, day));
+}
+
 function itemCountLabel(count: number) {
   return `${count} ${count === 1 ? "item" : "items"}`;
 }
@@ -619,120 +647,312 @@ function PaymentDueTimingForm({ order }: { order: OrderRow }) {
   );
 }
 
+type DeliveryItemDraft = {
+  orderItemId: string;
+  selected: boolean;
+  quantityPlanned: number;
+};
+
+const quickTimeWindows = ["Morning", "Afternoon", "Evening"] as const;
+
+function createDeliveryItemDrafts(order: OrderRow): DeliveryItemDraft[] {
+  return remainingItemLines(order).map((item) => ({
+    orderItemId: item.id,
+    selected: false,
+    quantityPlanned: Math.min(item.remainingQuantity, 1)
+  }));
+}
+
+function clampDeliveryQuantity(value: number, remainingQuantity: number) {
+  return roundQuantity(Math.min(Math.max(value, 0), remainingQuantity));
+}
+
 function DeliveryForm({ order }: { order: OrderRow }) {
   const [state, action, pending] = useActionState(createDeliveryAction, initialState);
-  const [orderItemId, setOrderItemId] = useState(order.items[0]?.id ?? "");
-  const [quantityPlanned, setQuantityPlanned] = useState(1);
-  const selectedItem = order.items.find((item) => item.id === orderItemId);
-  const remainingQuantity = selectedItem ? selectedItem.remainingQuantity : 0;
-  const deliveryItems = orderItemId
-    ? [
-        {
-          orderItemId,
-          quantityPlanned,
-          quantityDelivered: 0,
-          notes: ""
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [timeWindowMode, setTimeWindowMode] = useState<"Morning" | "Afternoon" | "Evening" | "Custom" | "">("");
+  const [customTimeWindow, setCustomTimeWindow] = useState("");
+  const [itemDrafts, setItemDrafts] = useState<DeliveryItemDraft[]>(() => createDeliveryItemDrafts(order));
+  const remainingItems = useMemo(() => remainingItemLines(order), [order]);
+  const itemById = useMemo(() => new Map(remainingItems.map((item) => [item.id, item])), [remainingItems]);
+  const scheduledTimeWindow = timeWindowMode === "Custom" ? customTimeWindow : timeWindowMode;
+  const selectedDrafts = itemDrafts.filter((item) => item.selected);
+  const deliveryItems = selectedDrafts
+    .filter((item) => item.quantityPlanned > 0)
+    .map((item) => ({
+      orderItemId: item.orderItemId,
+      quantityPlanned: item.quantityPlanned,
+      quantityDelivered: 0,
+      notes: ""
+    }));
+  const selectedQuantityTotal = roundQuantity(
+    deliveryItems.reduce((sum, item) => sum + item.quantityPlanned, 0)
+  );
+  const hasQuantityOverage = selectedDrafts.some((draft) => {
+    const item = itemById.get(draft.orderItemId);
+
+    return item ? draft.quantityPlanned > item.remainingQuantity : true;
+  });
+  const validationMessage = !scheduledDate
+    ? "Choose a scheduled date."
+    : selectedDrafts.length === 0
+      ? "Select at least one item."
+      : deliveryItems.length === 0
+        ? "Enter a quantity greater than zero."
+        : hasQuantityOverage
+          ? "Reduce quantities to each item's remaining amount."
+          : "";
+  const summaryMessage =
+    scheduledDate && deliveryItems.length > 0
+      ? [
+          formatDateChipLabel(scheduledDate),
+          scheduledTimeWindow || "Any time",
+          `${deliveryItems.length} ${deliveryItems.length === 1 ? "item" : "items"}`,
+          `${selectedQuantityTotal} total qty`
+        ].join(" · ")
+      : !scheduledDate && deliveryItems.length === 0
+        ? "Choose a date and select at least one item."
+        : !scheduledDate
+          ? "Choose a date."
+          : "Select at least one item.";
+  const today = toDateInputValue(new Date());
+  const quickDates = [
+    { label: "Today", value: today },
+    { label: "Tomorrow", value: toDateInputValue(addDays(new Date(), 1)) },
+    { label: "Next week", value: toDateInputValue(addDays(new Date(), 7)) }
+  ];
+
+  useEffect(() => {
+    setItemDrafts(createDeliveryItemDrafts(order));
+  }, [order]);
+
+  function updateItemDraft(orderItemId: string, updater: (draft: DeliveryItemDraft, item: OrderItemRow) => DeliveryItemDraft) {
+    setItemDrafts((currentDrafts) =>
+      currentDrafts.map((draft) => {
+        if (draft.orderItemId !== orderItemId) {
+          return draft;
         }
-      ]
-    : [];
+
+        const item = itemById.get(orderItemId);
+
+        return item ? updater(draft, item) : draft;
+      })
+    );
+  }
 
   return (
-    <form action={action} className="space-y-5 text-sm">
+    <form
+      action={action}
+      className="space-y-5 text-sm"
+      onSubmit={(event) => {
+        if (validationMessage) {
+          event.preventDefault();
+        }
+      }}
+    >
       <input type="hidden" name="orderId" value={order.id} />
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
-      <label className="block space-y-2 text-[14px] font-medium text-foreground">
-        Scheduled date
-        <Input name="scheduledDate" type="date" required aria-label="Scheduled date" className="text-[15px]" />
-      </label>
-      <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem]">
-        <label className="space-y-2 text-[14px] font-medium text-foreground">
-          Item
-          <Select
-            value={orderItemId}
-            onChange={(event) => setOrderItemId(event.target.value)}
-            aria-label="Delivery item"
-            className="text-[15px]"
-          >
-            {order.items.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.itemName} ({item.remainingQuantity} remaining)
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="space-y-2 text-[14px] font-medium text-foreground">
-          Quantity
-          <DecimalInput
-            value={quantityPlanned}
-            onValueChange={setQuantityPlanned}
-            min={0.01}
-            max={remainingQuantity || undefined}
-            fallback={1}
-            aria-label="Delivery quantity"
-            className="text-[15px]"
-          />
-        </label>
-      </div>
-      <fieldset className="space-y-2">
-        <legend className="text-[14px] font-medium text-foreground">Provider</legend>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Select
-            name="deliveryProviderType"
-            defaultValue=""
-            aria-label="Delivery provider type"
-            className="text-[15px]"
-          >
-            <option value="">Provider type</option>
-            <option value="IN_HOUSE">In-house</option>
-            <option value="CUSTOMER_PICKUP">Customer pickup</option>
-            <option value="THIRD_PARTY">Third-party</option>
-            <option value="OTHER">Other</option>
-          </Select>
+      <input type="hidden" name="scheduledTimeWindow" value={scheduledTimeWindow} />
+
+      <section className="space-y-3 rounded-md border border-border bg-panel p-4">
+        <div>
+          <h4 className="text-[15px] font-semibold">When</h4>
+          <p className="mt-1 text-[13px] text-muted-foreground">Set the delivery date and expected time window.</p>
+        </div>
+        <label className="block space-y-2 text-[14px] font-medium text-foreground">
+          Scheduled date
           <Input
-            name="deliveryProviderName"
-            placeholder="Provider name"
-            aria-label="Delivery provider name"
+            name="scheduledDate"
+            type="date"
+            required
+            value={scheduledDate}
+            onChange={(event) => setScheduledDate(event.target.value)}
+            aria-label="Scheduled date"
             className="text-[15px]"
           />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {quickDates.map((date) => (
+            <Button
+              key={date.label}
+              type="button"
+              variant={scheduledDate === date.value ? "primary" : "secondary"}
+              className="min-h-8 rounded-md px-3 text-xs"
+              onClick={() => setScheduledDate(date.value)}
+            >
+              {date.label}
+            </Button>
+          ))}
         </div>
-      </fieldset>
-      <label className="block space-y-2 text-[14px] font-medium text-foreground">
-        Address
-        <Input name="deliveryAddress" placeholder="Address optional" className="text-[15px]" />
-      </label>
-      <details className="rounded-md border border-dashed border-border bg-panel/55 px-4 py-3">
-        <summary className="cursor-pointer text-[14px] font-medium text-muted-foreground">
-          Additional delivery details
-        </summary>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="space-y-2 text-[13px] font-medium">
-            Provider reference
-            <Input name="deliveryProviderReference" placeholder="Reference optional" className="text-[14px]" />
+        <div className="space-y-2">
+          <p className="text-[14px] font-medium text-foreground">Time window</p>
+          <div className="flex flex-wrap gap-2">
+            {quickTimeWindows.map((window) => (
+              <Button
+                key={window}
+                type="button"
+                variant={timeWindowMode === window ? "primary" : "secondary"}
+                className="min-h-8 rounded-md px-3 text-xs"
+                onClick={() => setTimeWindowMode(window)}
+              >
+                {window}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              variant={timeWindowMode === "Custom" ? "primary" : "secondary"}
+              className="min-h-8 rounded-md px-3 text-xs"
+              onClick={() => setTimeWindowMode("Custom")}
+            >
+              Custom
+            </Button>
+          </div>
+          {timeWindowMode === "Custom" ? (
+            <Input
+              value={customTimeWindow}
+              onChange={(event) => setCustomTimeWindow(event.target.value)}
+              placeholder="Example: 1 PM - 4 PM"
+              aria-label="Custom time window"
+              className="text-[15px]"
+            />
+          ) : null}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-md border border-border bg-panel p-4">
+        <div>
+          <h4 className="text-[15px] font-semibold">Items</h4>
+          <p className="mt-1 text-[13px] text-muted-foreground">Select one or more remaining item quantities.</p>
+        </div>
+        <div className="divide-y divide-border rounded-md border border-border bg-background">
+          {remainingItems.map((item) => {
+            const draft = itemDrafts.find((candidate) => candidate.orderItemId === item.id);
+            const quantity = draft?.quantityPlanned ?? 0;
+            const selected = draft?.selected ?? false;
+
+            return (
+              <div key={item.id} className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_9rem] sm:items-center">
+                <label className="flex min-w-0 items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={(event) =>
+                      updateItemDraft(item.id, (draftItem, orderItem) => ({
+                        ...draftItem,
+                        selected: event.target.checked,
+                        quantityPlanned:
+                          event.target.checked && draftItem.quantityPlanned <= 0
+                            ? Math.min(orderItem.remainingQuantity, 1)
+                            : draftItem.quantityPlanned
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                    aria-label={`Select ${item.itemName}`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-foreground">{item.itemName}</span>
+                    <span className="mt-0.5 block text-[13px] text-muted-foreground">
+                      {item.remainingQuantity} remaining of {item.quantity}
+                    </span>
+                  </span>
+                </label>
+                <label className="space-y-1 text-[13px] font-medium text-muted-foreground">
+                  Quantity
+                  <DecimalInput
+                    value={quantity}
+                    onValueChange={(nextValue) =>
+                      updateItemDraft(item.id, (draftItem, orderItem) => ({
+                        ...draftItem,
+                        quantityPlanned: clampDeliveryQuantity(nextValue, orderItem.remainingQuantity)
+                      }))
+                    }
+                    min={0}
+                    max={item.remainingQuantity}
+                    fallback={selected ? Math.min(item.remainingQuantity, 1) : 0}
+                    disabled={!selected}
+                    aria-label={`${item.itemName} delivery quantity`}
+                    className="text-[15px]"
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-3 rounded-md border border-border bg-panel p-4">
+        <div>
+          <h4 className="text-[15px] font-semibold">Provider and destination</h4>
+          <p className="mt-1 text-[13px] text-muted-foreground">Add the delivery provider and destination snapshot.</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="space-y-2 text-[14px] font-medium text-foreground">
+            Provider type
+            <Select
+              name="deliveryProviderType"
+              defaultValue=""
+              aria-label="Delivery provider type"
+              className="text-[15px]"
+            >
+              <option value="">Provider type</option>
+              <option value="IN_HOUSE">In-house</option>
+              <option value="CUSTOMER_PICKUP">Customer pickup</option>
+              <option value="THIRD_PARTY">Third-party</option>
+              <option value="OTHER">Other</option>
+            </Select>
           </label>
-          <label className="space-y-2 text-[13px] font-medium">
-            Time window
-            <Input name="scheduledTimeWindow" placeholder="Example: 1 PM - 4 PM" className="text-[14px]" />
-          </label>
-          <label className="space-y-2 text-[13px] font-medium">
-            Recipient
-            <Input name="recipientName" placeholder="Recipient optional" className="text-[14px]" />
-          </label>
-          <label className="space-y-2 text-[13px] font-medium">
-            Phone
-            <Input name="recipientPhone" placeholder="Phone optional" className="text-[14px]" />
-          </label>
-          <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
-            Delivery notes
-            <Textarea name="deliveryNotes" placeholder="Delivery notes optional" className="text-[14px]" />
-          </label>
-          <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
-            Internal notes
-            <Textarea name="internalNotes" placeholder="Internal notes optional" className="text-[14px]" />
+          <label className="space-y-2 text-[14px] font-medium text-foreground">
+            Provider name
+            <Input
+              name="deliveryProviderName"
+              placeholder="Provider name"
+              aria-label="Delivery provider name"
+              className="text-[15px]"
+            />
           </label>
         </div>
-      </details>
-      <div className="pt-0">
-        <Button disabled={pending || !orderItemId || remainingQuantity <= 0 || quantityPlanned <= 0} className="w-full text-[15px]">
+        <label className="block space-y-2 text-[14px] font-medium text-foreground">
+          Address
+          <Input
+            name="deliveryAddress"
+            defaultValue={order.deliveryAddressSnapshot ?? ""}
+            placeholder="Address optional"
+            className="text-[15px]"
+          />
+        </label>
+        <details className="rounded-md border border-dashed border-border bg-background/70 px-4 py-3">
+          <summary className="cursor-pointer text-[14px] font-medium text-muted-foreground">
+            More delivery details
+          </summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="space-y-2 text-[13px] font-medium">
+              Provider reference
+              <Input name="deliveryProviderReference" placeholder="Reference optional" className="text-[14px]" />
+            </label>
+            <label className="space-y-2 text-[13px] font-medium">
+              Recipient
+              <Input name="recipientName" placeholder="Recipient optional" className="text-[14px]" />
+            </label>
+            <label className="space-y-2 text-[13px] font-medium">
+              Phone
+              <Input name="recipientPhone" placeholder="Phone optional" className="text-[14px]" />
+            </label>
+            <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
+              Delivery notes
+              <Textarea name="deliveryNotes" placeholder="Delivery notes optional" className="text-[14px]" />
+            </label>
+            <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
+              Internal notes
+              <Textarea name="internalNotes" placeholder="Internal notes optional" className="text-[14px]" />
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <div className="rounded-md border border-border bg-background p-3">
+        <p className="text-[14px] font-medium">{summaryMessage}</p>
+        {validationMessage ? <p className="mt-1 text-[13px] text-danger">{validationMessage}</p> : null}
+        <Button disabled={pending || Boolean(validationMessage)} className="mt-3 w-full text-[15px]">
           <Truck className="h-4 w-4" />
           Schedule delivery
         </Button>
@@ -885,6 +1105,21 @@ function RestrictedPanel({ title }: { title: string }) {
 
 function EmptyPanel({ message }: { message: string }) {
   return <div className="rounded-md bg-background p-3 text-sm text-muted-foreground">{message}</div>;
+}
+
+function DeliveryBlockedPanel({ order }: { order: OrderRow }) {
+  const reasons = deliverySchedulingBlockReasons(order);
+
+  return (
+    <div className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">Delivery cannot be scheduled yet.</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        {reasons.map((reason) => (
+          <li key={reason}>{reason}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function DocumentLinks({
@@ -1157,6 +1392,42 @@ function deliverySupportSummary(order: OrderRow) {
       .filter(Boolean)
       .join(" · ")
   };
+}
+
+function deliverySchedulingBlockReasons(order: OrderRow) {
+  if (order.canScheduleDelivery) {
+    return ["This order is eligible for delivery scheduling."];
+  }
+
+  const reasons: string[] = [];
+
+  if (order.status === "COMPLETED") {
+    reasons.push("Order is completed.");
+  }
+
+  if (order.status === "CANCELLED") {
+    reasons.push("Order is cancelled.");
+  }
+
+  if (remainingItemLines(order).length === 0 || ["DELIVERED", "CANCELLED"].includes(order.deliveryStatus)) {
+    reasons.push("All item quantities are already scheduled or delivered.");
+  }
+
+  if (hasBalanceDue(order) && order.paymentDueTiming === "BEFORE_DELIVERY") {
+    reasons.push("Payment must be completed before delivery because the balance is due before delivery.");
+  }
+
+  if (hasBalanceDue(order) && !order.paymentDueTiming) {
+    reasons.push(
+      "Set payment due timing to Upon Delivery or After Delivery if the balance will remain open, or record the remaining payment first."
+    );
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("Review payment timing, remaining item quantities, and order status before scheduling.");
+  }
+
+  return reasons;
 }
 
 function getDeliveryProgressTarget(order: OrderRow) {
@@ -3655,7 +3926,7 @@ function OrderInlineActionForm({
     return order.canScheduleDelivery ? (
       <DeliveryForm order={order} />
     ) : (
-      <EmptyPanel message="Delivery cannot be scheduled until the order is eligible." />
+      <DeliveryBlockedPanel order={order} />
     );
   }
 
@@ -4093,9 +4364,11 @@ function DeliverySection({
             Schedule delivery
           </Button>
         </div>
+      ) : canCreateDeliveries ? (
+        <DeliveryBlockedPanel order={order} />
       ) : null}
 
-      {isDeliveryFormOpen ? (
+      {isDeliveryFormOpen && canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries) ? (
         <div className="border-t border-border pt-4">
           <DeliveryForm order={order} />
         </div>

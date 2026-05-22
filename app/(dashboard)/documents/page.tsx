@@ -139,7 +139,10 @@ function searchWhere(query: string | undefined): Prisma.OrderDocumentWhereInput[
   ];
 }
 
-function addParam(params: Record<string, string | undefined>, key: string, value: string) {
+function documentsHref(
+  params: Record<string, string | undefined>,
+  updates: Record<string, string | undefined> = {}
+) {
   const next = new URLSearchParams();
 
   for (const [paramKey, paramValue] of Object.entries(params)) {
@@ -148,8 +151,24 @@ function addParam(params: Record<string, string | undefined>, key: string, value
     }
   }
 
-  next.set(key, value);
-  return `/documents?${next.toString()}`;
+  for (const [paramKey, paramValue] of Object.entries(updates)) {
+    if (paramValue) {
+      next.set(paramKey, paramValue);
+    } else {
+      next.delete(paramKey);
+    }
+  }
+
+  const query = next.toString();
+  return query ? `/documents?${query}` : "/documents";
+}
+
+function clearDocumentsHref() {
+  return "/documents";
+}
+
+function hasActiveFilters(params: Record<string, string | undefined>) {
+  return Object.values(params).some(Boolean);
 }
 
 function moduleLink(route: string, query: string | null | undefined) {
@@ -196,6 +215,101 @@ type DocumentRecord = Prisma.OrderDocumentGetPayload<{
   };
 }>;
 
+type DocumentPermissions = {
+  canExportDocuments: boolean;
+  canViewQuotations: boolean;
+  canViewOrders: boolean;
+  canViewPayments: boolean;
+  canViewDeliveries: boolean;
+};
+
+type RelatedRecord = {
+  label: string;
+  href: string | null;
+};
+
+function documentSubtitle(document: DocumentRecord) {
+  return `${document.documentNumber ?? "Not assigned"} · ${labelFromEnum(document.documentType)}`;
+}
+
+function orderRecord(document: DocumentRecord, canViewOrders: boolean): RelatedRecord {
+  return {
+    label: document.order.orderNumber ?? "Not assigned",
+    href: canViewOrders ? moduleLink("/orders", document.order.orderNumber) : null
+  };
+}
+
+function quotationRecord(document: DocumentRecord, canViewQuotations: boolean): RelatedRecord | null {
+  if (!document.quotation) {
+    return null;
+  }
+
+  return {
+    label: document.quotation.quotationNumber ?? "Not assigned",
+    href: canViewQuotations ? moduleLink("/quotations", document.quotation.quotationNumber) : null
+  };
+}
+
+function paymentRecord(document: DocumentRecord, canViewPayments: boolean): RelatedRecord | null {
+  if (!document.payment) {
+    return null;
+  }
+
+  return {
+    label: document.payment.paymentNumber ?? "Not assigned",
+    href: canViewPayments ? "/payments" : null
+  };
+}
+
+function deliveryRecord(document: DocumentRecord, canViewDeliveries: boolean): RelatedRecord | null {
+  if (!document.delivery) {
+    return null;
+  }
+
+  return {
+    label: document.delivery.deliveryNumber ?? "Not assigned",
+    href: canViewDeliveries ? "/deliveries" : null
+  };
+}
+
+function primaryRelatedRecord(
+  document: DocumentRecord,
+  permissions: DocumentPermissions
+): RelatedRecord | null {
+  if (document.documentType === "QUOTATION_PDF") {
+    return quotationRecord(document, permissions.canViewQuotations);
+  }
+
+  if (document.documentType === "PAYMENT_RECEIPT") {
+    return paymentRecord(document, permissions.canViewPayments);
+  }
+
+  if (document.documentType === "DELIVERY_RECEIPT") {
+    return deliveryRecord(document, permissions.canViewDeliveries);
+  }
+
+  if (document.documentType === "INVOICE" || document.documentType === "FINAL_ORDER_SUMMARY") {
+    return orderRecord(document, permissions.canViewOrders);
+  }
+
+  return orderRecord(document, permissions.canViewOrders);
+}
+
+function secondaryRelatedRecord(
+  document: DocumentRecord,
+  permissions: DocumentPermissions
+): RelatedRecord | null {
+  if (document.documentType === "PAYMENT_RECEIPT" || document.documentType === "DELIVERY_RECEIPT") {
+    return orderRecord(document, permissions.canViewOrders);
+  }
+
+  return null;
+}
+
+function openRelatedTarget(document: DocumentRecord, permissions: DocumentPermissions) {
+  return primaryRelatedRecord(document, permissions)?.href ?? null;
+}
+
 function downloadTarget(document: DocumentRecord) {
   const kind = apiDocumentKinds[document.documentType];
 
@@ -231,13 +345,7 @@ function downloadTarget(document: DocumentRecord) {
 
 function canDownloadDocument(
   document: DocumentRecord,
-  permissions: {
-    canExportDocuments: boolean;
-    canViewQuotations: boolean;
-    canViewOrders: boolean;
-    canViewPayments: boolean;
-    canViewDeliveries: boolean;
-  }
+  permissions: DocumentPermissions
 ) {
   if (!permissions.canExportDocuments) {
     return false;
@@ -345,6 +453,8 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
     from: params.from,
     to: params.to
   };
+  const activeFilters = hasActiveFilters(pageParams);
+  const moreFiltersOpen = Boolean(status || params.from || params.to);
 
   return (
     <>
@@ -353,187 +463,131 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
         description="Generated operational document registry for quotations, invoices, receipts, delivery receipts, and final order summaries."
       />
 
-      <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 lg:grid-cols-[1.4fr_0.9fr_0.8fr_0.7fr_0.7fr_auto]">
-        <Input
-          name="q"
-          defaultValue={params.q ?? ""}
-          placeholder="Search document, title, order, customer, quotation, payment, delivery"
-        />
-        <Select name="documentType" defaultValue={params.documentType ?? ""}>
-          <option value="">Any document</option>
-          {documentTypes.map((type) => (
-            <option key={type} value={type}>
-              {labelFromEnum(type)}
-            </option>
-          ))}
-        </Select>
-        <Select name="status" defaultValue={params.status ?? ""}>
-          <option value="">Any status</option>
-          {documentStatuses.map((documentStatus) => (
-            <option key={documentStatus} value={documentStatus}>
-              {labelFromEnum(documentStatus)}
-            </option>
-          ))}
-        </Select>
-        <Input name="from" type="date" defaultValue={params.from ?? ""} aria-label="Generated from" />
-        <Input name="to" type="date" defaultValue={params.to ?? ""} aria-label="Generated to" />
-        <Button type="submit" variant="secondary">
-          Filter
-        </Button>
+      <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_240px_auto_auto]">
+          <Input
+            name="q"
+            defaultValue={params.q ?? ""}
+            placeholder="Search documents, customers, records..."
+            aria-label="Search documents"
+          />
+          <Select name="documentType" defaultValue={params.documentType ?? ""} aria-label="Document type">
+            <option value="">Any document</option>
+            {documentTypes.map((type) => (
+              <option key={type} value={type}>
+                {labelFromEnum(type)}
+              </option>
+            ))}
+          </Select>
+          <Button type="submit" variant="secondary">
+            Apply
+          </Button>
+          {activeFilters ? (
+            <Link
+              href={clearDocumentsHref()}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-sm font-semibold text-muted-foreground transition hover:bg-muted/60"
+            >
+              Clear
+            </Link>
+          ) : null}
+        </div>
+
+        <details open={moreFiltersOpen} className="border-t border-border pt-3">
+          <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">More filters</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <Select name="status" defaultValue={params.status ?? ""} aria-label="Document status">
+              <option value="">Any status</option>
+              {documentStatuses.map((documentStatus) => (
+                <option key={documentStatus} value={documentStatus}>
+                  {labelFromEnum(documentStatus)}
+                </option>
+              ))}
+            </Select>
+            <Input name="from" type="date" defaultValue={params.from ?? ""} aria-label="Generated from" />
+            <Input name="to" type="date" defaultValue={params.to ?? ""} aria-label="Generated to" />
+          </div>
+        </details>
       </form>
 
       <section className="studio-card">
-        <div className="studio-card-header">
-          <p className="studio-kicker">Document Library</p>
-          <h2 className="text-sm font-semibold">Document Registry</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Recent generated documents and stored document references linked to operational records.
-          </p>
-        </div>
         <div className="overflow-x-auto">
-          <table className="studio-table w-full min-w-[1380px] text-left text-sm">
+          <table className="studio-table w-full min-w-[860px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
-                <th className="px-5 py-3 font-medium">Document number</th>
-                <th className="px-5 py-3 font-medium">Type</th>
-                <th className="px-5 py-3 font-medium">Title</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Customer</th>
-                <th className="px-5 py-3 font-medium">Order</th>
-                <th className="px-5 py-3 font-medium">Quotation</th>
-                <th className="px-5 py-3 font-medium">Payment</th>
-                <th className="px-5 py-3 font-medium">Delivery</th>
-                <th className="px-5 py-3 font-medium">Generated by</th>
-                <th className="px-5 py-3 font-medium">Generated at</th>
-                <th className="px-5 py-3 font-medium">Actions</th>
+                <th className="px-4 py-3 font-medium">Document</th>
+                <th className="px-4 py-3 font-medium">Customer</th>
+                <th className="px-4 py-3 font-medium">Related record</th>
+                <th className="px-4 py-3 font-medium">Generated</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {documents.map((document) => {
                 const downloadHref = downloadTarget(document);
                 const canDownload = canDownloadDocument(document, permissions);
+                const primaryRecord = primaryRelatedRecord(document, permissions);
+                const secondaryRecord = secondaryRelatedRecord(document, permissions);
+                const openHref = openRelatedTarget(document, permissions);
 
                 return (
                   <tr key={document.id}>
-                    <td className="px-5 py-3 font-medium">{document.documentNumber ?? "Not assigned"}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{labelFromEnum(document.documentType)}</td>
-                    <td className="px-5 py-3">
-                      <div className="max-w-[280px] font-medium text-foreground">{document.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {document.secureUrl ? "Stored document" : "Generated on demand"}
-                      </div>
+                    <td className="px-4 py-3">
+                      <div className="max-w-[280px] font-semibold text-foreground">{document.title}</div>
+                      <div className="text-xs text-muted-foreground">{documentSubtitle(document)}</div>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {document.order.customerDisplayNameSnapshot || "No customer"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {primaryRecord ? (
+                        <div>
+                          {primaryRecord.href ? (
+                            <Link href={primaryRecord.href} className="font-medium text-primary hover:underline">
+                              {primaryRecord.label}
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground">{primaryRecord.label}</span>
+                          )}
+                          {secondaryRecord ? (
+                            <div className="text-xs text-muted-foreground">
+                              Order{" "}
+                              {secondaryRecord.href ? (
+                                <Link href={secondaryRecord.href} className="hover:text-primary hover:underline">
+                                  {secondaryRecord.label}
+                                </Link>
+                              ) : (
+                                secondaryRecord.label
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">No related record</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {formatDateTime(document.generatedAt)}
+                    </td>
+                    <td className="px-4 py-3">
                       <StatusPill tone={statusTone(document.status)}>
                         {labelFromEnum(document.status)}
                       </StatusPill>
                     </td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      {document.order.customerDisplayNameSnapshot || "No customer"}
-                    </td>
-                    <td className="px-5 py-3">
-                      {permissions.canViewOrders ? (
-                        <Link
-                          href={moduleLink("/orders", document.order.orderNumber)}
-                          className="font-medium text-primary hover:underline"
-                        >
-                          {document.order.orderNumber ?? "Not assigned"}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          {document.order.orderNumber ?? "Not assigned"}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      {document.quotation ? (
-                        permissions.canViewQuotations ? (
-                          <Link
-                            href={moduleLink("/quotations", document.quotation.quotationNumber)}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            {document.quotation.quotationNumber ?? "Not assigned"}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {document.quotation.quotationNumber ?? "Not assigned"}
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">No related record</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      {document.payment ? (
-                        permissions.canViewPayments ? (
-                          <Link href="/payments" className="font-medium text-primary hover:underline">
-                            {document.payment.paymentNumber ?? "Not assigned"}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {document.payment.paymentNumber ?? "Not assigned"}
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">No related record</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      {document.delivery ? (
-                        permissions.canViewDeliveries ? (
-                          <Link href="/deliveries" className="font-medium text-primary hover:underline">
-                            {document.delivery.deliveryNumber ?? "Not assigned"}
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            {document.delivery.deliveryNumber ?? "Not assigned"}
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-muted-foreground">No related record</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      {document.generatedBy?.displayName ?? "Not assigned"}
-                    </td>
-                    <td className="px-5 py-3 text-muted-foreground">
-                      {formatDateTime(document.generatedAt)}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex flex-col items-start gap-1">
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col items-start gap-1.5">
                         {canDownload && downloadHref ? (
                           <a href={downloadHref} className="font-medium text-primary hover:underline">
-                            Download PDF
+                            Download
                           </a>
                         ) : (
-                          <span className="text-muted-foreground">
+                          <span className="text-xs text-muted-foreground">
                             {apiDocumentKinds[document.documentType] ? "Not available" : "No download route"}
                           </span>
                         )}
-                        {permissions.canViewOrders ? (
-                          <Link
-                            href={moduleLink("/orders", document.order.orderNumber)}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            Open order
-                          </Link>
-                        ) : null}
-                        {permissions.canViewQuotations && document.quotation ? (
-                          <Link
-                            href={moduleLink("/quotations", document.quotation.quotationNumber)}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            Open quotation
-                          </Link>
-                        ) : null}
-                        {permissions.canViewPayments && document.payment ? (
-                          <Link href="/payments" className="text-xs text-primary hover:underline">
-                            Open payment
-                          </Link>
-                        ) : null}
-                        {permissions.canViewDeliveries && document.delivery ? (
-                          <Link href="/deliveries" className="text-xs text-primary hover:underline">
-                            Open delivery
+                        {openHref ? (
+                          <Link href={openHref} className="text-xs font-medium text-primary hover:underline">
+                            Open related
                           </Link>
                         ) : null}
                       </div>
@@ -546,7 +600,8 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
         </div>
         {documents.length === 0 ? (
           <div className="px-5 py-8 text-sm text-muted-foreground">
-            Generated quotation, invoice, receipt, delivery receipt, and final summary records will appear here.
+            No documents found. Generated quotations, invoices, receipts, delivery receipts, and final
+            summaries will appear here.
           </div>
         ) : null}
       </section>
@@ -562,7 +617,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
             </span>
           ) : (
             <Link
-              href={addParam(pageParams, "page", String(page - 1))}
+              href={documentsHref(pageParams, { page: String(page - 1) })}
               className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
             >
               Previous
@@ -574,7 +629,7 @@ export default async function DocumentsPage({ searchParams }: DocumentsPageProps
             </span>
           ) : (
             <Link
-              href={addParam(pageParams, "page", String(page + 1))}
+              href={documentsHref(pageParams, { page: String(page + 1) })}
               className="inline-flex min-h-10 items-center justify-center rounded-md border border-border bg-panel px-4 text-sm font-medium text-foreground transition hover:bg-muted"
             >
               Next

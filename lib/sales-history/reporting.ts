@@ -4,11 +4,7 @@ export type ReportView =
   | "overview"
   | "unfinished"
   | "balances"
-  | "payments"
-  | "deliveries"
-  | "orders"
-  | "quotations"
-  | "customers";
+  | "orders";
 
 export type ReportPermissions = {
   canViewQuotations: boolean;
@@ -31,9 +27,6 @@ export type ReportSearchParams = {
   from?: string;
   to?: string;
   hasBalance?: string;
-  hasDelivery?: string;
-  completedOnly?: string;
-  unfinishedOnly?: string;
   overdueOnly?: string;
   page?: string;
 };
@@ -45,11 +38,7 @@ export const reportViews: Array<{ value: ReportView; label: string }> = [
   { value: "overview", label: "Overview" },
   { value: "unfinished", label: "Needs Action" },
   { value: "balances", label: "Balances" },
-  { value: "payments", label: "Payments" },
-  { value: "deliveries", label: "Deliveries" },
-  { value: "orders", label: "Orders" },
-  { value: "quotations", label: "Quotations" },
-  { value: "customers", label: "Customers" }
+  { value: "orders", label: "Sales Ledger" }
 ];
 
 export const orderStatuses = [
@@ -64,8 +53,6 @@ export const orderStatuses = [
   "CANCELLED"
 ] as const;
 
-export const quotationStatuses = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
-
 export const paymentStatuses = [
   "UNPAID",
   "DOWNPAYMENT_PAID",
@@ -76,23 +63,11 @@ export const paymentStatuses = [
   "PARTIALLY_REFUNDED"
 ] as const;
 
-export const paymentRecordStatuses = ["RECORDED", "VOIDED", "REFUNDED"] as const;
-
 export const orderDeliveryStatuses = [
   "NOT_SCHEDULED",
   "SCHEDULED",
   "PARTIALLY_DELIVERED",
   "DELIVERED",
-  "CANCELLED"
-] as const;
-
-export const deliveryStatuses = [
-  "PLANNED",
-  "SCHEDULED",
-  "IN_TRANSIT",
-  "PARTIALLY_DELIVERED",
-  "DELIVERED",
-  "FAILED",
   "CANCELLED"
 ] as const;
 
@@ -174,18 +149,7 @@ export function enumValue<T extends readonly string[]>(values: T, value: string 
 }
 
 export function statusOptionsForView(view: ReportView) {
-  if (view === "quotations") {
-    return quotationStatuses;
-  }
-
-  if (view === "payments") {
-    return paymentRecordStatuses;
-  }
-
-  if (view === "deliveries") {
-    return deliveryStatuses;
-  }
-
+  void view;
   return orderStatuses;
 }
 
@@ -209,9 +173,6 @@ export function parseReportFilters(params: ReportSearchParams) {
     dateRange,
     page: parsePage(params.page),
     hasBalance: params.hasBalance === "on",
-    hasDelivery: params.hasDelivery === "on",
-    completedOnly: params.completedOnly === "on",
-    unfinishedOnly: params.unfinishedOnly === "on",
     overdueOnly: params.overdueOnly === "on"
   };
 }
@@ -221,19 +182,7 @@ export function canAccessReportView(view: ReportView, permissions: ReportPermiss
     return false;
   }
 
-  if (view === "quotations" && !permissions.canViewQuotations) {
-    return false;
-  }
-
-  if ((view === "payments" || view === "balances") && !permissions.canViewPayments) {
-    return false;
-  }
-
-  if (view === "deliveries" && !permissions.canViewDeliveries) {
-    return false;
-  }
-
-  if (view === "customers" && !permissions.canViewCustomers) {
+  if (view === "balances" && !permissions.canViewPayments) {
     return false;
   }
 
@@ -262,37 +211,6 @@ export function orderSearchWhere(query: string | undefined): Prisma.OrderWhereIn
             { itemName: { contains: query, mode: "insensitive" } },
             { snapshotProductCode: { contains: query, mode: "insensitive" } }
           ]
-        }
-      }
-    }
-  ];
-}
-
-export function quotationSearchWhere(query: string | undefined): Prisma.QuotationWhereInput[] | undefined {
-  if (!query) {
-    return undefined;
-  }
-
-  return [
-    { quotationNumber: { contains: query, mode: "insensitive" } },
-    {
-      customer: {
-        OR: [
-          { displayName: { contains: query, mode: "insensitive" } },
-          { companyName: { contains: query, mode: "insensitive" } },
-          { contactPersonName: { contains: query, mode: "insensitive" } }
-        ]
-      }
-    },
-    {
-      inquiry: {
-        sourceReference: { contains: query, mode: "insensitive" }
-      }
-    },
-    {
-      items: {
-        some: {
-          itemName: { contains: query, mode: "insensitive" }
         }
       }
     }
@@ -389,8 +307,6 @@ export function buildOrderWhere({
   dateRange,
   dateField = "createdAt",
   hasBalance,
-  hasDelivery,
-  completedOnly,
   unfinishedOnly,
   overdueOnly,
   canUsePaymentFields,
@@ -404,8 +320,6 @@ export function buildOrderWhere({
   dateRange: { gte?: Date; lte?: Date } | undefined;
   dateField?: "createdAt" | "paymentDueDate";
   hasBalance: boolean;
-  hasDelivery: boolean;
-  completedOnly: boolean;
   unfinishedOnly: boolean;
   overdueOnly: boolean;
   canUsePaymentFields: boolean;
@@ -440,18 +354,6 @@ export function buildOrderWhere({
 
   if (canUsePaymentFields && hasBalance) {
     and.push({ balanceAmount: { gt: 0 } });
-  }
-
-  if (canUseDeliveryFields && hasDelivery) {
-    and.push({
-      deliveries: {
-        some: {}
-      }
-    });
-  }
-
-  if (completedOnly) {
-    and.push({ status: "COMPLETED" });
   }
 
   if (unfinishedOnly) {
@@ -508,12 +410,6 @@ export function orderListSelect(permissions: ReportPermissions) {
     contactPersonNameSnapshot: true,
     status: true,
     deliveryStatus: true,
-    needsAssembly: true,
-    salesInvoiceRequested: true,
-    modeOfDelivery: true,
-    deliveryMethod: true,
-    paymentTerms: true,
-    specialInstructions: true,
     createdAt: true,
     updatedAt: true,
     ...(permissions.canViewPayments
@@ -527,27 +423,6 @@ export function orderListSelect(permissions: ReportPermissions) {
           lastPaymentAt: true
         }
       : {}),
-    createdBy: {
-      select: {
-        displayName: true
-      }
-    },
-    quotation: permissions.canViewQuotations
-      ? {
-          select: {
-            id: true,
-            quotationNumber: true
-          }
-        }
-      : false,
-    inquiry: permissions.canViewInquiries
-      ? {
-          select: {
-            id: true,
-            sourceReference: true
-          }
-        }
-      : false,
     deliveries: permissions.canViewDeliveries
       ? {
           where: {
@@ -563,40 +438,6 @@ export function orderListSelect(permissions: ReportPermissions) {
             scheduledDate: true
           }
         }
-      : false,
-    _count: {
-      select: {
-        payments: permissions.canViewPayments,
-        deliveries: permissions.canViewDeliveries,
-        documents: permissions.canViewDocuments || permissions.canExportDocuments
-      }
-    }
+      : false
   } satisfies Prisma.OrderSelect;
-}
-
-export function customerHistoryOrderSelect(permissions: ReportPermissions) {
-  return {
-    id: true,
-    orderNumber: true,
-    status: true,
-    deliveryStatus: true,
-    updatedAt: true,
-    ...(permissions.canViewPayments
-      ? {
-          paymentStatus: true,
-          totalAmount: true,
-          paidAmount: true,
-          balanceAmount: true
-        }
-      : {})
-  } satisfies Prisma.OrderSelect;
-}
-
-export function customerHistoryCountSelect(permissions: ReportPermissions) {
-  return {
-    inquiries: permissions.canViewInquiries,
-    quotations: permissions.canViewQuotations,
-    orders: permissions.canViewOrders,
-    payments: permissions.canViewPayments
-  } satisfies Prisma.CustomerCountOutputTypeSelect;
 }

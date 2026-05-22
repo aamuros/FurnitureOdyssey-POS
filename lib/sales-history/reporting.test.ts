@@ -3,10 +3,10 @@ import test from "node:test";
 import {
   buildOrderWhere,
   canAccessReportView,
-  customerHistoryOrderSelect,
   orderListSelect,
   overviewSalesAggregateArgs,
   parseReportFilters,
+  reportViews,
   unfinishedOrderWhere,
   type ReportPermissions
 } from "./reporting";
@@ -41,10 +41,20 @@ test("overview sales aggregate excludes cost and profit fields", () => {
   const encoded = JSON.stringify(aggregate);
 
   assert.match(encoded, /totalAmount/);
-  assert.match(encoded, /paidAmount/);
   assert.doesNotMatch(encoded, /totalCostAmount/);
   assert.doesNotMatch(encoded, /grossProfitAmount/);
   assert.doesNotMatch(encoded, /grossMargin/);
+});
+
+test("sales history exposes only reporting views", () => {
+  assert.deepEqual(
+    reportViews.map((view) => view.value),
+    ["overview", "unfinished", "balances", "orders"]
+  );
+  assert.deepEqual(
+    reportViews.map((view) => view.label),
+    ["Overview", "Needs Action", "Balances", "Sales Ledger"]
+  );
 });
 
 test("cancelled orders are counted separately and excluded from sales total", () => {
@@ -79,21 +89,15 @@ test("order list select omits payment and balance fields without payment permiss
   assert.doesNotMatch(encoded, /grossProfitAmount/);
 });
 
-test("customer history order select never exposes cost or profit", () => {
-  const select = customerHistoryOrderSelect(basePermissions);
-  const encoded = JSON.stringify(select);
-
-  assert.match(encoded, /balanceAmount/);
-  assert.doesNotMatch(encoded, /totalCostAmount/);
-  assert.doesNotMatch(encoded, /grossProfitAmount/);
-});
-
-test("delivery schedule access and delivery schedule data require delivery permission", () => {
+test("delivery schedule data require delivery permission", () => {
   const permissions = withoutDeliveries();
   const select = orderListSelect(permissions);
 
-  assert.equal(canAccessReportView("deliveries", permissions), false);
   assert.equal(select.deliveries, false);
+});
+
+test("balances require payment permission", () => {
+  assert.equal(canAccessReportView("balances", withoutPayments()), false);
 });
 
 test("order query ignores restricted payment filters without payment permission", () => {
@@ -105,8 +109,6 @@ test("order query ignores restricted payment filters without payment permission"
     staffId: undefined,
     dateRange: undefined,
     hasBalance: true,
-    hasDelivery: false,
-    completedOnly: false,
     unfinishedOnly: false,
     overdueOnly: false,
     canUsePaymentFields: false,
