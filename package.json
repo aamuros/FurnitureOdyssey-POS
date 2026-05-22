@@ -16,7 +16,8 @@
     "prisma:migrate:status": "prisma migrate status",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "seed:upload-images": "tsx prisma/upload-seed-images.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -47,6 +48,7 @@
     "prisma": "^6.10.1",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "xlsx": "^0.18.5"
   }
 }

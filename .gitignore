@@ -6,3 +6,5 @@ dist
 coverage
 *.tsbuildinfo
 prisma/dev.db
+images/
+prisma/seed-data/

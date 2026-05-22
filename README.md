@@ -146,11 +146,13 @@ Apply the committed Prisma migrations to the configured local database:
 npm run prisma:migrate:dev
 ```
 
-Create a local Supabase Auth test user in Supabase Studio or through the Auth Admin API. Use that auth user's ID as `FIRST_ADMIN_AUTH_USER_ID`, then seed the first Admin profile:
+Create a local Supabase Auth test user in Supabase Studio or through the Auth Admin API. Use that auth user's ID as `FIRST_ADMIN_AUTH_USER_ID`, then seed the first Admin profile and sample products:
 
 ```bash
 npm run seed
 ```
+
+This creates the Admin user and 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata is committed in `prisma/seed-data/cloudinary-images.json`, so no Cloudinary uploads happen during seeding.
 
 Start the development server:
 
@@ -220,7 +222,26 @@ The seed script is for environment bootstrap only:
 npm run seed
 ```
 
-It creates or updates the first active Admin profile when `FIRST_ADMIN_AUTH_USER_ID` and `FIRST_ADMIN_EMAIL` are set. The Supabase Auth user must already exist. Do not put customer records, orders, payments, deliveries, or pilot business data in the seed script. Real operational data should be entered through the app or imported through reviewed one-off scripts.
+It creates or updates the first active Admin profile when `FIRST_ADMIN_AUTH_USER_ID` and `FIRST_ADMIN_EMAIL` are set. The Supabase Auth user must already exist. It also seeds 8 sample Tolix products with Cloudinary-hosted images. The Cloudinary image metadata (public IDs, URLs, dimensions) is hardcoded in the seed script, so no Cloudinary credentials or uploads are needed to seed products. Products are upserted by product code and images are deduplicated by public ID, so the seed is safe to run repeatedly.
+
+Do not put customer records, orders, payments, deliveries, or pilot business data in the seed script. Real operational data should be entered through the app or imported through reviewed one-off scripts.
+
+### Adding or updating seed product images
+
+To add new product images to the seed:
+
+1. Place image files in the `images/` folder at the project root.
+2. Add the image-to-product-code mapping in `prisma/upload-seed-images.ts`.
+3. Run the one-time upload script to push images to Cloudinary:
+
+```bash
+npm run seed:upload-images
+```
+
+4. Copy the Cloudinary metadata from the generated `prisma/seed-data/cloudinary-images.json` into the `productSeedData` array in `prisma/seed.ts`.
+5. Commit the updated `prisma/seed.ts`.
+
+The `images/` folder and `prisma/seed-data/` are gitignored since the original files and intermediate JSON are not needed after the metadata is hardcoded in the seed.
 
 ### `prisma db push`
 
