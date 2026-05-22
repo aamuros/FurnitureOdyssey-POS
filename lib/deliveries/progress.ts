@@ -30,8 +30,6 @@ export function prepareDeliveryProgressUpdate({
     throw new Error("Cancelled deliveries cannot be updated.");
   }
 
-  assertValidStatusTransition("delivery", currentStatus, nextStatus);
-
   const inputsById = new Map(itemInputs.map((item) => [item.deliveryItemId, item]));
   const nextItems = existingItems.map((item) => {
     const input = inputsById.get(item.id);
@@ -42,6 +40,10 @@ export function prepareDeliveryProgressUpdate({
 
     if (quantityDelivered > item.quantityPlanned) {
       throw new Error("Delivered quantity cannot exceed planned quantity.");
+    }
+
+    if (quantityDelivered < 0) {
+      throw new Error("Delivered quantity cannot be negative.");
     }
 
     return {
@@ -59,21 +61,45 @@ export function prepareDeliveryProgressUpdate({
   }
 
   if (nextStatus === "DELIVERED") {
+    const hasDeliveredQuantity = nextItems.some((item) => item.quantityDelivered > 0);
     const allComplete = nextItems.every((item) => item.quantityDelivered === item.quantityPlanned);
 
-    if (!allComplete) {
-      throw new Error("Delivered deliveries require all planned quantities to be delivered.");
+    if (!hasDeliveredQuantity) {
+      throw new Error("Enter delivered quantities before saving delivered progress.");
     }
+
+    const resolvedStatus = allComplete ? "DELIVERED" : "PARTIALLY_DELIVERED";
+
+    assertValidStatusTransition("delivery", currentStatus, resolvedStatus);
+
+    return {
+      status: resolvedStatus,
+      items: nextItems
+    };
   }
 
-  if (nextStatus === "PARTIALLY_DELIVERED") {
-    const hasDeliveredQuantity = nextItems.some((item) => item.quantityDelivered > 0);
-    const hasIncompleteLine = nextItems.some((item) => item.quantityDelivered < item.quantityPlanned);
+  if (nextStatus === "IN_TRANSIT") {
+    assertValidStatusTransition("delivery", currentStatus, nextStatus);
 
-    if (!hasDeliveredQuantity || !hasIncompleteLine) {
-      throw new Error("Partial deliveries need at least one delivered quantity and one incomplete line.");
-    }
+    return {
+      status: "IN_TRANSIT",
+      items: nextItems
+    };
   }
 
-  return nextItems;
+  if (nextStatus === "CANCELLED") {
+    assertValidStatusTransition("delivery", currentStatus, nextStatus);
+
+    return {
+      status: "CANCELLED",
+      items: nextItems
+    };
+  }
+
+  assertValidStatusTransition("delivery", currentStatus, nextStatus);
+
+  return {
+    status: nextStatus,
+    items: nextItems
+  };
 }

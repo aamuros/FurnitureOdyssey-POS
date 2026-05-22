@@ -45,6 +45,12 @@ function formatMoney(value: unknown) {
   }).format(Number(value));
 }
 
+function normalizeIntegerQuantity(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
 function itemSummary(
   items: Array<{
     itemName: string;
@@ -58,7 +64,7 @@ function itemSummary(
   if (items.length === 1) {
     const item = items[0];
     return `${new Intl.NumberFormat("en-PH", { maximumFractionDigits: 0 }).format(
-      Number(item.quantity)
+      normalizeIntegerQuantity(item.quantity)
     )} x ${item.itemName}`;
   }
 

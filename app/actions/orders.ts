@@ -1251,7 +1251,7 @@ export async function updateDeliveryProgressAction(
         throw new ActionError("Delivery is not available for progress updates.");
       }
 
-      const nextItems = prepareDeliveryProgressUpdate({
+      const progressUpdate = prepareDeliveryProgressUpdate({
         currentStatus: delivery.status,
         nextStatus: parsed.data.status as DeliveryStatus,
         existingItems: delivery.items.map((item) => ({
@@ -1262,9 +1262,10 @@ export async function updateDeliveryProgressAction(
         itemInputs: parsed.data.items,
         markAllDelivered: parsed.data.markAllDelivered
       });
+      const nextStatus = progressUpdate.status as DeliveryStatus;
 
       const deliveredAt =
-        parsed.data.status === "DELIVERED"
+        nextStatus === "DELIVERED"
           ? (parsed.data.deliveredAt ?? delivery.deliveredAt ?? new Date())
           : delivery.deliveredAt;
 
@@ -1273,14 +1274,14 @@ export async function updateDeliveryProgressAction(
           id: delivery.id
         },
         data: {
-          status: parsed.data.status as DeliveryStatus,
+          status: nextStatus,
           deliveredAt,
           internalNotes: parsed.data.notes ?? delivery.internalNotes,
           updatedById: actor.id
         }
       });
 
-      for (const item of nextItems) {
+      for (const item of progressUpdate.items) {
         await tx.deliveryItem.update({
           where: {
             id: item.id
@@ -1306,7 +1307,7 @@ export async function updateDeliveryProgressAction(
             orderId: delivery.orderId,
             orderNumber: delivery.order.orderNumber,
             oldStatus: delivery.status,
-            newStatus: parsed.data.status,
+            newStatus: nextStatus,
             sourceAction: "delivery_progress_update"
           }
         }

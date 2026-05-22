@@ -50,9 +50,11 @@ export function formatDateTime(value: Date | string | null | undefined) {
 }
 
 export function formatQuantity(value: number) {
+  const quantity = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+
   return new Intl.NumberFormat("en-PH", {
-    maximumFractionDigits: 2
-  }).format(value);
+    maximumFractionDigits: 0
+  }).format(quantity);
 }
 
 export function formatDocumentNumber(prefix: string, value: string | null | undefined) {

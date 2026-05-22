@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { QuotationStatus } from "@prisma/client";
@@ -1099,6 +1099,7 @@ function ProductPicker({
   onAdd: (product: ProductOption) => void;
 }) {
   const [query, setQuery] = useState("");
+  const productGridRef = useRef<HTMLDivElement | null>(null);
   const normalizedProducts = useMemo(
     () => products.map((product) => normalizeProductOption(product)),
     [products]
@@ -1131,6 +1132,40 @@ function ProductPicker({
     return null;
   }
 
+  function restoreProductGridScroll(scrollTop: number, scrollLeft: number, activeElement: HTMLElement | null) {
+    const grid = productGridRef.current;
+
+    if (grid) {
+      grid.scrollTop = scrollTop;
+      grid.scrollLeft = scrollLeft;
+    }
+
+    if (activeElement?.isConnected) {
+      activeElement.focus({ preventScroll: true });
+    }
+  }
+
+  function addProductWithoutScrollJump(
+    product: ProductOption,
+    event?: ReactMouseEvent<HTMLButtonElement>
+  ) {
+    event?.preventDefault();
+
+    const grid = productGridRef.current;
+    const scrollTop = grid?.scrollTop ?? 0;
+    const scrollLeft = grid?.scrollLeft ?? 0;
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    onAdd(product);
+    restoreProductGridScroll(scrollTop, scrollLeft, activeElement);
+    window.requestAnimationFrame(() => {
+      restoreProductGridScroll(scrollTop, scrollLeft, activeElement);
+      window.requestAnimationFrame(() => {
+        restoreProductGridScroll(scrollTop, scrollLeft, activeElement);
+      });
+    });
+  }
+
   function ProductCard({ product }: { product: ProductOption }) {
     return (
       <article className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
@@ -1157,9 +1192,8 @@ function ProductPicker({
             <Button
               type="button"
               variant="secondary"
-              onClick={() => {
-                onAdd(product);
-              }}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) => addProductWithoutScrollJump(product, event)}
               className="min-h-9 shrink-0 px-3"
             >
               <Plus className="h-4 w-4" />
@@ -1201,7 +1235,10 @@ function ProductPicker({
             />
           </label>
         </div>
-        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div
+          ref={productGridRef}
+          className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2 xl:grid-cols-3"
+        >
           {filteredProducts.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
@@ -1613,7 +1650,10 @@ function QuotationItemCostProfitSummary({
 function ItemThumb({ item, compact = false }: { item: ItemDraft; compact?: boolean }) {
   return (
     <div
-      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground",
+        compact ? "h-9 w-9" : "h-14 w-14"
+      )}
       style={item.images[0]?.secureUrl ? { backgroundImage: `url("${item.images[0].secureUrl}")` } : undefined}
     >
       {!item.images[0]?.secureUrl ? <ImagePlus className="h-4 w-4" /> : null}

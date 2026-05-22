@@ -22,9 +22,12 @@ function formatMoney(value: unknown) {
 }
 
 function formatQuantity(value: unknown) {
+  const parsed = Number(value ?? 0);
+  const quantity = Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+
   return new Intl.NumberFormat("en-PH", {
-    maximumFractionDigits: 2
-  }).format(Number(value ?? 0));
+    maximumFractionDigits: 0
+  }).format(quantity);
 }
 
 function formatDate(value: Date) {

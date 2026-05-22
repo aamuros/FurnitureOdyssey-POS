@@ -159,6 +159,12 @@ function formatMoney(value: unknown) {
   }).format(Number(value));
 }
 
+function normalizeIntegerQuantity(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
 function formatOptionalInputDate(value: Date | null) {
   return value ? formatInputDate(value) : "";
 }
@@ -1127,17 +1133,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               const deliveryItems =
                 (canViewDeliveries && "deliveryItems" in item ? item.deliveryItems : []) as OrderListDeliveryItem[];
               const plannedQuantity = deliveryItems.reduce(
-                (sum, deliveryItem) => sum + Number(deliveryItem.quantityPlanned),
+                (sum, deliveryItem) => sum + normalizeIntegerQuantity(deliveryItem.quantityPlanned),
                 0
               );
+              const quantity = normalizeIntegerQuantity(item.quantity);
 
               return {
                 id: item.id,
                 itemName: item.itemName,
-                quantity: Number(item.quantity),
+                quantity,
                 plannedQuantity,
                 remainingQuantity: canViewDeliveries
-                  ? Math.max(Number(item.quantity) - plannedQuantity, 0)
+                  ? Math.max(quantity - plannedQuantity, 0)
                   : 0,
                 unitPrice: canViewPayments ? formatMoney(item.unitPrice) : "Restricted",
                 unitCostSnapshot: canViewPayments ? formatMoney(item.unitCostSnapshot) : "Restricted",
@@ -1146,7 +1153,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 lineTotal: canViewPayments ? formatMoney(item.lineTotal) : "Restricted",
                 deliveredQuantity: canViewDeliveries
                   ? deliveryItems.reduce(
-                      (sum, deliveryItem) => sum + Number(deliveryItem.quantityDelivered),
+                      (sum, deliveryItem) => sum + normalizeIntegerQuantity(deliveryItem.quantityDelivered),
                       0
                     )
                   : 0,
@@ -1186,8 +1193,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               items: delivery.items.map((item) => ({
                 id: item.id,
                 itemName: item.orderItem.itemName,
-                quantityPlanned: Number(item.quantityPlanned),
-                quantityDelivered: Number(item.quantityDelivered)
+                quantityPlanned: normalizeIntegerQuantity(item.quantityPlanned),
+                quantityDelivered: normalizeIntegerQuantity(item.quantityDelivered)
               }))
             })) : [],
             documents: documents.map((document) => ({
