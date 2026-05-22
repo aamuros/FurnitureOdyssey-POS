@@ -390,7 +390,7 @@ export function overviewOrderWhere({
 export function overviewSalesAggregateArgs(orderDateWhere: Prisma.OrderWhereInput) {
   return {
     where: { ...orderDateWhere, status: { not: "CANCELLED" } },
-    _sum: { totalAmount: true }
+    _sum: { totalAmount: true, paidAmount: true }
   } satisfies Prisma.OrderAggregateArgs;
 }
 
