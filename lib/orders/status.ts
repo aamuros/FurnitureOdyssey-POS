@@ -56,19 +56,14 @@ export function hasRemainingDeliveryQuantity(order: Pick<OrderDeliveryState, "it
 }
 
 export function canScheduleDeliveryByPaymentState(order: OrderPaymentState) {
-  return (
-    isOrderFullyPaid(order) ||
-    order.paymentDueTiming === "UPON_DELIVERY" ||
-    order.paymentDueTiming === "AFTER_DELIVERY"
-  );
+  return Boolean(order);
 }
 
 export function canScheduleOrderDelivery(order: OrderPaymentState & OrderDeliveryState) {
   return (
     !terminalOrderStatuses.has(order.status) &&
     !["DELIVERED", "CANCELLED"].includes(order.deliveryStatus) &&
-    hasRemainingDeliveryQuantity(order) &&
-    canScheduleDeliveryByPaymentState(order)
+    hasRemainingDeliveryQuantity(order)
   );
 }
 

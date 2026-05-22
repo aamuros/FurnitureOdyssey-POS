@@ -154,6 +154,44 @@ function salesWorkflowRows(value: {
   ];
 }
 
+function quotationTotals(quotation: {
+  subtotalAmount: unknown;
+  itemDiscountTotal: unknown;
+  quotationDiscountAmount: unknown;
+  assemblyFeeTotal: unknown;
+  salesInvoiceFeeTotal: unknown;
+  totalAmount: unknown;
+  currency: string;
+}): PdfSummaryRow[] {
+  const subtotalForItems = Math.max(
+    Number(quotation.subtotalAmount) - Number(quotation.itemDiscountTotal),
+    0
+  );
+  const additionalFees = Math.max(
+    Number(quotation.totalAmount) -
+      (Number(quotation.subtotalAmount) -
+        Number(quotation.itemDiscountTotal) -
+        Number(quotation.quotationDiscountAmount) +
+        Number(quotation.assemblyFeeTotal) +
+        Number(quotation.salesInvoiceFeeTotal)),
+    0
+  );
+  const finalSubtotal = Math.max(Number(quotation.totalAmount) - Number(quotation.salesInvoiceFeeTotal), 0);
+
+  return [
+    { label: "Subtotal for Items", value: formatMoney(subtotalForItems, quotation.currency) },
+    { label: "Assemble Fee", value: formatMoney(Number(quotation.assemblyFeeTotal), quotation.currency) },
+    { label: "Additional Fees", value: formatMoney(additionalFees, quotation.currency) },
+    {
+      label: "Additional Discount",
+      value: `-${formatMoney(Number(quotation.quotationDiscountAmount), quotation.currency)}`
+    },
+    { label: "Final Subtotal", value: formatMoney(finalSubtotal, quotation.currency) },
+    { label: "Sales Invoice Fee", value: formatMoney(Number(quotation.salesInvoiceFeeTotal), quotation.currency) },
+    { label: "Final Total", value: formatMoney(Number(quotation.totalAmount), quotation.currency) }
+  ];
+}
+
 export async function getQuotationPdfData(quotationId: string): Promise<OperationalPdfData> {
   await prisma.$transaction(async (tx) => {
     const quotation = await tx.quotation.findUnique({
@@ -261,34 +299,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
       { label: "Delivery location", value: fallbackText(quotation.inquiry?.deliveryLocation) },
       ...salesWorkflowRows(quotation)
     ],
-    totals: [
-      { label: "Subtotal for Items", value: formatMoney(Number(quotation.subtotalAmount), quotation.currency) },
-      {
-        label: "Item discounts",
-        value: formatMoney(Number(quotation.itemDiscountTotal), quotation.currency)
-      },
-      {
-        label: "Quotation discount",
-        value: formatMoney(Number(quotation.quotationDiscountAmount), quotation.currency)
-      },
-      ...(quotation.needsAssembly
-        ? [
-            {
-              label: "Assemble fee",
-              value: formatMoney(Number(quotation.assemblyFeeTotal), quotation.currency)
-            }
-          ]
-        : []),
-      ...(quotation.salesInvoiceRequested
-        ? [
-            {
-              label: "Sales invoice fee",
-              value: formatMoney(Number(quotation.salesInvoiceFeeTotal), quotation.currency)
-            }
-          ]
-        : []),
-      { label: "Total", value: formatMoney(Number(quotation.totalAmount), quotation.currency) }
-    ],
+    totals: quotationTotals(quotation),
     items: quotation.items.map((item) => ({
       code: item.snapshotProductCode,
       name: item.itemName,

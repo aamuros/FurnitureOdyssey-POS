@@ -218,6 +218,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
       </form>
       <CustomerWorkspace
         canCreateCustomers={canCreateCustomers}
+        persistenceUserKey={user.id}
         customers={customers.map((customer) => ({
           id: customer.id,
           displayName: customer.displayName,

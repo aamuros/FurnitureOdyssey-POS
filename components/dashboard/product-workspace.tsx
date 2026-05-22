@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 
 type ProductRow = {
   id: string;
@@ -54,6 +55,7 @@ type ProductWorkspaceProps = {
   canViewProductCost: boolean;
   hasActiveFilters: boolean;
   categories: string[];
+  persistenceUserKey?: string | null;
 };
 
 type ActionState = {
@@ -64,6 +66,8 @@ type ActionState = {
 type ProductFormProps = {
   mode: "create" | "edit";
   product?: ProductRow;
+  draft: ProductFormDraft;
+  onDraftChange: (patch: Partial<ProductFormDraft>) => void;
   state: ActionState;
   pending: boolean;
   action: (formData: FormData) => void;
@@ -71,6 +75,24 @@ type ProductFormProps = {
   categories: string[];
   canUploadImage: boolean;
   canViewProductCost: boolean;
+};
+
+type ProductFormDraft = {
+  name: string;
+  code: string;
+  category: string;
+  referencePrice: string;
+  referenceCost: string;
+  status: ProductRow["status"];
+  description: string;
+  specifications: string;
+};
+
+type ProductWorkspaceDraft = {
+  selectedProductId: string;
+  showCreateForm: boolean;
+  createDraft: ProductFormDraft;
+  editDrafts: Record<string, ProductFormDraft>;
 };
 
 const fieldClassName = "flex min-h-[78px] flex-col gap-2 text-sm font-medium";
@@ -91,6 +113,17 @@ const initialState = {
   message: ""
 };
 
+const blankProductDraft: ProductFormDraft = {
+  name: "",
+  code: "",
+  category: "",
+  referencePrice: "",
+  referenceCost: "",
+  status: "ACTIVE",
+  description: "",
+  specifications: ""
+};
+
 function uniqueCategories(categories: string[], currentCategory?: string | null) {
   return Array.from(
     new Set(
@@ -99,6 +132,19 @@ function uniqueCategories(categories: string[], currentCategory?: string | null)
         .filter(Boolean)
     )
   );
+}
+
+function productToDraft(product: ProductRow): ProductFormDraft {
+  return {
+    name: product.name,
+    code: product.code ?? "",
+    category: product.category ?? "",
+    referencePrice: product.referencePrice === null ? "" : String(product.referencePrice),
+    referenceCost: product.referenceCost === null ? "" : String(product.referenceCost),
+    status: product.status,
+    description: product.description ?? "",
+    specifications: product.specifications ?? ""
+  };
 }
 
 function statusTone(status: ProductRow["status"]) {
@@ -119,6 +165,8 @@ function formatMoney(value: number | null, currency: string) {
 function ProductForm({
   mode,
   product,
+  draft,
+  onDraftChange,
   state,
   pending,
   action,
@@ -148,11 +196,22 @@ function ProductForm({
           <div className="grid gap-4 md:grid-cols-[1.1fr_0.7fr]">
             <label className={fieldClassName}>
               Name
-              <Input name="name" required defaultValue={product?.name ?? ""} placeholder="Product name" />
+              <Input
+                name="name"
+                required
+                value={draft.name}
+                onChange={(event) => onDraftChange({ name: event.target.value })}
+                placeholder="Product name"
+              />
             </label>
             <label className={fieldClassName}>
               Code
-              <Input name="code" defaultValue={product?.code ?? ""} placeholder="Optional code" />
+              <Input
+                name="code"
+                value={draft.code}
+                onChange={(event) => onDraftChange({ code: event.target.value })}
+                placeholder="Optional code"
+              />
               <span className="block text-xs font-normal leading-4 text-muted-foreground">
                 Optional. Use this only when a supplier or internal code helps.
               </span>
@@ -162,7 +221,11 @@ function ProductForm({
           <div className={canViewProductCost ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"}>
             <label className={fieldClassName}>
               Category
-              <Select name="category" defaultValue={product?.category ?? ""}>
+              <Select
+                name="category"
+                value={draft.category}
+                onChange={(event) => onDraftChange({ category: event.target.value })}
+              >
                 <option value="">Choose category</option>
                 {categoryOptions.map((category) => (
                   <option key={category} value={category}>
@@ -178,7 +241,8 @@ function ProductForm({
                 type="number"
                 min="0"
                 step="0.01"
-                defaultValue={product?.referencePrice ?? ""}
+                value={draft.referencePrice}
+                onChange={(event) => onDraftChange({ referencePrice: event.target.value })}
               />
               <span className="block text-xs font-normal leading-4 text-muted-foreground">
                 Optional. This can still be changed in a quotation.
@@ -192,7 +256,8 @@ function ProductForm({
                   type="number"
                   min="0"
                   step="0.01"
-                  defaultValue={product?.referenceCost ?? ""}
+                  value={draft.referenceCost}
+                  onChange={(event) => onDraftChange({ referenceCost: event.target.value })}
                 />
                 <span className="block text-xs font-normal leading-4 text-muted-foreground">
                   Used as the default unit cost snapshot.
@@ -201,7 +266,13 @@ function ProductForm({
             ) : null}
             <label className={fieldClassName}>
               Status
-              <Select name="status" defaultValue={product?.status ?? "ACTIVE"}>
+              <Select
+                name="status"
+                value={draft.status}
+                onChange={(event) =>
+                  onDraftChange({ status: event.target.value as ProductFormDraft["status"] })
+                }
+              >
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
               </Select>
@@ -214,11 +285,21 @@ function ProductForm({
           <div className="grid gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm font-medium">
               Description
-              <Textarea name="description" defaultValue={product?.description ?? ""} className="h-32 resize-y" />
+              <Textarea
+                name="description"
+                value={draft.description}
+                onChange={(event) => onDraftChange({ description: event.target.value })}
+                className="h-32 resize-y"
+              />
             </label>
             <label className="flex flex-col gap-2 text-sm font-medium">
               Specifications
-              <Textarea name="specifications" defaultValue={product?.specifications ?? ""} className="h-32 resize-y" />
+              <Textarea
+                name="specifications"
+                value={draft.specifications}
+                onChange={(event) => onDraftChange({ specifications: event.target.value })}
+                className="h-32 resize-y"
+              />
             </label>
           </div>
 
@@ -667,8 +748,23 @@ export function ProductWorkspace({
   canDelete,
   canViewProductCost,
   hasActiveFilters,
-  categories
+  categories,
+  persistenceUserKey
 }: ProductWorkspaceProps) {
+  const initialWorkspaceDraft: ProductWorkspaceDraft = {
+    selectedProductId: "",
+    showCreateForm: false,
+    createDraft: blankProductDraft,
+    editDrafts: {}
+  };
+  const [workspaceDraft, setWorkspaceDraft, workspacePersistence] =
+    usePersistentPageState<ProductWorkspaceDraft>({
+      scope: "products",
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: initialWorkspaceDraft
+    });
+  const hasAppliedWorkspaceDraft = useRef(false);
   const [createState, createAction, createPending] = useActionState(createProductAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateProductAction, initialState);
   const [statusState, statusAction, statusPending] = useActionState(updateProductStatusAction, initialState);
@@ -677,6 +773,43 @@ export function ProductWorkspace({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"success" | "danger">("success");
+
+  useEffect(() => {
+    if (!workspacePersistence.restored || hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    hasAppliedWorkspaceDraft.current = true;
+    setShowCreateForm(Boolean(workspaceDraft.showCreateForm));
+    setSelectedProductId(
+      workspaceDraft.selectedProductId &&
+        products.some((product) => product.id === workspaceDraft.selectedProductId)
+        ? workspaceDraft.selectedProductId
+        : ""
+    );
+  }, [
+    products,
+    workspaceDraft.selectedProductId,
+    workspaceDraft.showCreateForm,
+    workspacePersistence.restored
+  ]);
+
+  useEffect(() => {
+    if (!workspacePersistence.restored || !hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    setWorkspaceDraft((current) => ({
+      ...current,
+      selectedProductId,
+      showCreateForm
+    }));
+  }, [
+    selectedProductId,
+    setWorkspaceDraft,
+    showCreateForm,
+    workspacePersistence.restored
+  ]);
 
   useEffect(() => {
     setSelectedProductId((current) =>
@@ -690,8 +823,14 @@ export function ProductWorkspace({
       setNoticeTone("success");
       setShowCreateForm(false);
       setSelectedProductId("");
+      setWorkspaceDraft((current) => ({
+        ...current,
+        showCreateForm: false,
+        selectedProductId: "",
+        createDraft: blankProductDraft
+      }));
     }
-  }, [createState.ok, createState.message]);
+  }, [createState.ok, createState.message, setWorkspaceDraft]);
 
   useEffect(() => {
     if (updateState.ok && updateState.message) {
@@ -699,8 +838,14 @@ export function ProductWorkspace({
       setNoticeTone("success");
       setShowCreateForm(false);
       setSelectedProductId("");
+      setWorkspaceDraft((current) => ({
+        ...current,
+        showCreateForm: false,
+        selectedProductId: "",
+        editDrafts: {}
+      }));
     }
-  }, [updateState.ok, updateState.message]);
+  }, [setWorkspaceDraft, updateState.ok, updateState.message]);
 
   useEffect(() => {
     if (statusState.message) {
@@ -729,18 +874,79 @@ export function ProductWorkspace({
     setNotice("");
     setSelectedProductId("");
     setShowCreateForm(true);
+    setWorkspaceDraft((current) => ({
+      ...current,
+      selectedProductId: "",
+      showCreateForm: true
+    }));
   }
 
   function openEditForm(product: ProductRow) {
     setNotice("");
     setShowCreateForm(false);
     setSelectedProductId(product.id);
+    setWorkspaceDraft((current) => ({
+      ...current,
+      showCreateForm: false,
+      selectedProductId: product.id,
+      editDrafts: {
+        ...current.editDrafts,
+        [product.id]: current.editDrafts[product.id] ?? productToDraft(product)
+      }
+    }));
   }
 
   function closeForm() {
+    const closedProductId = selectedProductId;
     setShowCreateForm(false);
     setSelectedProductId("");
+    setWorkspaceDraft((current) => {
+      const nextEditDrafts = { ...current.editDrafts };
+
+      if (closedProductId) {
+        delete nextEditDrafts[closedProductId];
+      }
+
+      return {
+        ...current,
+        selectedProductId: "",
+        showCreateForm: false,
+        createDraft: blankProductDraft,
+        editDrafts: nextEditDrafts
+      };
+    });
   }
+
+  function updateCreateDraft(patch: Partial<ProductFormDraft>) {
+    setWorkspaceDraft((current) => ({
+      ...current,
+      createDraft: {
+        ...current.createDraft,
+        ...patch
+      }
+    }));
+  }
+
+  function updateEditDraft(productId: string, patch: Partial<ProductFormDraft>) {
+    const fallbackProduct = products.find((product) => product.id === productId);
+
+    setWorkspaceDraft((current) => ({
+      ...current,
+      editDrafts: {
+        ...current.editDrafts,
+        [productId]: {
+          ...(current.editDrafts[productId] ??
+            (fallbackProduct ? productToDraft(fallbackProduct) : blankProductDraft)),
+          ...patch
+        }
+      }
+    }));
+  }
+
+  const createDraft = workspaceDraft.createDraft ?? blankProductDraft;
+  const selectedProductDraft = selectedProduct
+    ? workspaceDraft.editDrafts[selectedProduct.id] ?? productToDraft(selectedProduct)
+    : blankProductDraft;
 
   return (
     <div className="space-y-6">
@@ -768,6 +974,8 @@ export function ProductWorkspace({
         {canCreate && showCreateForm ? (
           <ProductForm
             mode="create"
+            draft={createDraft}
+            onDraftChange={updateCreateDraft}
             state={createState}
             pending={createPending}
             action={createAction}
@@ -782,6 +990,8 @@ export function ProductWorkspace({
           <ProductForm
             mode="edit"
             product={selectedProduct}
+            draft={selectedProductDraft}
+            onDraftChange={(patch) => updateEditDraft(selectedProduct.id, patch)}
             state={updateState}
             pending={updatePending}
             action={updateAction}

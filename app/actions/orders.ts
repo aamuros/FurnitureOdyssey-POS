@@ -27,7 +27,6 @@ import {
 } from "@/lib/orders/calculations";
 import {
   canCompleteOrder,
-  canScheduleDeliveryByPaymentState,
   canScheduleOrderDelivery
 } from "@/lib/orders/status";
 import {
@@ -1112,18 +1111,6 @@ export async function createDeliveryAction(
           }
         }))
       }));
-
-      if (
-        !canScheduleDeliveryByPaymentState({
-          paymentStatus: order.paymentStatus,
-          balanceAmount: order.balanceAmount,
-          paymentDueTiming: order.paymentDueTiming
-        })
-      ) {
-        throw new ActionError(
-          "Order must be fully paid before delivery, unless payment is due upon or after delivery."
-        );
-      }
 
       if (
         !canScheduleOrderDelivery({

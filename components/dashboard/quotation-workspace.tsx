@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { QuotationStatus } from "@prisma/client";
@@ -36,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
 type CustomerOption = {
@@ -86,6 +88,7 @@ type QuotationBuilderProps = {
   products: ProductOption[];
   canCreateCustomers: boolean;
   canUpdateQuotations?: boolean;
+  persistenceUserKey?: string | null;
   backHref?: string;
   backLabel?: string;
   mode?: "create" | "edit";
@@ -192,6 +195,31 @@ type ActionState = {
   orderNumber?: string | null;
 };
 
+type QuotationBuilderDraft = {
+  selectedCustomer: SelectedCustomer | null;
+  items: ItemDraft[];
+  productPickerOpen: boolean;
+  additionalDiscount: number;
+  additionalFees: number;
+  noteOpen: boolean;
+  termsOpen: boolean;
+  customerNotes: string;
+  needsAssembly: boolean;
+  assemblyFeeRate: number;
+  salesInvoiceRequested: boolean;
+  salesInvoiceFeePercentage: number;
+  modeOfDelivery: string;
+  deliveryMethod: string;
+  paymentTerms: string;
+  specialInstructions: string;
+  internalNotes: string;
+};
+
+type CustomerSelectorDraft = {
+  query: string;
+  mode: "existing" | "new";
+};
+
 const initialState: ActionState = {
   ok: false,
   message: ""
@@ -203,6 +231,10 @@ const quotationStatusFilterOptions = ["DRAFT", "SENT", "ACCEPTED", "CANCELLED"] 
 const quotationViewOptions = ["active", "converted", "all"] as const;
 const defaultAssemblyFeeRate = 100;
 const defaultSalesInvoiceFeePercentage = 8;
+const quotationItemGridClass =
+  "grid-cols-[minmax(140px,2fr)_minmax(46px,.42fr)_minmax(66px,.68fr)_minmax(72px,.72fr)_minmax(68px,.62fr)_minmax(70px,.68fr)_minmax(76px,.72fr)_40px]";
+const quotationItemAssemblyGridClass =
+  "grid-cols-[minmax(64px,.5fr)_minmax(126px,2fr)_minmax(46px,.42fr)_minmax(66px,.68fr)_minmax(72px,.72fr)_minmax(68px,.62fr)_minmax(70px,.68fr)_minmax(76px,.72fr)_40px]";
 
 function normalizeStatusFilter(value: string | undefined) {
   return quotationStatusFilterOptions.find((option) => option === value) ?? "";
@@ -870,13 +902,28 @@ function CustomerSelector({
   customers,
   selectedCustomer,
   setSelectedCustomer,
-  canCreateCustomers
+  canCreateCustomers,
+  persistenceScope,
+  persistenceUserKey
 }: {
   customers: CustomerOption[];
   selectedCustomer: SelectedCustomer | null;
   setSelectedCustomer: (value: SelectedCustomer | null) => void;
   canCreateCustomers: boolean;
+  persistenceScope: string;
+  persistenceUserKey?: string | null;
 }) {
+  const initialSelectorDraft: CustomerSelectorDraft = {
+    query: "",
+    mode: "existing"
+  };
+  const [selectorDraft, setSelectorDraft, selectorPersistence] = usePersistentPageState<CustomerSelectorDraft>({
+    scope: `${persistenceScope}:customer-selector`,
+    userKey: persistenceUserKey,
+    version: 1,
+    initialState: initialSelectorDraft
+  });
+  const hasAppliedSelectorDraft = useRef(false);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const trimmedQuery = query.trim();
@@ -892,6 +939,27 @@ function CustomerSelector({
   const hasExactMatch = filteredCustomers.some(
     (customer) => customer.displayName.toLowerCase() === trimmedQuery.toLowerCase()
   );
+
+  useEffect(() => {
+    if (!selectorPersistence.restored || hasAppliedSelectorDraft.current) {
+      return;
+    }
+
+    hasAppliedSelectorDraft.current = true;
+    setQuery(selectorDraft.query ?? "");
+    setMode(selectorDraft.mode === "new" && canCreateCustomers ? "new" : "existing");
+  }, [canCreateCustomers, selectorDraft.mode, selectorDraft.query, selectorPersistence.restored]);
+
+  useEffect(() => {
+    if (!selectorPersistence.restored || !hasAppliedSelectorDraft.current || selectedCustomer) {
+      return;
+    }
+
+    setSelectorDraft({
+      query,
+      mode
+    });
+  }, [mode, query, selectedCustomer, selectorPersistence.restored, setSelectorDraft]);
 
   return (
     <section className="studio-card">
@@ -962,13 +1030,14 @@ function CustomerSelector({
                       <button
                         key={customer.id}
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
+                          selectorPersistence.clear();
                           setSelectedCustomer({
                             id: customer.id,
                             displayName: customer.displayName,
                             detail: customerDetail(customer)
-                          })
-                        }
+                          });
+                        }}
                         className="block w-full border-b border-border px-3 py-3 text-left text-sm transition last:border-b-0 hover:bg-soft-accent/50"
                       >
                         <span className="block font-semibold">{customer.displayName}</span>
@@ -991,7 +1060,10 @@ function CustomerSelector({
                           enabled={canCreateCustomers}
                           initialName={trimmedQuery}
                           submitLabel="Create & select"
-                          onCreated={setSelectedCustomer}
+                          onCreated={(customer) => {
+                            selectorPersistence.clear();
+                            setSelectedCustomer(customer);
+                          }}
                         />
                       </div>
                     ) : null}
@@ -1002,7 +1074,10 @@ function CustomerSelector({
               <InlineCustomerCreate
                 enabled={canCreateCustomers}
                 submitLabel="Create & select"
-                onCreated={setSelectedCustomer}
+                onCreated={(customer) => {
+                  selectorPersistence.clear();
+                  setSelectedCustomer(customer);
+                }}
               />
             )}
           </>
@@ -1148,12 +1223,10 @@ function QuotationItemTable({
   onNeedsAssemblyChange,
   assemblyFeeRate,
   onAssemblyFeeRateChange,
-  assemblyFee,
   salesInvoiceRequested,
   onSalesInvoiceRequestedChange,
   salesInvoiceFeePercentage,
   onSalesInvoiceFeePercentageChange,
-  salesInvoiceFee,
   updateItem,
   removeItem,
   subtotalAmount
@@ -1164,12 +1237,10 @@ function QuotationItemTable({
   onNeedsAssemblyChange: (checked: boolean) => void;
   assemblyFeeRate: number;
   onAssemblyFeeRateChange: (value: number) => void;
-  assemblyFee: number;
   salesInvoiceRequested: boolean;
   onSalesInvoiceRequestedChange: (checked: boolean) => void;
   salesInvoiceFeePercentage: number;
   onSalesInvoiceFeePercentageChange: (value: number) => void;
-  salesInvoiceFee: number;
   updateItem: (index: number, patch: Partial<ItemDraft>) => void;
   removeItem: (index: number) => void;
   subtotalAmount: number;
@@ -1184,16 +1255,14 @@ function QuotationItemTable({
 
   return (
     <div className="space-y-3">
-      <div className="hidden overflow-x-auto rounded-lg border border-border bg-panel lg:block">
+      <div className="hidden rounded-lg border border-border bg-panel lg:block">
         <div
           className={cn(
-            "grid gap-4 border-b border-border bg-soft-accent/35 px-4 py-3 text-xs font-semibold uppercase text-muted-foreground",
-            showAssemblyColumn
-              ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
-              : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+            "grid gap-2 border-b border-border bg-soft-accent/35 px-3 py-2 text-[11px] font-semibold uppercase leading-4 text-muted-foreground [&>*]:min-w-0",
+            showAssemblyColumn ? quotationItemAssemblyGridClass : quotationItemGridClass
           )}
         >
-          {showAssemblyColumn ? <span className="text-center">Assemble</span> : null}
+          {showAssemblyColumn ? <span className="px-1 text-center">Assemble</span> : null}
           <span>Item</span>
           <span className="text-left">Qty</span>
           <span className="text-left">Cost</span>
@@ -1207,14 +1276,12 @@ function QuotationItemTable({
           <div key={index} className="border-b border-border last:border-b-0">
             <div
               className={cn(
-                "grid items-start gap-4 px-4 py-4",
-                showAssemblyColumn
-                  ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
-                  : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+                "grid items-start gap-2 px-3 py-3 [&>*]:min-w-0 [&_input]:px-2 [&_input]:text-sm",
+                showAssemblyColumn ? quotationItemAssemblyGridClass : quotationItemGridClass
               )}
             >
               {showAssemblyColumn ? (
-                <label className="flex min-h-10 items-center justify-center">
+                <label className="flex min-h-9 items-center justify-center">
                   <input
                     type="checkbox"
                     checked={item.requiresAssembly}
@@ -1226,8 +1293,8 @@ function QuotationItemTable({
                   />
                 </label>
               ) : null}
-              <div className="flex min-w-0 items-start gap-3">
-                <ItemThumb item={item} />
+              <div className="flex min-w-0 items-start gap-2">
+                <ItemThumb item={item} compact />
                 <div className="min-w-0 flex-1">
                   <Input
                     value={item.itemName}
@@ -1256,7 +1323,7 @@ function QuotationItemTable({
                 onValueChange={(value) => updateItem(index, { unitPrice: value })}
                 aria-label="Unit price"
               />
-              <div className="flex min-h-10 items-center text-sm font-semibold">
+              <div className="flex min-h-9 min-w-0 items-center break-words text-sm font-semibold leading-5">
                 {money(lineProfit(item))}
               </div>
               <MoneyInput
@@ -1265,15 +1332,15 @@ function QuotationItemTable({
                 onValueChange={(value) => updateItem(index, { discountValue: value })}
                 aria-label="Discount"
               />
-              <div className="flex min-h-10 items-center text-sm font-semibold">
+              <div className="flex min-h-9 min-w-0 items-center break-words text-sm font-semibold leading-5">
                 {money(lineTotal(item))}
               </div>
-              <div className="flex min-h-10 items-center justify-center">
+              <div className="flex min-h-9 items-center justify-center">
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={() => confirmRemoveItem(index)}
-                  className="min-h-9 px-2"
+                  className="h-8 min-h-8 px-2"
                 >
                   <Trash2 className="h-4 w-4" />
                   <span className="sr-only">Remove item</span>
@@ -1390,12 +1457,10 @@ function QuotationItemTable({
         onNeedsAssemblyChange={onNeedsAssemblyChange}
         assemblyFeeRate={assemblyFeeRate}
         onAssemblyFeeRateChange={onAssemblyFeeRateChange}
-        assemblyFee={assemblyFee}
         salesInvoiceRequested={salesInvoiceRequested}
         onSalesInvoiceRequestedChange={onSalesInvoiceRequestedChange}
         salesInvoiceFeePercentage={salesInvoiceFeePercentage}
         onSalesInvoiceFeePercentageChange={onSalesInvoiceFeePercentageChange}
-        salesInvoiceFee={salesInvoiceFee}
       />
     </div>
   );
@@ -1409,12 +1474,10 @@ function QuotationItemCostProfitSummary({
   onNeedsAssemblyChange,
   assemblyFeeRate,
   onAssemblyFeeRateChange,
-  assemblyFee,
   salesInvoiceRequested,
   onSalesInvoiceRequestedChange,
   salesInvoiceFeePercentage,
-  onSalesInvoiceFeePercentageChange,
-  salesInvoiceFee
+  onSalesInvoiceFeePercentageChange
 }: {
   items: ItemDraft[];
   showAssemblyColumn: boolean;
@@ -1423,75 +1486,99 @@ function QuotationItemCostProfitSummary({
   onNeedsAssemblyChange: (checked: boolean) => void;
   assemblyFeeRate: number;
   onAssemblyFeeRateChange: (value: number) => void;
-  assemblyFee: number;
   salesInvoiceRequested: boolean;
   onSalesInvoiceRequestedChange: (checked: boolean) => void;
   salesInvoiceFeePercentage: number;
   onSalesInvoiceFeePercentageChange: (value: number) => void;
-  salesInvoiceFee: number;
 }) {
+  const [assemblyRateOpen, setAssemblyRateOpen] = useState(false);
+  const [salesInvoicePercentOpen, setSalesInvoicePercentOpen] = useState(false);
   const totalCost = roundMoney(items.reduce((sum, item) => sum + lineCostTotal(item), 0));
   const grossProfit = roundMoney(subtotalAmount - totalCost);
 
   const feeControls = (
-    <div className="flex max-w-[520px] flex-wrap gap-3">
-      <div className="grid w-full min-w-[220px] flex-1 gap-2 rounded-md border border-border bg-panel/70 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <label className="flex min-h-6 items-center gap-2 font-medium">
+    <div className="grid gap-2 md:grid-cols-2 lg:max-w-[420px]">
+      <div className="rounded-md border border-border bg-panel/70 p-2.5">
+        <div className="flex min-h-8 items-center gap-2">
+          <label className="flex min-w-0 flex-1 items-center gap-2 font-medium">
             <input
               type="checkbox"
               checked={needsAssembly}
               onChange={(event) => onNeedsAssemblyChange(event.target.checked)}
               className="h-4 w-4 rounded border-border"
             />
-            Needs Assemble
+            <span className="truncate">Assemble</span>
           </label>
-          <span className="font-semibold text-foreground">{money(assemblyFee)}</span>
+          <button
+            type="button"
+            aria-label={assemblyRateOpen ? "Collapse assemble rate" : "Expand assemble rate"}
+            aria-expanded={assemblyRateOpen}
+            onClick={() => setAssemblyRateOpen((open) => !open)}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          >
+            <ChevronDown className={cn("h-4 w-4 transition", assemblyRateOpen ? "rotate-180" : undefined)} />
+          </button>
         </div>
-        <label className="grid grid-cols-[auto_minmax(96px,1fr)] items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-          Rate per
-          <MoneyInput
-            value={assemblyFeeRate}
-            onValueChange={onAssemblyFeeRateChange}
-            aria-label="Needs Assemble rate per item"
-          />
-        </label>
+        {assemblyRateOpen ? (
+          <label className="mt-2 grid gap-1 border-t border-border pt-2 text-xs font-semibold uppercase text-muted-foreground">
+            Rate per assembled item
+            <MoneyInput
+              value={assemblyFeeRate}
+              onValueChange={onAssemblyFeeRateChange}
+              aria-label="Needs Assemble rate per item"
+            />
+            <span className="text-[11px] font-normal normal-case leading-4 text-muted-foreground">
+              Default is 100 per selected item quantity.
+            </span>
+          </label>
+        ) : null}
       </div>
-      <div className="grid w-full min-w-[220px] flex-1 gap-2 rounded-md border border-border bg-panel/70 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <label className="flex min-h-6 items-center gap-2 font-medium">
+      <div className="rounded-md border border-border bg-panel/70 p-2.5">
+        <div className="flex min-h-8 items-center gap-2">
+          <label className="flex min-w-0 flex-1 items-center gap-2 font-medium">
             <input
               type="checkbox"
               checked={salesInvoiceRequested}
               onChange={(event) => onSalesInvoiceRequestedChange(event.target.checked)}
               className="h-4 w-4 rounded border-border"
             />
-            Sales Invoice
+            <span className="truncate">Sales Invoice</span>
           </label>
-          <span className="font-semibold text-foreground">{money(salesInvoiceFee)}</span>
+          <button
+            type="button"
+            aria-label={salesInvoicePercentOpen ? "Collapse sales invoice percent" : "Expand sales invoice percent"}
+            aria-expanded={salesInvoicePercentOpen}
+            onClick={() => setSalesInvoicePercentOpen((open) => !open)}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          >
+            <ChevronDown className={cn("h-4 w-4 transition", salesInvoicePercentOpen ? "rotate-180" : undefined)} />
+          </button>
         </div>
-        <label className="grid grid-cols-[auto_minmax(96px,1fr)] items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-          Percent
-          <MoneyInput
-            max={100}
-            value={salesInvoiceFeePercentage}
-            onValueChange={onSalesInvoiceFeePercentageChange}
-            aria-label="Sales Invoice percentage"
-          />
-        </label>
+        {salesInvoicePercentOpen ? (
+          <label className="mt-2 grid gap-1 border-t border-border pt-2 text-xs font-semibold uppercase text-muted-foreground">
+            Sales invoice percentage
+            <MoneyInput
+              max={100}
+              value={salesInvoiceFeePercentage}
+              onValueChange={onSalesInvoiceFeePercentageChange}
+              aria-label="Sales Invoice percentage"
+            />
+            <span className="text-[11px] font-normal normal-case leading-4 text-muted-foreground">
+              Default is 8% of the final subtotal.
+            </span>
+          </label>
+        ) : null}
       </div>
     </div>
   );
 
   return (
     <>
-      <div className="hidden overflow-x-auto lg:block">
+      <div className="hidden lg:block">
         <div
           className={cn(
-            "grid items-center gap-4 rounded-lg border border-border bg-soft-accent/45 px-4 py-3 text-sm",
-            showAssemblyColumn
-              ? "min-w-[1360px] grid-cols-[72px_minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
-              : "min-w-[1280px] grid-cols-[minmax(320px,1fr)_92px_140px_128px_128px_128px_128px_76px]"
+            "grid items-center gap-2 rounded-lg border border-border bg-soft-accent/45 px-3 py-3 text-sm [&>*]:min-w-0",
+            showAssemblyColumn ? quotationItemAssemblyGridClass : quotationItemGridClass
           )}
         >
           <div className={showAssemblyColumn ? "col-span-3" : "col-span-2"}>
@@ -1523,10 +1610,13 @@ function QuotationItemCostProfitSummary({
   );
 }
 
-function ItemThumb({ item }: { item: ItemDraft }) {
+function ItemThumb({ item, compact = false }: { item: ItemDraft; compact?: boolean }) {
   return (
     <div
-      className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground",
+        compact ? "h-9 w-9" : "h-14 w-14"
+      )}
       style={item.images[0]?.secureUrl ? { backgroundImage: `url("${item.images[0].secureUrl}")` } : undefined}
     >
       {!item.images[0]?.secureUrl ? <ImagePlus className="h-4 w-4" /> : null}
@@ -1538,6 +1628,7 @@ export function QuotationBuilder({
   customers,
   products,
   canCreateCustomers,
+  persistenceUserKey,
   backHref,
   backLabel,
   mode = "create",
@@ -1548,6 +1639,46 @@ export function QuotationBuilder({
     mode === "edit" ? updateDraftQuotationAction : createQuotationAction,
     initialState
   );
+  const [, startBuilderActionTransition] = useTransition();
+  const initialBuilderDraft = useMemo<QuotationBuilderDraft>(
+    () => ({
+      selectedCustomer: initialQuotation?.customer ?? null,
+      items:
+        initialQuotation?.items.map((item) => ({
+          ...item,
+          quantity: normalizeQuantity(item.quantity)
+        })) ?? [],
+      productPickerOpen: false,
+      additionalDiscount: initialQuotation?.quotationDiscountValue ?? 0,
+      additionalFees: initialQuotation?.additionalFees ?? 0,
+      noteOpen: false,
+      termsOpen: false,
+      customerNotes: initialQuotation?.customerNotes ?? "",
+      needsAssembly: initialQuotation?.needsAssembly ?? false,
+      assemblyFeeRate: initialQuotation?.assemblyFeeRate ?? defaultAssemblyFeeRate,
+      salesInvoiceRequested: initialQuotation?.salesInvoiceRequested ?? false,
+      salesInvoiceFeePercentage:
+        initialQuotation?.salesInvoiceFeePercentage ?? defaultSalesInvoiceFeePercentage,
+      modeOfDelivery: initialQuotation?.modeOfDelivery ?? "",
+      deliveryMethod: initialQuotation?.deliveryMethod ?? "",
+      paymentTerms: initialQuotation?.paymentTerms ?? "",
+      specialInstructions: initialQuotation?.specialInstructions ?? "",
+      internalNotes: initialQuotation?.internalNotes ?? ""
+    }),
+    [initialQuotation]
+  );
+  const persistenceScope =
+    mode === "edit" && initialQuotation?.id
+      ? `quotations:${initialQuotation.id}:edit`
+      : "quotations:new";
+  const [builderDraft, setBuilderDraft, builderPersistence] =
+    usePersistentPageState<QuotationBuilderDraft>({
+      scope: persistenceScope,
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: initialBuilderDraft
+    });
+  const hasAppliedBuilderDraft = useRef(false);
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
     initialQuotation?.customer ?? null
   );
@@ -1587,10 +1718,92 @@ export function QuotationBuilder({
 
   useEffect(() => {
     if (state.ok && state.quotationId) {
+      builderPersistence.clear(initialBuilderDraft);
       router.push(`/quotations/${state.quotationId}`);
       router.refresh();
     }
-  }, [router, state.ok, state.quotationId]);
+  }, [builderPersistence, initialBuilderDraft, router, state.ok, state.quotationId]);
+
+  useEffect(() => {
+    if (!builderPersistence.restored || hasAppliedBuilderDraft.current) {
+      return;
+    }
+
+    hasAppliedBuilderDraft.current = true;
+    setSelectedCustomer(builderDraft.selectedCustomer ?? null);
+    setItems(
+      Array.isArray(builderDraft.items)
+        ? builderDraft.items.map((item) => ({
+            ...item,
+            quantity: normalizeQuantity(item.quantity)
+          }))
+        : []
+    );
+    setProductPickerOpen(Boolean(builderDraft.productPickerOpen));
+    setAdditionalDiscount(Number(builderDraft.additionalDiscount) || 0);
+    setAdditionalFees(Number(builderDraft.additionalFees) || 0);
+    setNoteOpen(Boolean(builderDraft.noteOpen));
+    setTermsOpen(Boolean(builderDraft.termsOpen));
+    setCustomerNotes(builderDraft.customerNotes ?? "");
+    setNeedsAssembly(Boolean(builderDraft.needsAssembly));
+    setAssemblyFeeRate(Number(builderDraft.assemblyFeeRate) || defaultAssemblyFeeRate);
+    setSalesInvoiceRequested(Boolean(builderDraft.salesInvoiceRequested));
+    setSalesInvoiceFeePercentage(
+      Number(builderDraft.salesInvoiceFeePercentage) || defaultSalesInvoiceFeePercentage
+    );
+    setModeOfDelivery(builderDraft.modeOfDelivery ?? "");
+    setDeliveryMethod(builderDraft.deliveryMethod ?? "");
+    setPaymentTerms(builderDraft.paymentTerms ?? "");
+    setSpecialInstructions(builderDraft.specialInstructions ?? "");
+    setInternalNotes(builderDraft.internalNotes ?? "");
+  }, [builderDraft, builderPersistence.restored]);
+
+  useEffect(() => {
+    if (!builderPersistence.restored || !hasAppliedBuilderDraft.current || state.ok) {
+      return;
+    }
+
+    setBuilderDraft({
+      selectedCustomer,
+      items,
+      productPickerOpen,
+      additionalDiscount,
+      additionalFees,
+      noteOpen,
+      termsOpen,
+      customerNotes,
+      needsAssembly,
+      assemblyFeeRate,
+      salesInvoiceRequested,
+      salesInvoiceFeePercentage,
+      modeOfDelivery,
+      deliveryMethod,
+      paymentTerms,
+      specialInstructions,
+      internalNotes
+    });
+  }, [
+    additionalDiscount,
+    additionalFees,
+    assemblyFeeRate,
+    builderPersistence.restored,
+    customerNotes,
+    deliveryMethod,
+    internalNotes,
+    items,
+    modeOfDelivery,
+    needsAssembly,
+    noteOpen,
+    paymentTerms,
+    productPickerOpen,
+    salesInvoiceFeePercentage,
+    salesInvoiceRequested,
+    selectedCustomer,
+    setBuilderDraft,
+    specialInstructions,
+    state.ok,
+    termsOpen
+  ]);
 
   const totals = useMemo(() => {
     const subtotalAmount = roundMoney(items.reduce((sum, item) => sum + itemSubtotal(item), 0));
@@ -1599,13 +1812,13 @@ export function QuotationBuilder({
     const quotationDiscountAmount = roundMoney(Math.max(additionalDiscount || 0, 0));
     const totalDiscount = roundMoney(itemDiscountTotal + quotationDiscountAmount);
     const assemblyFee = assemblyFeeTotal(items, needsAssembly, assemblyFeeRate);
-    const saleBaseBeforeInvoiceFee = roundMoney(
-      Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + assemblyFee
+    const additionalFeeAmount = roundMoney(Math.max(additionalFees || 0, 0));
+    const finalSubtotal = roundMoney(
+      postItemDiscountTotal + assemblyFee + additionalFeeAmount - quotationDiscountAmount
     );
     const salesInvoiceFee = salesInvoiceRequested
-      ? roundMoney(saleBaseBeforeInvoiceFee * (salesInvoiceFeePercentage / 100))
+      ? roundMoney(Math.max(finalSubtotal, 0) * (salesInvoiceFeePercentage / 100))
       : 0;
-    const additionalFeeAmount = roundMoney(Math.max(additionalFees || 0, 0));
     const totalAdditionalFees = roundMoney(assemblyFee + salesInvoiceFee + additionalFeeAmount);
 
     return {
@@ -1616,9 +1829,10 @@ export function QuotationBuilder({
       assemblyFee,
       salesInvoiceFee,
       additionalFeeAmount,
+      finalSubtotal,
       totalAdditionalFees,
       totalDiscount,
-      totalAmount: roundMoney(subtotalAmount - totalDiscount + totalAdditionalFees)
+      totalAmount: roundMoney(finalSubtotal + salesInvoiceFee)
     };
   }, [
     additionalDiscount,
@@ -1663,8 +1877,16 @@ export function QuotationBuilder({
       messages.push("Additional discount cannot be negative.");
     }
 
-    if (additionalDiscount > totals.postItemDiscountTotal) {
-      messages.push("Additional discount cannot exceed subtotal after item discounts.");
+    const discountBase = roundMoney(
+      totals.postItemDiscountTotal + totals.assemblyFee + totals.additionalFeeAmount
+    );
+
+    if (additionalDiscount > discountBase) {
+      messages.push("Additional discount cannot exceed subtotal plus fees.");
+    }
+
+    if (totals.finalSubtotal < 0) {
+      messages.push("Final subtotal cannot be negative.");
     }
 
     if (assemblyFeeRate < 0) {
@@ -1687,6 +1909,9 @@ export function QuotationBuilder({
     items,
     salesInvoiceFeePercentage,
     selectedCustomer?.id,
+    totals.additionalFeeAmount,
+    totals.assemblyFee,
+    totals.finalSubtotal,
     totals.postItemDiscountTotal
   ]);
 
@@ -1749,7 +1974,31 @@ export function QuotationBuilder({
     setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }
 
+  function handleQuotationSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setHasAttemptedSubmit(true);
+
+    const form = event.currentTarget;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    const formData = new FormData(form);
+
+    if (
+      submitter instanceof HTMLButtonElement &&
+      submitter.name &&
+      !formData.has(submitter.name)
+    ) {
+      formData.append(submitter.name, submitter.value);
+    }
+
+    startBuilderActionTransition(() => {
+      action(formData);
+    });
+  }
+
   const showClientValidation = hasAttemptedSubmit && validationMessages.length > 0;
+  const quotationFormId = initialQuotation?.id
+    ? `quotation-builder-${initialQuotation.id}`
+    : "quotation-builder-new";
 
   return (
     <>
@@ -1769,44 +2018,47 @@ export function QuotationBuilder({
             {backLabel}
           </Link>
         ) : null}
-        <CustomerSelector
-          customers={customers}
-          selectedCustomer={selectedCustomer}
-          setSelectedCustomer={setSelectedCustomer}
-          canCreateCustomers={canCreateCustomers}
-        />
       </div>
-      <form
-        action={action}
-        onSubmit={() => setHasAttemptedSubmit(true)}
-        className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
-      >
-        {initialQuotation?.id ? (
-          <input type="hidden" name="quotationId" value={initialQuotation.id} />
-        ) : null}
-        <input type="hidden" name="customerId" value={selectedCustomer?.id ?? ""} />
-        <input type="hidden" name="items" value={JSON.stringify(toActionItems(items, needsAssembly))} />
-        <input
-          type="hidden"
-          name="quotationDiscountType"
-          value={additionalDiscount > 0 ? "FIXED_AMOUNT" : ""}
-        />
-        <input type="hidden" name="quotationDiscountValue" value={additionalDiscount} />
-        <input type="hidden" name="additionalFees" value={additionalFees} />
-        <input
-          type="hidden"
-          name="needsAssembly"
-          value={needsAssembly ? "true" : "false"}
-        />
-        <input type="hidden" name="assemblyFeeRate" value={assemblyFeeRate} />
-        <input
-          type="hidden"
-          name="salesInvoiceRequested"
-          value={salesInvoiceRequested ? "true" : "false"}
-        />
-        <input type="hidden" name="salesInvoiceFeePercentage" value={salesInvoiceFeePercentage} />
+      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-5">
+          <CustomerSelector
+            customers={customers}
+            selectedCustomer={selectedCustomer}
+            setSelectedCustomer={setSelectedCustomer}
+            canCreateCustomers={canCreateCustomers}
+            persistenceScope={persistenceScope}
+            persistenceUserKey={persistenceUserKey}
+          />
+          <form
+            id={quotationFormId}
+            onSubmit={handleQuotationSubmit}
+            className="min-w-0 space-y-5"
+          >
+            {initialQuotation?.id ? (
+              <input type="hidden" name="quotationId" value={initialQuotation.id} />
+            ) : null}
+            <input type="hidden" name="customerId" value={selectedCustomer?.id ?? ""} />
+            <input type="hidden" name="items" value={JSON.stringify(toActionItems(items, needsAssembly))} />
+            <input
+              type="hidden"
+              name="quotationDiscountType"
+              value={additionalDiscount > 0 ? "FIXED_AMOUNT" : ""}
+            />
+            <input type="hidden" name="quotationDiscountValue" value={additionalDiscount} />
+            <input type="hidden" name="additionalFees" value={additionalFees} />
+            <input
+              type="hidden"
+              name="needsAssembly"
+              value={needsAssembly ? "true" : "false"}
+            />
+            <input type="hidden" name="assemblyFeeRate" value={assemblyFeeRate} />
+            <input
+              type="hidden"
+              name="salesInvoiceRequested"
+              value={salesInvoiceRequested ? "true" : "false"}
+            />
+            <input type="hidden" name="salesInvoiceFeePercentage" value={salesInvoiceFeePercentage} />
 
-        <section className="min-w-0 space-y-5">
           <section className="studio-card min-w-0">
             <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1833,12 +2085,10 @@ export function QuotationBuilder({
                   onNeedsAssemblyChange={handleNeedsAssemblyChange}
                   assemblyFeeRate={assemblyFeeRate}
                   onAssemblyFeeRateChange={setAssemblyFeeRate}
-                  assemblyFee={totals.assemblyFee}
                   salesInvoiceRequested={salesInvoiceRequested}
                   onSalesInvoiceRequestedChange={setSalesInvoiceRequested}
                   salesInvoiceFeePercentage={salesInvoiceFeePercentage}
                   onSalesInvoiceFeePercentageChange={setSalesInvoiceFeePercentage}
-                  salesInvoiceFee={totals.salesInvoiceFee}
                   updateItem={updateItem}
                   removeItem={removeItem}
                   subtotalAmount={totals.subtotalAmount}
@@ -1944,7 +2194,8 @@ export function QuotationBuilder({
               />
             </div>
           </details>
-        </section>
+          </form>
+        </div>
 
         <aside className="xl:sticky xl:top-24 xl:self-start">
           <section className="studio-card">
@@ -2007,7 +2258,9 @@ export function QuotationBuilder({
                 <label className="grid gap-2 font-medium sm:grid-cols-[1fr_9.5rem] sm:items-center">
                   <span className="text-danger">Additional Discount</span>
                   <MoneyInput
-                    max={totals.postItemDiscountTotal}
+                    max={roundMoney(
+                      totals.postItemDiscountTotal + totals.assemblyFee + totals.additionalFeeAmount
+                    )}
                     value={additionalDiscount}
                     onValueChange={setAdditionalDiscount}
                     aria-label="Additional discount"
@@ -2024,10 +2277,6 @@ export function QuotationBuilder({
                   <span className="font-medium">{signedMoney(totals.assemblyFee, "+")}</span>
                 </div>
                 <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
-                  <span className="font-medium">Sales Invoice Fee</span>
-                  <span className="font-medium">{signedMoney(totals.salesInvoiceFee, "+")}</span>
-                </div>
-                <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
                   <span className="font-medium">Additional Fees</span>
                   <span className="font-medium">{signedMoney(totals.additionalFeeAmount, "+")}</span>
                 </div>
@@ -2035,8 +2284,16 @@ export function QuotationBuilder({
                   <span className="font-medium">Additional Discount</span>
                   <span className="font-medium">{signedMoney(totals.quotationDiscountAmount, "-")}</span>
                 </div>
+                <div className="flex justify-between gap-4 border-t border-border pt-3">
+                  <span className="font-semibold">Final Subtotal</span>
+                  <span className="font-semibold">{money(totals.finalSubtotal)}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="text-muted-foreground">Sales Invoice Fee</span>
+                  <span className="font-medium">{signedMoney(totals.salesInvoiceFee, "+")}</span>
+                </div>
                 <div className="flex justify-between gap-4 rounded-lg border border-border bg-soft-accent/55 px-3 py-3 text-base">
-                  <span className="font-semibold">Final total</span>
+                  <span className="font-semibold">Final Total</span>
                   <span className="text-lg font-semibold">{money(totals.totalAmount)}</span>
                 </div>
               </div>
@@ -2053,12 +2310,14 @@ export function QuotationBuilder({
               <div className="mt-4 grid gap-2 border-t border-border pt-4 sm:grid-cols-[auto_1fr]">
                 <Link
                   href={mode === "edit" && initialQuotation?.id ? `/quotations/${initialQuotation.id}` : "/quotations"}
+                  onClick={() => builderPersistence.clear(initialBuilderDraft)}
                   className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-4 text-sm font-semibold text-danger transition hover:bg-danger/15"
                 >
                   <X className="h-4 w-4" />
                   Discard
                 </Link>
                 <Button
+                  form={quotationFormId}
                   disabled={pending || state.ok}
                   name="intent"
                   value="save_draft"
@@ -2074,10 +2333,11 @@ export function QuotationBuilder({
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-panel/95 p-3 shadow-xl backdrop-blur xl:hidden">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
             <div>
-              <p className="text-xs text-muted-foreground">Final total</p>
+              <p className="text-xs text-muted-foreground">Final Total</p>
               <p className="font-semibold">{money(totals.totalAmount)}</p>
             </div>
             <Button
+              form={quotationFormId}
               disabled={pending || state.ok}
               name="intent"
               value="save_draft"
@@ -2088,7 +2348,7 @@ export function QuotationBuilder({
             </Button>
           </div>
         </div>
-      </form>
+      </div>
     </>
   );
 }

@@ -127,6 +127,10 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
   }
 
   const primaryContact = quotation.customer.contacts[0];
+  const subtotalForItems = Math.max(
+    Number(quotation.subtotalAmount) - Number(quotation.itemDiscountTotal),
+    0
+  );
   const additionalFees = Math.max(
     Number(quotation.totalAmount) -
       (Number(quotation.subtotalAmount) -
@@ -136,6 +140,7 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
         Number(quotation.salesInvoiceFeeTotal)),
     0
   );
+  const finalSubtotal = Math.max(Number(quotation.totalAmount) - Number(quotation.salesInvoiceFeeTotal), 0);
 
   return (
     <>
@@ -289,30 +294,30 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
             <div className="space-y-3 p-5 text-sm">
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Subtotal for Items</span>
-                <span className="font-medium">{formatMoney(quotation.subtotalAmount)}</span>
+                <span className="font-medium">{formatMoney(subtotalForItems)}</span>
               </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Item discounts</span>
-                <span className="font-medium">-{formatMoney(quotation.itemDiscountTotal)}</span>
+              <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+                <span className="font-medium">Assemble Fee</span>
+                <span className="font-medium">+{formatMoney(quotation.assemblyFeeTotal)}</span>
               </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Additional discount</span>
+              <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+                <span className="font-medium">Additional Fees</span>
+                <span className="font-medium">+{formatMoney(additionalFees)}</span>
+              </div>
+              <div className="flex justify-between gap-4 rounded-md bg-danger/10 px-3 py-2 text-danger">
+                <span className="font-medium">Additional Discount</span>
                 <span className="font-medium">-{formatMoney(quotation.quotationDiscountAmount)}</span>
               </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Assembly fee</span>
-                <span className="font-medium">{formatMoney(quotation.assemblyFeeTotal)}</span>
+              <div className="flex justify-between gap-4 border-t border-border pt-3">
+                <span className="font-semibold">Final Subtotal</span>
+                <span className="font-semibold">{formatMoney(finalSubtotal)}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Sales invoice fee</span>
-                <span className="font-medium">{formatMoney(quotation.salesInvoiceFeeTotal)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">Additional fees</span>
-                <span className="font-medium">{formatMoney(additionalFees)}</span>
+                <span className="text-muted-foreground">Sales Invoice Fee</span>
+                <span className="font-medium">+{formatMoney(quotation.salesInvoiceFeeTotal)}</span>
               </div>
               <div className="flex justify-between gap-4 rounded-lg bg-soft-accent/70 px-3 py-3 text-base">
-                <span className="font-semibold">Final total</span>
+                <span className="font-semibold">Final Total</span>
                 <span className="text-lg font-semibold">{formatMoney(quotation.totalAmount)}</span>
               </div>
             </div>

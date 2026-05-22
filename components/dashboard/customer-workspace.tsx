@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, Plus, Save, Search, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createCustomerAction } from "@/app/actions/customer-inquiries";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
 type CustomerRow = {
@@ -35,6 +36,23 @@ type ContactDraft = {
 type CustomerWorkspaceProps = {
   customers: CustomerRow[];
   canCreateCustomers: boolean;
+  persistenceUserKey?: string | null;
+};
+
+type CustomerCreateDraft = {
+  customerType: "INDIVIDUAL" | "COMPANY";
+  displayName: string;
+  companyName: string;
+  contactPersonName: string;
+  contacts: ContactDraft[];
+  source: string;
+  notes: string;
+};
+
+type CustomerWorkspaceDraft = {
+  createOpen: boolean;
+  selectedCustomerId: string | null;
+  createDraft: CustomerCreateDraft;
 };
 
 const initialState = {
@@ -47,6 +65,16 @@ const emptyContact: ContactDraft = {
   label: "",
   value: "",
   isPrimary: true,
+  notes: ""
+};
+
+const emptyCustomerCreateDraft: CustomerCreateDraft = {
+  customerType: "INDIVIDUAL",
+  displayName: "",
+  companyName: "",
+  contactPersonName: "",
+  contacts: [emptyContact],
+  source: "",
   notes: ""
 };
 
@@ -113,21 +141,28 @@ export function CustomerCreateButton() {
 
 function CustomerCreateDrawer({
   customers,
+  draft,
+  onDraftChange,
   onClose,
   onSaved,
   onUseExisting
 }: {
   customers: CustomerRow[];
+  draft: CustomerCreateDraft;
+  onDraftChange: (patch: Partial<CustomerCreateDraft>) => void;
   onClose: () => void;
   onSaved: (message: string) => void;
   onUseExisting: (customer: CustomerRow) => void;
 }) {
   const router = useRouter();
   const [state, action, pending] = useActionState(createCustomerAction, initialState);
-  const [customerType, setCustomerType] = useState<"INDIVIDUAL" | "COMPANY">("INDIVIDUAL");
-  const [displayName, setDisplayName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [contacts, setContacts] = useState<ContactDraft[]>([emptyContact]);
+  const customerType = draft.customerType;
+  const displayName = draft.displayName;
+  const companyName = draft.companyName;
+  const contacts = useMemo(
+    () => (draft.contacts.length ? draft.contacts : [emptyContact]),
+    [draft.contacts]
+  );
   const possibleMatches = useMemo(
     () => findPossibleMatches(customers, displayName || companyName, contacts),
     [companyName, contacts, customers, displayName]
@@ -141,8 +176,8 @@ function CustomerCreateDrawer({
   }, [onSaved, router, state.message, state.ok]);
 
   function updateContact(index: number, field: keyof ContactDraft, value: string | boolean) {
-    setContacts((current) =>
-      current.map((contact, contactIndex) => {
+    onDraftChange({
+      contacts: contacts.map((contact, contactIndex) => {
         if (contactIndex !== index) {
           return field === "isPrimary" && value === true
             ? { ...contact, isPrimary: false }
@@ -154,23 +189,25 @@ function CustomerCreateDrawer({
           [field]: value
         };
       })
-    );
+    });
   }
 
   function addContact() {
-    setContacts((current) => [
-      ...current,
-      {
-        ...emptyContact,
-        isPrimary: current.length === 0
-      }
-    ]);
+    onDraftChange({
+      contacts: [
+        ...contacts,
+        {
+          ...emptyContact,
+          isPrimary: contacts.length === 0
+        }
+      ]
+    });
   }
 
   function removeContact(index: number) {
-    setContacts((current) => {
-      const next = current.filter((_, contactIndex) => contactIndex !== index);
-      return next.length ? next : [emptyContact];
+    const next = contacts.filter((_, contactIndex) => contactIndex !== index);
+    onDraftChange({
+      contacts: next.length ? next : [emptyContact]
     });
   }
 
@@ -195,7 +232,9 @@ function CustomerCreateDrawer({
               <Select
                 name="customerType"
                 value={customerType}
-                onChange={(event) => setCustomerType(event.target.value as "INDIVIDUAL" | "COMPANY")}
+                onChange={(event) =>
+                  onDraftChange({ customerType: event.target.value as CustomerCreateDraft["customerType"] })
+                }
               >
                 <option value="INDIVIDUAL">Individual</option>
                 <option value="COMPANY">Company</option>
@@ -207,7 +246,7 @@ function CustomerCreateDrawer({
               <Input
                 name="displayName"
                 value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
+                onChange={(event) => onDraftChange({ displayName: event.target.value })}
                 placeholder={customerType === "COMPANY" ? "Company display name" : "Customer name"}
               />
             </label>
@@ -219,13 +258,18 @@ function CustomerCreateDrawer({
                   <Input
                     name="companyName"
                     value={companyName}
-                    onChange={(event) => setCompanyName(event.target.value)}
+                    onChange={(event) => onDraftChange({ companyName: event.target.value })}
                     placeholder="Company client"
                   />
                 </label>
                 <label className="space-y-2 text-sm font-medium">
                   Contact person
-                  <Input name="contactPersonName" placeholder="Main contact" />
+                  <Input
+                    name="contactPersonName"
+                    value={draft.contactPersonName}
+                    onChange={(event) => onDraftChange({ contactPersonName: event.target.value })}
+                    placeholder="Main contact"
+                  />
                 </label>
               </div>
             ) : (
@@ -322,7 +366,11 @@ function CustomerCreateDrawer({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-2 text-sm font-medium">
                 Source
-                <Select name="source" defaultValue="">
+                <Select
+                  name="source"
+                  value={draft.source}
+                  onChange={(event) => onDraftChange({ source: event.target.value })}
+                >
                   <option value="">Optional</option>
                   <option value="FACEBOOK_MARKETPLACE">Facebook Marketplace</option>
                   <option value="FACEBOOK_PAGE">Facebook Page</option>
@@ -338,7 +386,12 @@ function CustomerCreateDrawer({
 
             <label className="block space-y-2 text-sm font-medium">
               Notes
-              <Textarea name="notes" placeholder="Optional buyer context." />
+              <Textarea
+                name="notes"
+                value={draft.notes}
+                onChange={(event) => onDraftChange({ notes: event.target.value })}
+                placeholder="Optional buyer context."
+              />
             </label>
 
             {state.message && !state.ok ? <p className="text-sm text-danger">{state.message}</p> : null}
@@ -440,23 +493,103 @@ function CustomerDetailDrawer({
   );
 }
 
-export function CustomerWorkspace({ customers, canCreateCustomers }: CustomerWorkspaceProps) {
+export function CustomerWorkspace({
+  customers,
+  canCreateCustomers,
+  persistenceUserKey
+}: CustomerWorkspaceProps) {
+  const initialWorkspaceDraft: CustomerWorkspaceDraft = {
+    createOpen: false,
+    selectedCustomerId: null,
+    createDraft: emptyCustomerCreateDraft
+  };
+  const [workspaceDraft, setWorkspaceDraft, workspacePersistence] =
+    usePersistentPageState<CustomerWorkspaceDraft>({
+      scope: "customers",
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: initialWorkspaceDraft
+    });
+  const hasAppliedWorkspaceDraft = useRef(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
+    if (!workspacePersistence.restored || hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    hasAppliedWorkspaceDraft.current = true;
+    setCreateOpen(Boolean(workspaceDraft.createOpen && canCreateCustomers));
+    setSelectedCustomer(
+      customers.find((customer) => customer.id === workspaceDraft.selectedCustomerId) ?? null
+    );
+  }, [
+    canCreateCustomers,
+    customers,
+    workspaceDraft.createOpen,
+    workspaceDraft.selectedCustomerId,
+    workspacePersistence.restored
+  ]);
+
+  useEffect(() => {
+    if (!workspacePersistence.restored || !hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    setWorkspaceDraft((current) => ({
+      ...current,
+      createOpen,
+      selectedCustomerId: selectedCustomer?.id ?? null
+    }));
+  }, [
+    createOpen,
+    selectedCustomer?.id,
+    setWorkspaceDraft,
+    workspacePersistence.restored
+  ]);
+
+  useEffect(() => {
     function openCreateDrawer() {
       setSuccessMessage("");
       setCreateOpen(true);
+      setWorkspaceDraft((current) => ({
+        ...current,
+        createOpen: true,
+        selectedCustomerId: null
+      }));
     }
 
     window.addEventListener(createCustomerEventName, openCreateDrawer);
     return () => window.removeEventListener(createCustomerEventName, openCreateDrawer);
-  }, []);
+  }, [setWorkspaceDraft]);
 
   function openCustomer(customer: CustomerRow) {
     setSelectedCustomer(customer);
+    setWorkspaceDraft((current) => ({
+      ...current,
+      selectedCustomerId: customer.id
+    }));
+  }
+
+  function updateCreateDraft(patch: Partial<CustomerCreateDraft>) {
+    setWorkspaceDraft((current) => ({
+      ...current,
+      createDraft: {
+        ...current.createDraft,
+        ...patch
+      }
+    }));
+  }
+
+  function closeCreateDrawer() {
+    setCreateOpen(false);
+    setWorkspaceDraft((current) => ({
+      ...current,
+      createOpen: false,
+      createDraft: emptyCustomerCreateDraft
+    }));
   }
 
   return (
@@ -548,20 +681,42 @@ export function CustomerWorkspace({ customers, canCreateCustomers }: CustomerWor
       {canCreateCustomers && createOpen ? (
         <CustomerCreateDrawer
           customers={customers}
-          onClose={() => setCreateOpen(false)}
+          draft={workspaceDraft.createDraft ?? emptyCustomerCreateDraft}
+          onDraftChange={updateCreateDraft}
+          onClose={closeCreateDrawer}
           onSaved={(message) => {
             setCreateOpen(false);
             setSuccessMessage(message);
+            setWorkspaceDraft((current) => ({
+              ...current,
+              createOpen: false,
+              createDraft: emptyCustomerCreateDraft
+            }));
           }}
           onUseExisting={(customer) => {
             setCreateOpen(false);
             setSelectedCustomer(customer);
+            setWorkspaceDraft((current) => ({
+              ...current,
+              createOpen: false,
+              selectedCustomerId: customer.id,
+              createDraft: emptyCustomerCreateDraft
+            }));
           }}
         />
       ) : null}
 
       {selectedCustomer ? (
-        <CustomerDetailDrawer customer={selectedCustomer} onClose={() => setSelectedCustomer(null)} />
+        <CustomerDetailDrawer
+          customer={selectedCustomer}
+          onClose={() => {
+            setSelectedCustomer(null);
+            setWorkspaceDraft((current) => ({
+              ...current,
+              selectedCustomerId: null
+            }));
+          }}
+        />
       ) : null}
     </>
   );

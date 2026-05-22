@@ -15,7 +15,7 @@ export default async function SettingsPage() {
         title="Settings"
         description="Admin configuration for company details, payment instructions, document labels, and PDF defaults."
       />
-      <SettingsWorkspace settings={settings} canUpdate={canUpdate} />
+      <SettingsWorkspace settings={settings} canUpdate={canUpdate} persistenceUserKey={user.id} />
     </>
   );
 }

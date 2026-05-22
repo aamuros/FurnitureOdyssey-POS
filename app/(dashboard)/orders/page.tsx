@@ -1030,6 +1030,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canUpdateDeliveries={canUpdateDeliveries}
         canExportDocuments={canExportDocuments}
         initialSelectedOrderId={selectedOrderId}
+        persistenceUserKey={user.id}
         orders={orders.map((order) => {
           const payments = (
             canViewPayments && "payments" in order ? order.payments : []

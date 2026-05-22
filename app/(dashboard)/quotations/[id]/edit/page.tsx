@@ -131,6 +131,7 @@ export default async function EditQuotationPage({ params }: EditQuotationPagePro
         backLabel="Back to quotation"
         canCreateCustomers={canCreateCustomers}
         canUpdateQuotations
+        persistenceUserKey={user.id}
         initialQuotation={{
           id: quotation.id,
           status: quotation.status,

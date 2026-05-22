@@ -42,6 +42,7 @@ import {
 } from "@/lib/orders/status-labels";
 import type { StatusTone } from "@/lib/orders/status-labels";
 import { getAllowedNextStatuses } from "@/lib/status-transitions";
+import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
 type CustomerOption = {
@@ -192,6 +193,7 @@ type OrderWorkspaceProps = {
   canExportDocuments: boolean;
   initialSelectedOrderId?: string | null;
   orders: OrderRow[];
+  persistenceUserKey?: string | null;
 };
 
 type ItemDraft = {
@@ -218,6 +220,15 @@ type ActiveOrderPanelAction = {
   orderId: string;
   action: OpenOrderAction;
   source: OrderActionSource;
+};
+
+type OrderWorkspaceDraft = {
+  selectedOrderId: string | null;
+  activePanelAction: ActiveOrderPanelAction | null;
+};
+
+type OrderDetailPanelDraft = {
+  activeDetailTab: OrderDetailTab;
 };
 type NewOrderMode = "choices" | "quotation" | "manual";
 type ManualOrderStep = "customer" | "items" | "plan" | "review";
@@ -255,6 +266,7 @@ type OrderListProps = Pick<
   | "canExportDocuments"
   | "initialSelectedOrderId"
   | "orders"
+  | "persistenceUserKey"
 >;
 
 const initialState = {
@@ -677,6 +689,8 @@ function DeliveryForm({ order }: { order: OrderRow }) {
   const itemById = useMemo(() => new Map(remainingItems.map((item) => [item.id, item])), [remainingItems]);
   const scheduledTimeWindow = timeWindowMode === "Custom" ? customTimeWindow : timeWindowMode;
   const selectedDrafts = itemDrafts.filter((item) => item.selected);
+  const allRemainingItemsSelected =
+    itemDrafts.length > 0 && itemDrafts.every((item) => item.selected);
   const deliveryItems = selectedDrafts
     .filter((item) => item.quantityPlanned > 0)
     .map((item) => ({
@@ -736,6 +750,27 @@ function DeliveryForm({ order }: { order: OrderRow }) {
         const item = itemById.get(orderItemId);
 
         return item ? updater(draft, item) : draft;
+      })
+    );
+  }
+
+  function toggleAllItemDrafts() {
+    setItemDrafts((currentDrafts) =>
+      currentDrafts.map((draft) => {
+        const item = itemById.get(draft.orderItemId);
+
+        if (!item) {
+          return draft;
+        }
+
+        return {
+          ...draft,
+          selected: !allRemainingItemsSelected,
+          quantityPlanned:
+            !allRemainingItemsSelected && draft.quantityPlanned <= 0
+              ? Math.min(item.remainingQuantity, 1)
+              : clampDeliveryQuantity(draft.quantityPlanned, item.remainingQuantity)
+        };
       })
     );
   }
@@ -820,9 +855,20 @@ function DeliveryForm({ order }: { order: OrderRow }) {
       </section>
 
       <section className="space-y-3 rounded-md border border-border bg-panel p-4">
-        <div>
-          <h4 className="text-[15px] font-semibold">Items</h4>
-          <p className="mt-1 text-[13px] text-muted-foreground">Select one or more remaining item quantities.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-[15px] font-semibold">Items</h4>
+            <p className="mt-1 text-[13px] text-muted-foreground">Select one or more remaining item quantities.</p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-8 rounded-md px-3 text-xs"
+            disabled={remainingItems.length === 0}
+            onClick={toggleAllItemDrafts}
+          >
+            {allRemainingItemsSelected ? "Unselect all" : "Select all"}
+          </Button>
         </div>
         <div className="divide-y divide-border rounded-md border border-border bg-background">
           {remainingItems.map((item) => {
@@ -1112,7 +1158,7 @@ function DeliveryBlockedPanel({ order }: { order: OrderRow }) {
 
   return (
     <div className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground">
-      <p className="font-medium text-foreground">Delivery cannot be scheduled yet.</p>
+      <p className="font-medium text-foreground">Delivery scheduling is unavailable.</p>
       <ul className="mt-2 list-disc space-y-1 pl-5">
         {reasons.map((reason) => (
           <li key={reason}>{reason}</li>
@@ -1236,27 +1282,27 @@ function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDe
     return "Scheduled";
   }
 
-  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
-    return "Awaiting payment";
-  }
-
   if (canViewDeliveries && isReadyToScheduleDelivery(order)) {
     return "Ready to schedule";
+  }
+
+  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    return "Awaiting payment";
   }
 
   return "Review order";
 }
 
 function workflowStageTone(stage: string): StatusTone {
-  if (["Completed", "Ready to complete"].includes(stage)) {
+  if (["Completed", "Ready to complete", "Scheduled"].includes(stage)) {
     return "success";
   }
 
-  if (["Ready to schedule", "Scheduled", "In delivery"].includes(stage)) {
+  if (["In delivery"].includes(stage)) {
     return "teal";
   }
 
-  if (["Collect balance", "Awaiting payment"].includes(stage)) {
+  if (["Ready to schedule", "Collect balance", "Awaiting payment"].includes(stage)) {
     return "warning";
   }
 
@@ -1321,12 +1367,12 @@ function nextActionLabel(order: OrderRow, canViewPayments: boolean, canViewDeliv
     return "Record payment";
   }
 
-  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
-    return "Record payment";
-  }
-
   if (canViewDeliveries && isReadyToScheduleDelivery(order)) {
     return "Schedule delivery";
+  }
+
+  if (canViewPayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    return "Record payment";
   }
 
   if (canViewDeliveries && (isDeliveryScheduled(order) || isDeliveryPartiallyDelivered(order))) {
@@ -1353,15 +1399,17 @@ function deliverySummaryLabel(order: OrderRow) {
 function paymentSupportSummary(order: OrderRow) {
   if (!hasBalanceDue(order)) {
     return {
-      value: "Paid in full",
+      label: "Paid in full",
+      value: order.totalAmount,
       detail: `${order.paidAmount} received`
     };
   }
 
   return {
+    label: paymentStatusLabel(order.paymentStatus),
     value: `${order.balanceAmount} due`,
     detail: [
-      paymentStatusLabel(order.paymentStatus),
+      `${order.paidAmount} received`,
       order.paymentDueTiming ? paymentDueTimingLabel(order.paymentDueTiming) : null
     ]
       .filter(Boolean)
@@ -1413,18 +1461,8 @@ function deliverySchedulingBlockReasons(order: OrderRow) {
     reasons.push("All item quantities are already scheduled or delivered.");
   }
 
-  if (hasBalanceDue(order) && order.paymentDueTiming === "BEFORE_DELIVERY") {
-    reasons.push("Payment must be completed before delivery because the balance is due before delivery.");
-  }
-
-  if (hasBalanceDue(order) && !order.paymentDueTiming) {
-    reasons.push(
-      "Set payment due timing to Upon Delivery or After Delivery if the balance will remain open, or record the remaining payment first."
-    );
-  }
-
   if (reasons.length === 0) {
-    reasons.push("Review payment timing, remaining item quantities, and order status before scheduling.");
+    reasons.push("Review remaining item quantities and order status before scheduling.");
   }
 
   return reasons;
@@ -1507,30 +1545,6 @@ function getOrderNextStep({
     };
   }
 
-  if (hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
-    if (!canViewPayments) {
-      return {
-        label: "Payment needs review",
-        reason: "Payment details are restricted for your role.",
-        ctaLabel: "Review order",
-        action: null,
-        blocked: true,
-        tone: "warning"
-      };
-    }
-
-    return {
-      label: "Record payment",
-      reason: canCreatePayments
-        ? `${order.balanceAmount} balance must be paid before delivery.`
-        : `${order.balanceAmount} balance must be paid before delivery, but your role cannot record payments.`,
-      ctaLabel: "Record payment",
-      action: canCreatePayments ? "payment" : null,
-      blocked: !canCreatePayments,
-      tone: "warning"
-    };
-  }
-
   if (order.canScheduleDelivery) {
     if (!canViewDeliveries) {
       return {
@@ -1546,12 +1560,36 @@ function getOrderNextStep({
     return {
       label: "Schedule delivery",
       reason: canCreateDeliveries
-        ? "Payment is complete. Choose a delivery date and provider."
+        ? "Choose a delivery date, provider, and item quantities."
         : "Delivery can be scheduled, but your role cannot create deliveries.",
       ctaLabel: "Schedule delivery",
       action: canCreateDeliveries ? "delivery" : null,
       blocked: !canCreateDeliveries,
       tone: canCreateDeliveries ? "teal" : "warning"
+    };
+  }
+
+  if (hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    if (!canViewPayments) {
+      return {
+        label: "Payment needs review",
+        reason: "Payment details are restricted for your role.",
+        ctaLabel: "Review order",
+        action: null,
+        blocked: true,
+        tone: "warning"
+      };
+    }
+
+    return {
+      label: "Record payment",
+      reason: canCreatePayments
+        ? `${order.balanceAmount} balance is still open.`
+        : `${order.balanceAmount} balance is still open, but your role cannot record payments.`,
+      ctaLabel: "Record payment",
+      action: canCreatePayments ? "payment" : null,
+      blocked: !canCreatePayments,
+      tone: "warning"
     };
   }
 
@@ -1667,12 +1705,12 @@ function orderCardPrimaryAction(
     return "recordPayment";
   }
 
-  if (canViewPayments && canCreatePayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
-    return "recordPayment";
-  }
-
   if (canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries)) {
     return "scheduleDelivery";
+  }
+
+  if (canViewPayments && canCreatePayments && hasBalanceDue(order) && isPaymentDueBeforeDelivery(order)) {
+    return "recordPayment";
   }
 
   return "details";
@@ -3145,8 +3183,21 @@ export function OrderWorkspace({
   canUpdateDeliveries,
   canExportDocuments,
   initialSelectedOrderId,
-  orders
+  orders,
+  persistenceUserKey
 }: OrderListProps) {
+  const initialWorkspaceDraft: OrderWorkspaceDraft = {
+    selectedOrderId: initialSelectedOrderId ?? null,
+    activePanelAction: null
+  };
+  const [workspaceDraft, setWorkspaceDraft, workspacePersistence] =
+    usePersistentPageState<OrderWorkspaceDraft>({
+      scope: "orders",
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: initialWorkspaceDraft
+    });
+  const hasAppliedWorkspaceDraft = useRef(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
     initialSelectedOrderId && orders.some((order) => order.id === initialSelectedOrderId)
       ? initialSelectedOrderId
@@ -3154,6 +3205,56 @@ export function OrderWorkspace({
   );
   const [activePanelAction, setActivePanelAction] = useState<ActiveOrderPanelAction | null>(null);
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
+
+  useEffect(() => {
+    if (!workspacePersistence.restored || hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    hasAppliedWorkspaceDraft.current = true;
+
+    if (initialSelectedOrderId && orders.some((order) => order.id === initialSelectedOrderId)) {
+      setSelectedOrderId(initialSelectedOrderId);
+      setActivePanelAction(null);
+      return;
+    }
+
+    const restoredOrderId =
+      workspaceDraft.selectedOrderId &&
+      orders.some((order) => order.id === workspaceDraft.selectedOrderId)
+        ? workspaceDraft.selectedOrderId
+        : null;
+    const restoredAction =
+      workspaceDraft.activePanelAction &&
+      restoredOrderId === workspaceDraft.activePanelAction.orderId
+        ? workspaceDraft.activePanelAction
+        : null;
+
+    setSelectedOrderId(restoredOrderId);
+    setActivePanelAction(restoredAction);
+  }, [
+    initialSelectedOrderId,
+    orders,
+    workspaceDraft.activePanelAction,
+    workspaceDraft.selectedOrderId,
+    workspacePersistence.restored
+  ]);
+
+  useEffect(() => {
+    if (!workspacePersistence.restored || !hasAppliedWorkspaceDraft.current) {
+      return;
+    }
+
+    setWorkspaceDraft({
+      selectedOrderId,
+      activePanelAction
+    });
+  }, [
+    activePanelAction,
+    selectedOrderId,
+    setWorkspaceDraft,
+    workspacePersistence.restored
+  ]);
 
   useEffect(() => {
     if (initialSelectedOrderId && orders.some((order) => order.id === initialSelectedOrderId)) {
@@ -3195,7 +3296,7 @@ export function OrderWorkspace({
               onDetails={() => openDetails(order.id)}
               onHideDetails={() => setSelectedOrderId(null)}
               onRecordPayment={() => openAction(order.id, "payment")}
-              onScheduleDelivery={() => openAction(order.id, "delivery")}
+              onScheduleDelivery={() => openDetails(order.id)}
             />
           ))}
           {orders.length === 0 ? (
@@ -3208,6 +3309,7 @@ export function OrderWorkspace({
 
       {selectedOrder ? (
         <OrderDetailPanel
+          key={selectedOrder.id}
           order={selectedOrder}
           activeAction={activePanelAction?.orderId === selectedOrder.id ? activePanelAction.action : null}
           activeActionSource={activePanelAction?.orderId === selectedOrder.id ? activePanelAction.source : null}
@@ -3218,6 +3320,7 @@ export function OrderWorkspace({
           canCreateDeliveries={canCreateDeliveries}
           canUpdateDeliveries={canUpdateDeliveries}
           canExportDocuments={canExportDocuments}
+          persistenceUserKey={persistenceUserKey}
           onClose={() => {
             setSelectedOrderId(null);
             setActivePanelAction(null);
@@ -3321,6 +3424,11 @@ function OrderCard({
           {canViewPayments ? (
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Payment</p>
+              <div className="mt-1 [&_span]:px-2 [&_span]:py-0.5">
+                <StatusPill tone={!hasBalanceDue(order) ? "success" : statusTone(order.paymentStatus)}>
+                  {paymentSupport.label}
+                </StatusPill>
+              </div>
               <p className="mt-1 truncate font-semibold tabular-nums">{paymentSupport.value}</p>
               <p className="mt-1 truncate text-xs text-muted-foreground">{paymentSupport.detail}</p>
             </div>
@@ -3586,6 +3694,7 @@ function OrderDetailPanel({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
+  persistenceUserKey,
   onClose,
   onActionChange
 }: {
@@ -3599,10 +3708,21 @@ function OrderDetailPanel({
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
+  persistenceUserKey?: string | null;
   onClose: () => void;
   onActionChange: (actionKey: ActiveOrderAction, source?: OrderActionSource) => void;
 }) {
   const panelRef = useRef<HTMLElement | null>(null);
+  const [detailDraft, setDetailDraft, detailPersistence] =
+    usePersistentPageState<OrderDetailPanelDraft>({
+      scope: `orders:${order.id}:details`,
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: {
+        activeDetailTab: "overview"
+      }
+    });
+  const hasAppliedDetailDraft = useRef(false);
   const [activeDetailTab, setActiveDetailTab] = useState<OrderDetailTab>("overview");
   const nextStep = getOrderNextStep({
     order,
@@ -3615,8 +3735,25 @@ function OrderDetailPanel({
   });
 
   useEffect(() => {
-    setActiveDetailTab("overview");
-  }, [order.id]);
+    if (!detailPersistence.restored || hasAppliedDetailDraft.current) {
+      return;
+    }
+
+    hasAppliedDetailDraft.current = true;
+    setActiveDetailTab(
+      orderDetailTabs.some((tab) => tab.key === detailDraft.activeDetailTab)
+        ? detailDraft.activeDetailTab
+        : "overview"
+    );
+  }, [detailDraft.activeDetailTab, detailPersistence.restored]);
+
+  useEffect(() => {
+    if (!detailPersistence.restored || !hasAppliedDetailDraft.current) {
+      return;
+    }
+
+    setDetailDraft({ activeDetailTab });
+  }, [activeDetailTab, detailPersistence.restored, setDetailDraft]);
 
   useEffect(() => {
     panelRef.current?.focus();
@@ -3740,6 +3877,11 @@ function OrderPanelHeader({
   canViewDeliveries: boolean;
   onClose: () => void;
 }) {
+  const workflowStage = workflowStageLabel(order, canViewPayments, canViewDeliveries);
+  const headerDeliveryStatus = visibleDeliveryStatus(order);
+  const showDeliveryStatusBadge =
+    canViewDeliveries && !(workflowStage === "Scheduled" && isDeliveryScheduled(order));
+
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-background/95 px-6 py-5 backdrop-blur">
       <div className="w-full">
@@ -3761,14 +3903,15 @@ function OrderPanelHeader({
           </Button>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <StatusPill tone={workflowStageTone(workflowStage)}>{workflowStage}</StatusPill>
           {canViewPayments ? (
             <StatusPill tone={statusTone(order.paymentStatus)}>
               {paymentStatusLabel(order.paymentStatus)}
             </StatusPill>
           ) : null}
-          {canViewDeliveries ? (
-            <StatusPill tone={statusTone(visibleDeliveryStatus(order))}>
-              {deliveryStatusLabel(visibleDeliveryStatus(order))}
+          {showDeliveryStatusBadge ? (
+            <StatusPill tone={statusTone(headerDeliveryStatus)}>
+              {deliveryStatusLabel(headerDeliveryStatus)}
             </StatusPill>
           ) : null}
           {canViewDeliveries ? (
@@ -3807,9 +3950,8 @@ function OrderNextStepCard({
   onActionChange: (actionKey: ActiveOrderAction) => void;
 }) {
   const formAction = nextStep.action && nextStep.action !== "complete" ? nextStep.action : null;
-  const isDeliveryAction = formAction === "delivery";
-  const isExpanded = formAction !== null && (isDeliveryAction || activeAction === formAction);
-  const expandedAction = isDeliveryAction ? formAction : activeAction;
+  const isExpanded = formAction !== null && activeAction === formAction;
+  const expandedAction = activeAction;
 
   function handleReviewClick() {
     document.getElementById("order-summary")?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -3832,38 +3974,37 @@ function OrderNextStepCard({
           <h3 className="mt-1 text-[19px] font-semibold leading-7">{nextStep.label}</h3>
           <p className="mt-1.5 max-w-2xl text-[14px] leading-6 text-muted-foreground">{nextStep.reason}</p>
         </div>
-        {!isDeliveryAction ? (
-          <div className="shrink-0">
-            {nextStep.action === "complete" && canUpdateOrders ? (
-              <CompleteOrderForm order={order} variant="primary" buttonClassName="w-full sm:w-auto" />
-            ) : (
-              <Button
-                type="button"
-                variant={formAction && !nextStep.blocked ? "primary" : "secondary"}
-                disabled={nextStep.blocked}
-                className="w-full sm:w-auto"
-                onClick={() => {
-                  if (formAction) {
-                    onActionChange(isExpanded ? null : formAction);
-                    return;
-                  }
+        <div className="shrink-0">
+          {nextStep.action === "complete" && canUpdateOrders ? (
+            <CompleteOrderForm order={order} variant="primary" buttonClassName="w-full sm:w-auto" />
+          ) : (
+            <Button
+              type="button"
+              variant={isExpanded || !formAction || nextStep.blocked ? "secondary" : "primary"}
+              disabled={nextStep.blocked}
+              className="w-full sm:w-auto"
+              onClick={() => {
+                if (formAction) {
+                  onActionChange(isExpanded ? null : formAction);
+                  return;
+                }
 
-                  onActionChange(null);
-                  handleReviewClick();
-                }}
-              >
-                {nextStep.action === "payment" ? <ReceiptText className="h-4 w-4" /> : null}
-                {typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") ? (
-                  <Save className="h-4 w-4" />
-                ) : null}
-                {nextStep.ctaLabel}
-              </Button>
-            )}
-          </div>
-        ) : null}
+                onActionChange(null);
+                handleReviewClick();
+              }}
+            >
+              {nextStep.action === "payment" ? <ReceiptText className="h-4 w-4" /> : null}
+              {nextStep.action === "delivery" ? <Truck className="h-4 w-4" /> : null}
+              {typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") ? (
+                <Save className="h-4 w-4" />
+              ) : null}
+              {isExpanded ? "Close" : nextStep.ctaLabel}
+            </Button>
+          )}
+        </div>
       </div>
       {isExpanded && expandedAction ? (
-        <div className={cn("mt-6", !isDeliveryAction && "border-t border-border/70 pt-5")}>
+        <div className="mt-6 border-t border-border/70 pt-5">
           <OrderInlineActionForm
             order={order}
             action={expandedAction}
@@ -4251,7 +4392,7 @@ function PaymentSection({
               onClick={() => onActionChange(isPaymentFormOpen ? null : "payment")}
             >
               <ReceiptText className="h-4 w-4" />
-              Record payment
+              {isPaymentFormOpen ? "Close" : "Record payment"}
             </Button>
           ) : null}
           {canUpdateOrders && order.balanceAmountValue > 0 ? (
@@ -4361,7 +4502,7 @@ function DeliverySection({
             onClick={() => onActionChange(isDeliveryFormOpen ? null : "delivery")}
           >
             <Truck className="h-4 w-4" />
-            Schedule delivery
+            {isDeliveryFormOpen ? "Close" : "Schedule delivery"}
           </Button>
         </div>
       ) : canCreateDeliveries ? (
