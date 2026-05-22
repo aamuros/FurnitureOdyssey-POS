@@ -470,6 +470,52 @@ function productImageStyle(product: ProductOption) {
     : undefined;
 }
 
+function normalizeProductText(value: string | null | undefined) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length ? normalized : null;
+}
+
+function normalizeProductMoney(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(amount, 0) : null;
+}
+
+function normalizeProductOption(product: ProductOption): ProductOption {
+  const primaryImage =
+    product.primaryImage?.id &&
+    product.primaryImage.cloudinaryPublicId &&
+    product.primaryImage.secureUrl &&
+    product.primaryImage.resourceType
+      ? {
+          id: product.primaryImage.id,
+          cloudinaryPublicId: product.primaryImage.cloudinaryPublicId,
+          secureUrl: product.primaryImage.secureUrl,
+          resourceType: product.primaryImage.resourceType,
+          format: normalizeProductText(product.primaryImage.format),
+          width: product.primaryImage.width ?? null,
+          height: product.primaryImage.height ?? null,
+          bytes: product.primaryImage.bytes ?? null,
+          altText: normalizeProductText(product.primaryImage.altText)
+        }
+      : null;
+
+  return {
+    id: product.id,
+    code: normalizeProductText(product.code),
+    name: normalizeProductText(product.name) ?? "Unnamed product",
+    category: normalizeProductText(product.category),
+    description: normalizeProductText(product.description),
+    specifications: normalizeProductText(product.specifications),
+    referencePrice: normalizeProductMoney(product.referencePrice),
+    referenceCost: normalizeProductMoney(product.referenceCost),
+    primaryImage
+  };
+}
+
 function createCatalogItem(product: ProductOption, sortOrder: number, requiresAssembly = false): ItemDraft {
   const primaryImage = product.primaryImage
     ? [
@@ -978,7 +1024,11 @@ function ProductPicker({
   onAdd: (product: ProductOption) => void;
 }) {
   const [query, setQuery] = useState("");
-  const filteredProducts = products.filter((product) =>
+  const normalizedProducts = useMemo(
+    () => products.map((product) => normalizeProductOption(product)),
+    [products]
+  );
+  const filteredProducts = normalizedProducts.filter((product) =>
     toSearchText(product.name, product.code, product.category, product.description).includes(
       query.toLowerCase()
     )
@@ -1006,6 +1056,46 @@ function ProductPicker({
     return null;
   }
 
+  function ProductCard({ product }: { product: ProductOption }) {
+    return (
+      <article className="flex min-h-[300px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
+        <div
+          className="flex h-36 shrink-0 items-center justify-center border-b border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground sm:h-40 lg:h-44"
+          style={productImageStyle(product)}
+        >
+          {!product.primaryImage ? <ImagePlus className="h-8 w-8" /> : null}
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="line-clamp-2 text-sm font-semibold">{product.name}</p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {product.code ? `Code: ${product.code}` : "No product code"}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {product.category ? product.category : "No category"}
+            </p>
+          </div>
+          <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
+            <span className="min-w-0 truncate text-sm font-semibold">
+              {money(product.referencePrice ?? 0)}
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                onAdd(product);
+              }}
+              className="min-h-9 shrink-0 px-3"
+            >
+              <Plus className="h-4 w-4" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6"
@@ -1015,7 +1105,7 @@ function ProductPicker({
         className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <p className="studio-kicker">Products</p>
             <h2 className="text-base font-semibold">Add product</h2>
@@ -1024,7 +1114,7 @@ function ProductPicker({
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="border-b border-border p-5">
+        <div className="shrink-0 border-b border-border p-5">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -1036,43 +1126,9 @@ function ProductPicker({
             />
           </label>
         </div>
-        <div className="grid gap-4 overflow-y-auto p-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2 xl:grid-cols-3">
           {filteredProducts.map((product) => (
-            <article key={product.id} className="flex min-h-[260px] flex-col overflow-hidden rounded-lg border border-border bg-background">
-              <div
-                className="flex aspect-[4/3] items-center justify-center border-b border-border bg-soft-accent/40 bg-cover bg-center text-muted-foreground"
-                style={productImageStyle(product)}
-              >
-                {!product.primaryImage ? <ImagePlus className="h-8 w-8" /> : null}
-              </div>
-              <div className="flex flex-1 flex-col gap-3 p-4">
-                <div>
-                  <p className="line-clamp-2 text-sm font-semibold">{product.name}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {product.code ? `Code: ${product.code}` : "No product code"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {product.category ? product.category : "No category"}
-                  </p>
-                </div>
-                <div className="mt-auto flex items-center justify-between gap-3">
-                  <span className="text-sm font-semibold">
-                    {money(product.referencePrice ?? 0)}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => {
-                      onAdd(product);
-                    }}
-                    className="min-h-9 px-3"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add
-                  </Button>
-                </div>
-              </div>
-            </article>
+            <ProductCard key={product.id} product={product} />
           ))}
           {filteredProducts.length === 0 ? (
             <div className="studio-empty px-4 py-8 text-sm md:col-span-2">
