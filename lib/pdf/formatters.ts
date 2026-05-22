@@ -15,10 +15,12 @@ export function titleCaseLabel(value: string | null | undefined, fallback = "Not
 }
 
 export function formatMoney(value: number, currency = "PHP") {
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency
+  const amount = new Intl.NumberFormat("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value);
+
+  return `${currency} ${amount}`;
 }
 
 export function formatDate(value: Date | string | null | undefined) {
@@ -48,9 +50,11 @@ export function formatDateTime(value: Date | string | null | undefined) {
 }
 
 export function formatQuantity(value: number) {
+  const quantity = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+
   return new Intl.NumberFormat("en-PH", {
-    maximumFractionDigits: 2
-  }).format(value);
+    maximumFractionDigits: 0
+  }).format(quantity);
 }
 
 export function formatDocumentNumber(prefix: string, value: string | null | undefined) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Building2, Clipboard, CreditCard, FileText, ImageIcon, Save } from "lucide-react";
 import {
   updateCompanyProfileSettingsAction,
@@ -11,17 +11,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AppSettingsInput } from "@/lib/validation/settings";
+import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
 type SettingsWorkspaceProps = {
   settings: AppSettingsInput;
   canUpdate: boolean;
+  persistenceUserKey?: string | null;
 };
 
 type Section = "company" | "payment" | "documents";
 type CompanyProfileSettings = AppSettingsInput["companyProfile"];
 type PaymentSettings = AppSettingsInput["payment"];
 type DocumentSettings = AppSettingsInput["documents"];
+
+type SettingsWorkspaceDraft = {
+  activeSection: Section;
+  companyDraft: CompanyProfileSettings;
+  paymentDraft: PaymentSettings;
+  documentDraft: DocumentSettings;
+};
 
 const initialState = {
   ok: false,
@@ -320,7 +329,25 @@ function DocumentPrefixPreview({ documents }: { documents: DocumentSettings }) {
   );
 }
 
-export function SettingsWorkspace({ settings, canUpdate }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({
+  settings,
+  canUpdate,
+  persistenceUserKey
+}: SettingsWorkspaceProps) {
+  const initialSettingsDraft: SettingsWorkspaceDraft = {
+    activeSection: "company",
+    companyDraft: settings.companyProfile,
+    paymentDraft: settings.payment,
+    documentDraft: settings.documents
+  };
+  const [persistedSettings, setPersistedSettings, settingsPersistence] =
+    usePersistentPageState<SettingsWorkspaceDraft>({
+      scope: "settings",
+      userKey: persistenceUserKey,
+      version: 1,
+      initialState: initialSettingsDraft
+    });
+  const hasAppliedSettingsDraft = useRef(false);
   const [activeSection, setActiveSection] = useState<Section>("company");
   const [copyMessage, setCopyMessage] = useState("");
   const [companyDraft, setCompanyDraft] = useState<CompanyProfileSettings>(settings.companyProfile);
@@ -338,6 +365,73 @@ export function SettingsWorkspace({ settings, canUpdate }: SettingsWorkspaceProp
     updateDocumentSettingsAction,
     initialState
   );
+
+  useEffect(() => {
+    if (!settingsPersistence.restored || hasAppliedSettingsDraft.current) {
+      return;
+    }
+
+    hasAppliedSettingsDraft.current = true;
+    setActiveSection(
+      ["company", "payment", "documents"].includes(persistedSettings.activeSection)
+        ? persistedSettings.activeSection
+        : "company"
+    );
+    setCompanyDraft(persistedSettings.companyDraft ?? settings.companyProfile);
+    setPaymentDraft(persistedSettings.paymentDraft ?? settings.payment);
+    setDocumentDraft(persistedSettings.documentDraft ?? settings.documents);
+  }, [
+    persistedSettings.activeSection,
+    persistedSettings.companyDraft,
+    persistedSettings.documentDraft,
+    persistedSettings.paymentDraft,
+    settings.companyProfile,
+    settings.documents,
+    settings.payment,
+    settingsPersistence.restored
+  ]);
+
+  useEffect(() => {
+    if (!settingsPersistence.restored || !hasAppliedSettingsDraft.current) {
+      return;
+    }
+
+    setPersistedSettings({
+      activeSection,
+      companyDraft,
+      paymentDraft,
+      documentDraft
+    });
+  }, [
+    activeSection,
+    companyDraft,
+    documentDraft,
+    paymentDraft,
+    setPersistedSettings,
+    settingsPersistence.restored
+  ]);
+
+  useEffect(() => {
+    if (!companyState.ok && !paymentState.ok && !documentState.ok) {
+      return;
+    }
+
+    settingsPersistence.clear({
+      activeSection,
+      companyDraft,
+      paymentDraft,
+      documentDraft
+    });
+  }, [
+    activeSection,
+    companyDraft,
+    companyState.ok,
+    documentDraft,
+    documentState.ok,
+    paymentDraft,
+    paymentState.ok,
+    settingsPersistence
+  ]);
 
   function updateCompanyField(field: keyof CompanyProfileSettings, value: string) {
     setCompanyDraft((current) => ({ ...current, [field]: value }));

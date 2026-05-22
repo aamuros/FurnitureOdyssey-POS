@@ -1,3 +1,4 @@
+import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { OperationalPdfDocument } from "@/lib/pdf/operational-document";
 import type { OperationalPdfData } from "@/lib/pdf/types";

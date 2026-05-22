@@ -36,6 +36,7 @@ const quantity = z.coerce
   .number({
     invalid_type_error: "Enter a valid quantity."
   })
+  .int("Quantity must be a whole number.")
   .gt(0, "Quantity must be greater than zero.");
 
 export const orderImageSchema = quotationImageSchema.extend({
@@ -143,7 +144,7 @@ export const deliveryItemSchema = z
   .object({
     orderItemId: z.string().uuid("Choose an order item."),
     quantityPlanned: quantity,
-    quantityDelivered: z.coerce.number().min(0).default(0),
+    quantityDelivered: z.coerce.number().int("Delivered quantity must be a whole number.").min(0).default(0),
     notes: optionalText
   })
   .superRefine((value, context) => {
@@ -180,7 +181,10 @@ export const completeOrderSchema = z.object({
 
 export const updateDeliveryProgressItemSchema = z.object({
   deliveryItemId: z.string().uuid("Choose a delivery item."),
-  quantityDelivered: z.coerce.number().min(0, "Delivered quantity cannot be negative."),
+  quantityDelivered: z.coerce
+    .number()
+    .int("Delivered quantity must be a whole number.")
+    .min(0, "Delivered quantity cannot be negative."),
   notes: optionalText
 });
 

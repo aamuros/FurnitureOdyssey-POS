@@ -69,6 +69,7 @@ export default async function NewQuotationPage() {
         backLabel="Back to quotations"
         canCreateCustomers={canCreateCustomers}
         canUpdateQuotations={canUpdateQuotations}
+        persistenceUserKey={user.id}
         customers={customers.map((customer) => ({
           id: customer.id,
           displayName: customer.displayName,

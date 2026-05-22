@@ -154,16 +154,12 @@ function readableStatus(value: string) {
   return labelFromEnum(value) ?? value;
 }
 
-function receiptStatus(delivery: DeliveryRecord) {
-  return delivery.documents.length > 0 ? "Generated" : "Not generated";
-}
-
 function statusTone(status: string) {
-  if (["DELIVERED"].includes(status)) {
+  if (["DELIVERED", "SCHEDULED", "SCHEDULED_FOR_DELIVERY"].includes(status)) {
     return "success" as const;
   }
 
-  if (["SCHEDULED", "IN_TRANSIT"].includes(status)) {
+  if (["IN_TRANSIT"].includes(status)) {
     return "teal" as const;
   }
 
@@ -384,7 +380,7 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
 
       <section className="studio-card">
         <div className="overflow-x-auto">
-          <table className="studio-table w-full min-w-[820px] text-left text-sm">
+          <table className="studio-table w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Delivery</th>
@@ -392,7 +388,6 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
                 <th className="px-4 py-3 font-medium">Customer / Order</th>
                 <th className="px-4 py-3 font-medium">Recipient</th>
                 <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -437,7 +432,6 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
                       {readableStatus(delivery.status)}
                     </StatusPill>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{receiptStatus(delivery)}</td>
                 </tr>
               ))}
             </tbody>

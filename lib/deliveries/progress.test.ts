@@ -48,19 +48,20 @@ test("createDeliverySchema requires a scheduled date", () => {
 });
 
 test("prepareDeliveryProgressUpdate supports scheduled to in transit to partial to delivered", () => {
-  const inTransitItems = prepareDeliveryProgressUpdate({
+  const inTransit = prepareDeliveryProgressUpdate({
     currentStatus: "SCHEDULED",
     nextStatus: "IN_TRANSIT",
     existingItems: deliveryItems,
     itemInputs: []
   });
 
-  assert.equal(inTransitItems[0].quantityDelivered, 0);
+  assert.equal(inTransit.status, "IN_TRANSIT");
+  assert.equal(inTransit.items[0].quantityDelivered, 0);
 
-  const partialItems = prepareDeliveryProgressUpdate({
+  const partial = prepareDeliveryProgressUpdate({
     currentStatus: "IN_TRANSIT",
-    nextStatus: "PARTIALLY_DELIVERED",
-    existingItems: inTransitItems,
+    nextStatus: "DELIVERED",
+    existingItems: inTransit.items,
     itemInputs: [
       {
         deliveryItemId: deliveryItems[0].id,
@@ -69,33 +70,34 @@ test("prepareDeliveryProgressUpdate supports scheduled to in transit to partial 
     ]
   });
 
-  assert.equal(partialItems[0].quantityDelivered, 1);
+  assert.equal(partial.status, "PARTIALLY_DELIVERED");
+  assert.equal(partial.items[0].quantityDelivered, 1);
 
-  const deliveredItems = prepareDeliveryProgressUpdate({
+  const delivered = prepareDeliveryProgressUpdate({
     currentStatus: "PARTIALLY_DELIVERED",
     nextStatus: "DELIVERED",
-    existingItems: partialItems,
+    existingItems: partial.items,
     itemInputs: [],
     markAllDelivered: true
   });
 
+  assert.equal(delivered.status, "DELIVERED");
   assert.deepEqual(
-    deliveredItems.map((item) => item.quantityDelivered),
+    delivered.items.map((item) => item.quantityDelivered),
     [2, 1]
   );
 });
 
-test("prepareDeliveryProgressUpdate rejects invalid delivery transitions", () => {
+test("prepareDeliveryProgressUpdate rejects delivered action without delivered quantities", () => {
   assert.throws(
     () =>
       prepareDeliveryProgressUpdate({
         currentStatus: "SCHEDULED",
         nextStatus: "DELIVERED",
         existingItems: deliveryItems,
-        itemInputs: [],
-        markAllDelivered: true
+        itemInputs: []
       }),
-    /Invalid delivery status transition/
+    /Enter delivered quantities/
   );
 });
 
@@ -131,9 +133,9 @@ test("prepareDeliveryProgressUpdate blocks delivered quantity above planned quan
 });
 
 test("delivery summary reflects progress item updates", () => {
-  const partialItems = prepareDeliveryProgressUpdate({
+  const partial = prepareDeliveryProgressUpdate({
     currentStatus: "IN_TRANSIT",
-    nextStatus: "PARTIALLY_DELIVERED",
+    nextStatus: "DELIVERED",
     existingItems: deliveryItems,
     itemInputs: [
       {
@@ -148,12 +150,12 @@ test("delivery summary reflects progress item updates", () => {
       {
         id: "order-item-1",
         quantity: 2,
-        deliveryItems: [{ quantityDelivered: partialItems[0].quantityDelivered, delivery: { status: "PARTIALLY_DELIVERED" } }]
+        deliveryItems: [{ quantityDelivered: partial.items[0].quantityDelivered, delivery: { status: "PARTIALLY_DELIVERED" } }]
       },
       {
         id: "order-item-2",
         quantity: 1,
-        deliveryItems: [{ quantityDelivered: partialItems[1].quantityDelivered, delivery: { status: "PARTIALLY_DELIVERED" } }]
+        deliveryItems: [{ quantityDelivered: partial.items[1].quantityDelivered, delivery: { status: "PARTIALLY_DELIVERED" } }]
       }
     ],
     deliveries: [{ status: "PARTIALLY_DELIVERED" }]
@@ -161,10 +163,10 @@ test("delivery summary reflects progress item updates", () => {
 
   assert.equal(partialSummary.deliveryStatus, "PARTIALLY_DELIVERED");
 
-  const deliveredItems = prepareDeliveryProgressUpdate({
+  const delivered = prepareDeliveryProgressUpdate({
     currentStatus: "PARTIALLY_DELIVERED",
     nextStatus: "DELIVERED",
-    existingItems: partialItems,
+    existingItems: partial.items,
     itemInputs: [],
     markAllDelivered: true
   });
@@ -174,12 +176,12 @@ test("delivery summary reflects progress item updates", () => {
       {
         id: "order-item-1",
         quantity: 2,
-        deliveryItems: [{ quantityDelivered: deliveredItems[0].quantityDelivered, delivery: { status: "DELIVERED" } }]
+        deliveryItems: [{ quantityDelivered: delivered.items[0].quantityDelivered, delivery: { status: "DELIVERED" } }]
       },
       {
         id: "order-item-2",
         quantity: 1,
-        deliveryItems: [{ quantityDelivered: deliveredItems[1].quantityDelivered, delivery: { status: "DELIVERED" } }]
+        deliveryItems: [{ quantityDelivered: delivered.items[1].quantityDelivered, delivery: { status: "DELIVERED" } }]
       }
     ],
     deliveries: [{ status: "DELIVERED" }]

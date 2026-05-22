@@ -60,14 +60,6 @@ function amountSubtitle(payment: { method: string | null; referenceNumber: strin
   return payment.referenceNumber ? `${method} · Ref: ${payment.referenceNumber}` : method;
 }
 
-function receiptLabel(payment: { receiptGenerated: boolean }, receipt: { secureUrl: string | null } | undefined) {
-  if (receipt?.secureUrl) {
-    return "Download";
-  }
-
-  return payment.receiptGenerated ? "Generated" : "Not generated";
-}
-
 function openBalanceSummary(
   customerBalances: Array<{
     orders: Array<{
@@ -223,20 +215,18 @@ export default async function PaymentsPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="studio-table w-full min-w-[820px] text-left text-sm">
+          <table className="studio-table w-full min-w-[720px] text-left text-sm">
             <thead className="border-b border-border text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-medium">Payment</th>
                 <th className="px-5 py-3 font-medium">Customer</th>
                 <th className="px-5 py-3 font-medium">Order</th>
                 <th className="px-5 py-3 font-medium">Amount</th>
-                <th className="px-5 py-3 font-medium">Receipt</th>
                 <th className="px-5 py-3 font-medium">Balance</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {payments.map((payment) => {
-                const receipt = payment.documents[0];
                 const customerDetail = customerSubtitle(payment.customer);
 
                 return (
@@ -268,15 +258,6 @@ export default async function PaymentsPage() {
                       <div className="text-xs text-muted-foreground">{amountSubtitle(payment)}</div>
                     </td>
                     <td className="px-5 py-3 align-top">
-                      {receipt?.secureUrl ? (
-                        <a className="font-medium text-primary hover:underline" href={receipt.secureUrl}>
-                          {receiptLabel(payment, receipt)}
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">{receiptLabel(payment, receipt)}</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 align-top">
                       <div className="font-medium">{formatMoney(payment.order.balanceAmount)}</div>
                       <div className="mt-1">
                         <StatusPill tone={statusTone(payment.order.paymentStatus)}>
@@ -292,7 +273,7 @@ export default async function PaymentsPage() {
         </div>
         {payments.length === 0 ? (
           <div className="studio-empty m-5 px-4 py-4 text-sm">
-            No payments found. Recorded payments and receipt links will appear here.
+            No payments found. Recorded payments will appear here.
           </div>
         ) : null}
       </section>

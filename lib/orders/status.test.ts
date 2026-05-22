@@ -18,21 +18,21 @@ const itemWithOneRemaining = {
   ]
 };
 
-test("delivery scheduling requires paid or due-with-delivery payment state", () => {
+test("delivery scheduling does not require payment completion or due timing", () => {
   assert.equal(
     canScheduleDeliveryByPaymentState({
-      paymentStatus: "PARTIALLY_PAID",
+      paymentStatus: "UNPAID",
       balanceAmount: 1000,
-      paymentDueTiming: "BEFORE_DELIVERY"
+      paymentDueTiming: null
     }),
-    false
+    true
   );
 
   assert.equal(
     canScheduleDeliveryByPaymentState({
       paymentStatus: "PARTIALLY_PAID",
       balanceAmount: 1000,
-      paymentDueTiming: "UPON_DELIVERY"
+      paymentDueTiming: "BEFORE_DELIVERY"
     }),
     true
   );
@@ -51,9 +51,9 @@ test("delivery scheduling uses remaining active delivery quantity", () => {
   assert.equal(
     canScheduleOrderDelivery({
       status: "PARTIALLY_DELIVERED",
-      paymentStatus: "PAID",
-      balanceAmount: 0,
-      paymentDueTiming: "BEFORE_DELIVERY",
+      paymentStatus: "UNPAID",
+      balanceAmount: 1000,
+      paymentDueTiming: null,
       deliveryStatus: "PARTIALLY_DELIVERED",
       items: [itemWithOneRemaining]
     }),

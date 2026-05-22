@@ -97,24 +97,23 @@ export function calculateQuotationTotals(
     input.quotationDiscountValue
   );
 
-  if (quotationDiscountAmount > postItemDiscountTotal) {
-    throw new Error("Quotation discount exceeds the post-item-discount total.");
+  const assemblyFeeTotal = calculateAssemblyFeeTotal(input);
+  const additionalFees = roundMoney(input.additionalFees ?? 0);
+  const finalSubtotal = roundMoney(
+    postItemDiscountTotal + assemblyFeeTotal + additionalFees - quotationDiscountAmount
+  );
+
+  if (finalSubtotal < 0) {
+    throw new Error("Quotation discount exceeds subtotal plus fees.");
   }
 
-  const assemblyFeeTotal = calculateAssemblyFeeTotal(input);
-  const saleBaseBeforeInvoiceFee = roundMoney(
-    Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + assemblyFeeTotal
-  );
   const salesInvoiceFeeRate =
     (input.salesInvoiceFeePercentage ?? SALES_INVOICE_FEE_PERCENTAGE) / 100;
   const salesInvoiceFeeTotal = input.salesInvoiceRequested
-    ? roundMoney(saleBaseBeforeInvoiceFee * salesInvoiceFeeRate)
+    ? roundMoney(finalSubtotal * salesInvoiceFeeRate)
     : 0;
-  const additionalFees = roundMoney(input.additionalFees ?? 0);
   const totalAdditionalFees = roundMoney(assemblyFeeTotal + salesInvoiceFeeTotal + additionalFees);
-  const totalAmount = roundMoney(
-    Math.max(postItemDiscountTotal - quotationDiscountAmount, 0) + totalAdditionalFees
-  );
+  const totalAmount = roundMoney(finalSubtotal + salesInvoiceFeeTotal);
   const totalCostAmount = roundMoney(
     calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0)
   );
@@ -127,6 +126,7 @@ export function calculateQuotationTotals(
     assemblyFeeTotal,
     salesInvoiceFeeTotal,
     additionalFees,
+    finalSubtotal,
     totalAdditionalFees,
     totalAmount,
     totalCostAmount,

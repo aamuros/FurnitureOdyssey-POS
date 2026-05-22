@@ -202,6 +202,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         canViewProductCost={canViewProductCost}
         hasActiveFilters={hasActiveFilters}
         categories={categoryOptions}
+        persistenceUserKey={user.id}
         products={products.map((product) => {
           const primaryImage = product.images[0] ?? null;
 

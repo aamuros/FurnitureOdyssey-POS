@@ -224,6 +224,7 @@ test("calculateQuotationTotals adds sales invoice fee from post-discount base pl
   });
 
   assert.equal(totals.assemblyFeeTotal, 200);
+  assert.equal(totals.finalSubtotal, 2100);
   assert.equal(totals.salesInvoiceFeeTotal, 168);
   assert.equal(totals.totalAdditionalFees, 368);
   assert.equal(totals.totalAmount, 2268);
@@ -247,9 +248,34 @@ test("calculateQuotationTotals uses editable fee inputs", () => {
   });
 
   assert.equal(totals.assemblyFeeTotal, 300);
-  assert.equal(totals.salesInvoiceFeeTotal, 115);
+  assert.equal(totals.finalSubtotal, 2550);
+  assert.equal(totals.salesInvoiceFeeTotal, 127.5);
   assert.equal(totals.additionalFees, 250);
-  assert.equal(totals.totalAmount, 2665);
+  assert.equal(totals.totalAmount, 2677.5);
+});
+
+test("calculateQuotationTotals uses final subtotal as sales invoice fee base", () => {
+  const totals = calculateQuotationTotals({
+    needsAssembly: true,
+    assemblyFeeRate: 100,
+    salesInvoiceRequested: true,
+    salesInvoiceFeePercentage: 10,
+    additionalFees: 500,
+    quotationDiscountType: "FIXED_AMOUNT",
+    quotationDiscountValue: 250,
+    items: [
+      {
+        ...baseItem,
+        quantity: 2,
+        unitPrice: 1000,
+        requiresAssembly: true
+      }
+    ]
+  });
+
+  assert.equal(totals.finalSubtotal, 2450);
+  assert.equal(totals.salesInvoiceFeeTotal, 245);
+  assert.equal(totals.totalAmount, 2695);
 });
 
 test("calculateQuotationTotals keeps gross profit based on item subtotal only", () => {
