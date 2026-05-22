@@ -962,7 +962,7 @@ function DeliveryForm({ order }: { order: OrderRow }) {
           <Input
             name="deliveryAddress"
             defaultValue={order.deliveryAddressSnapshot ?? ""}
-            placeholder="Address optional"
+            placeholder="Address Name"
             className="text-[15px]"
           />
         </label>
