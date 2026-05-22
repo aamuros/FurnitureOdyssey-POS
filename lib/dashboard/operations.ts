@@ -165,14 +165,37 @@ function dueDeliveryWhere(tomorrowStart: Date): Prisma.DeliveryWhereInput {
   };
 }
 
+function pLimit(concurrency: number) {
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  function next() {
+    if (queue.length > 0 && active < concurrency) {
+      active++;
+      queue.shift()!();
+    }
+  }
+
+  return <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      queue.push(() => {
+        fn().then(resolve, reject).finally(() => {
+          active--;
+          next();
+        });
+      });
+      next();
+    });
+}
+
 function buildKpiCards({
-  todaySales,
+  paymentsToday,
   openOrderCount,
   awaitingFulfillmentCount,
   outstandingBalance,
   deliveryDueCount
 }: {
-  todaySales: Prisma.GetPaymentAggregateType<{ _sum: { amount: true } }> | null;
+  paymentsToday: Prisma.GetPaymentAggregateType<{ _count: true; _sum: { amount: true } }> | null;
   openOrderCount: number | null;
   awaitingFulfillmentCount: number | null;
   outstandingBalance: Prisma.GetOrderAggregateType<{ _count: true; _sum: { balanceAmount: true } }> | null;
@@ -183,11 +206,11 @@ function buildKpiCards({
 
   const cards: DashboardKpiCard[] = [];
 
-  if (todaySales) {
+  if (paymentsToday) {
     cards.push({
       key: "today-sales",
       label: "Sales Today",
-      value: formatMoney(todaySales._sum.amount),
+      value: formatMoney(paymentsToday._sum.amount),
       detail: "Recorded payments today"
     });
   }
@@ -435,8 +458,9 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     canViewDeliveries: canViewModule(user, "DELIVERIES")
   };
 
+  const limit = pLimit(5);
+
   const [
-    todaySales,
     openOrderCount,
     awaitingFulfillmentCount,
     outstandingBalance,
@@ -455,321 +479,341 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     recentQuotations,
     recentDeliveries
   ] = await Promise.all([
-    permissions.canViewPayments
-      ? prisma.payment.aggregate({
-          where: {
-            status: "RECORDED",
-            paymentDate: {
-              gte: todayStart,
-              lt: tomorrowStart
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.count({
+            where: openOrderWhere()
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.count({
+            where: {
+              ...openOrderWhere(),
+              deliveryStatus: {
+                notIn: ["DELIVERED", "CANCELLED"]
+              }
             }
-          },
-          _sum: {
-            amount: true
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewOrders
-      ? prisma.order.count({
-          where: openOrderWhere()
-        })
-      : Promise.resolve(null),
-    permissions.canViewOrders
-      ? prisma.order.count({
-          where: {
-            ...openOrderWhere(),
-            deliveryStatus: {
-              notIn: ["DELIVERED", "CANCELLED"]
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewPayments
+        ? prisma.order.aggregate({
+            where: outstandingBalanceWhere(),
+            _count: true,
+            _sum: {
+              balanceAmount: true
             }
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewPayments
-      ? prisma.order.aggregate({
-          where: outstandingBalanceWhere(),
-          _count: true,
-          _sum: {
-            balanceAmount: true
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewDeliveries
-      ? prisma.delivery.count({
-          where: dueDeliveryWhere(tomorrowStart)
-        })
-      : Promise.resolve(null),
-    permissions.canViewPayments
-      ? prisma.payment.aggregate({
-          where: {
-            status: "RECORDED",
-            paymentDate: {
-              gte: todayStart,
-              lt: tomorrowStart
-            }
-          },
-          _count: true,
-          _sum: {
-            amount: true
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewOrders
-      ? prisma.order.count({
-          where: {
-            createdAt: {
-              gte: todayStart,
-              lt: tomorrowStart
-            }
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewQuotations
-      ? prisma.quotation.count({
-          where: {
-            createdAt: {
-              gte: todayStart,
-              lt: tomorrowStart
-            }
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewDeliveries
-      ? prisma.delivery.count({
-          where: {
-            scheduledDate: {
-              gte: todayStart,
-              lt: tomorrowStart
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewDeliveries
+        ? prisma.delivery.count({
+            where: dueDeliveryWhere(tomorrowStart)
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewPayments
+        ? prisma.payment.aggregate({
+            where: {
+              status: "RECORDED",
+              paymentDate: {
+                gte: todayStart,
+                lt: tomorrowStart
+              }
             },
-            status: {
-              notIn: ["DELIVERED", "CANCELLED", "FAILED"]
+            _count: true,
+            _sum: {
+              amount: true
             }
-          }
-        })
-      : Promise.resolve(null),
-    permissions.canViewOrders
-      ? prisma.order.findMany({
-          where: {
-            ...openOrderWhere(),
-            deliveryStatus: "NOT_SCHEDULED"
-          },
-          orderBy: [
-            {
-              createdAt: "asc"
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.count({
+            where: {
+              createdAt: {
+                gte: todayStart,
+                lt: tomorrowStart
+              }
+            }
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewQuotations
+        ? prisma.quotation.count({
+            where: {
+              createdAt: {
+                gte: todayStart,
+                lt: tomorrowStart
+              }
+            }
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewDeliveries
+        ? prisma.delivery.count({
+            where: {
+              scheduledDate: {
+                gte: todayStart,
+                lt: tomorrowStart
+              },
+              status: {
+                notIn: ["DELIVERED", "CANCELLED", "FAILED"]
+              }
+            }
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.findMany({
+            where: {
+              ...openOrderWhere(),
+              deliveryStatus: "NOT_SCHEDULED"
             },
-            {
+            orderBy: [
+              {
+                createdAt: "asc"
+              },
+              {
+                updatedAt: "desc"
+              }
+            ],
+            take: 3,
+            select: {
+              id: true,
+              orderNumber: true,
+              customerDisplayNameSnapshot: true,
+              createdAt: true
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewPayments
+        ? prisma.order.findMany({
+            where: {
+              ...pendingPaymentWhere(),
+              OR: [
+                {
+                  paymentDueDate: {
+                    lt: now
+                  }
+                },
+                {
+                  paymentStatus: "UNPAID"
+                },
+                {
+                  balanceAmount: {
+                    gt: 0
+                  }
+                }
+              ]
+            },
+            orderBy: [
+              {
+                paymentDueDate: "asc"
+              },
+              {
+                updatedAt: "desc"
+              }
+            ],
+            take: 4,
+            select: {
+              id: true,
+              orderNumber: true,
+              customerDisplayNameSnapshot: true,
+              balanceAmount: true,
+              paymentDueDate: true
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewDeliveries
+        ? prisma.delivery.findMany({
+            where: dueDeliveryWhere(tomorrowStart),
+            orderBy: [
+              {
+                scheduledDate: "asc"
+              },
+              {
+                createdAt: "desc"
+              }
+            ],
+            take: 4,
+            select: {
+              id: true,
+              deliveryNumber: true,
+              scheduledDate: true,
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  customerDisplayNameSnapshot: true
+                }
+              }
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.findMany({
+            where: {
+              ...openOrderWhere(),
+              deliveryStatus: {
+                in: ["SCHEDULED", "PARTIALLY_DELIVERED"]
+              }
+            },
+            orderBy: {
               updatedAt: "desc"
+            },
+            take: 3,
+            select: {
+              id: true,
+              orderNumber: true,
+              customerDisplayNameSnapshot: true,
+              deliveryStatus: true
             }
-          ],
-          take: 3,
-          select: {
-            id: true,
-            orderNumber: true,
-            customerDisplayNameSnapshot: true,
-            createdAt: true
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewPayments
-      ? prisma.order.findMany({
-          where: {
-            ...pendingPaymentWhere(),
-            OR: [
-              {
-                paymentDueDate: {
-                  lt: now
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewQuotations
+        ? prisma.quotation.findMany({
+            where: {
+              OR: [
+                {
+                  status: "SENT",
+                  updatedAt: {
+                    lt: quotationAgingDate
+                  }
+                },
+                {
+                  status: "ACCEPTED",
+                  order: null
                 }
-              },
-              {
-                paymentStatus: "UNPAID"
-              },
-              {
-                balanceAmount: {
-                  gt: 0
+              ]
+            },
+            orderBy: {
+              updatedAt: "asc"
+            },
+            take: 4,
+            select: {
+              id: true,
+              quotationNumber: true,
+              status: true,
+              updatedAt: true,
+              customer: {
+                select: {
+                  displayName: true
                 }
               }
-            ]
-          },
-          orderBy: [
-            {
-              paymentDueDate: "asc"
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewPayments
+        ? prisma.payment.findMany({
+            where: {
+              status: "RECORDED"
             },
-            {
+            orderBy: [
+              {
+                paymentDate: "desc"
+              },
+              {
+                createdAt: "desc"
+              }
+            ],
+            take: 5,
+            select: {
+              id: true,
+              paymentNumber: true,
+              amount: true,
+              paymentDate: true,
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  customerDisplayNameSnapshot: true
+                }
+              }
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewOrders
+        ? prisma.order.findMany({
+            orderBy: {
+              createdAt: "desc"
+            },
+            take: 5,
+            select: {
+              id: true,
+              orderNumber: true,
+              customerDisplayNameSnapshot: true,
+              totalAmount: true,
+              createdAt: true
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewQuotations
+        ? prisma.quotation.findMany({
+            orderBy: {
+              createdAt: "desc"
+            },
+            take: 5,
+            select: {
+              id: true,
+              quotationNumber: true,
+              totalAmount: true,
+              createdAt: true,
+              customer: {
+                select: {
+                  displayName: true
+                }
+              }
+            }
+          })
+        : Promise.resolve([])
+    ),
+    limit(() =>
+      permissions.canViewDeliveries
+        ? prisma.delivery.findMany({
+            orderBy: {
               updatedAt: "desc"
-            }
-          ],
-          take: 4,
-          select: {
-            id: true,
-            orderNumber: true,
-            customerDisplayNameSnapshot: true,
-            balanceAmount: true,
-            paymentDueDate: true
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewDeliveries
-      ? prisma.delivery.findMany({
-          where: dueDeliveryWhere(tomorrowStart),
-          orderBy: [
-            {
-              scheduledDate: "asc"
             },
-            {
-              createdAt: "desc"
-            }
-          ],
-          take: 4,
-          select: {
-            id: true,
-            deliveryNumber: true,
-            scheduledDate: true,
-            order: {
-              select: {
-                id: true,
-                orderNumber: true,
-                customerDisplayNameSnapshot: true
-              }
-            }
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewOrders
-      ? prisma.order.findMany({
-          where: {
-            ...openOrderWhere(),
-            deliveryStatus: {
-              in: ["SCHEDULED", "PARTIALLY_DELIVERED"]
-            }
-          },
-          orderBy: {
-            updatedAt: "desc"
-          },
-          take: 3,
-          select: {
-            id: true,
-            orderNumber: true,
-            customerDisplayNameSnapshot: true,
-            deliveryStatus: true
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewQuotations
-      ? prisma.quotation.findMany({
-          where: {
-            OR: [
-              {
-                status: "SENT",
-                updatedAt: {
-                  lt: quotationAgingDate
+            take: 5,
+            select: {
+              id: true,
+              deliveryNumber: true,
+              status: true,
+              updatedAt: true,
+              order: {
+                select: {
+                  id: true,
+                  orderNumber: true,
+                  customerDisplayNameSnapshot: true
                 }
-              },
-              {
-                status: "ACCEPTED",
-                order: null
-              }
-            ]
-          },
-          orderBy: {
-            updatedAt: "asc"
-          },
-          take: 4,
-          select: {
-            id: true,
-            quotationNumber: true,
-            status: true,
-            updatedAt: true,
-            customer: {
-              select: {
-                displayName: true
               }
             }
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewPayments
-      ? prisma.payment.findMany({
-          where: {
-            status: "RECORDED"
-          },
-          orderBy: [
-            {
-              paymentDate: "desc"
-            },
-            {
-              createdAt: "desc"
-            }
-          ],
-          take: 5,
-          select: {
-            id: true,
-            paymentNumber: true,
-            amount: true,
-            paymentDate: true,
-            order: {
-              select: {
-                id: true,
-                orderNumber: true,
-                customerDisplayNameSnapshot: true
-              }
-            }
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewOrders
-      ? prisma.order.findMany({
-          orderBy: {
-            createdAt: "desc"
-          },
-          take: 5,
-          select: {
-            id: true,
-            orderNumber: true,
-            customerDisplayNameSnapshot: true,
-            totalAmount: true,
-            createdAt: true
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewQuotations
-      ? prisma.quotation.findMany({
-          orderBy: {
-            createdAt: "desc"
-          },
-          take: 5,
-          select: {
-            id: true,
-            quotationNumber: true,
-            totalAmount: true,
-            createdAt: true,
-            customer: {
-              select: {
-                displayName: true
-              }
-            }
-          }
-        })
-      : Promise.resolve([]),
-    permissions.canViewDeliveries
-      ? prisma.delivery.findMany({
-          orderBy: {
-            updatedAt: "desc"
-          },
-          take: 5,
-          select: {
-            id: true,
-            deliveryNumber: true,
-            status: true,
-            updatedAt: true,
-            order: {
-              select: {
-                id: true,
-                orderNumber: true,
-                customerDisplayNameSnapshot: true
-              }
-            }
-          }
-        })
-      : Promise.resolve([])
+          })
+        : Promise.resolve([])
+    )
   ]);
 
   const recentCandidates: RecentCandidate[] = [
@@ -821,7 +865,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
       quotationActions
     }),
     kpiCards: buildKpiCards({
-      todaySales,
+      paymentsToday,
       openOrderCount,
       awaitingFulfillmentCount,
       outstandingBalance,

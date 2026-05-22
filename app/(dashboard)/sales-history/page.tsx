@@ -271,33 +271,34 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
   const activeHasBalance = filterVisibility.showHasBalance && (hasBalance || view === "balances");
   const activeOverdueOnly = filterVisibility.showOverdueOnly && overdueOnly;
 
-  const staff = await prisma.userProfile.findMany({
-    where: {
-      status: "ACTIVE"
-    },
-    orderBy: {
-      displayName: "asc"
-    },
-    select: {
-      id: true,
-      displayName: true
-    }
-  });
-
-  const report = await getReportData({
-    view,
-    query: activeQuery,
-    status: activeStatus,
-    paymentStatus: activePaymentStatus,
-    deliveryStatus: activeDeliveryStatus,
-    staffId,
-    dateRange,
-    page,
-    hasBalance: activeHasBalance,
-    overdueOnly: activeOverdueOnly,
-    permissions,
-    params
-  });
+  const [staff, report] = await Promise.all([
+    prisma.userProfile.findMany({
+      where: {
+        status: "ACTIVE"
+      },
+      orderBy: {
+        displayName: "asc"
+      },
+      select: {
+        id: true,
+        displayName: true
+      }
+    }),
+    getReportData({
+      view,
+      query: activeQuery,
+      status: activeStatus,
+      paymentStatus: activePaymentStatus,
+      deliveryStatus: activeDeliveryStatus,
+      staffId,
+      dateRange,
+      page,
+      hasBalance: activeHasBalance,
+      overdueOnly: activeOverdueOnly,
+      permissions,
+      params
+    })
+  ]);
 
   return (
     <>

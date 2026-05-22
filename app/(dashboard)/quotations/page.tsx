@@ -141,48 +141,49 @@ export default async function QuotationsPage({ searchParams }: QuotationsPagePro
       : undefined
   };
 
-  const totalCount = await prisma.quotation.count({
-    where
-  });
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const paginationPage = Math.min(page, totalPages);
-
-  const quotations = await prisma.quotation.findMany({
-    where,
-    orderBy: {
-      updatedAt: "desc"
-    },
-    skip: (paginationPage - 1) * PAGE_SIZE,
-    take: PAGE_SIZE,
-    include: {
-      customer: {
-        select: {
-          displayName: true
-        }
+  const [totalCount, quotations] = await Promise.all([
+    prisma.quotation.count({
+      where
+    }),
+    prisma.quotation.findMany({
+      where,
+      orderBy: {
+        updatedAt: "desc"
       },
-      createdBy: {
-        select: {
-          displayName: true
-        }
-      },
-      items: {
-        orderBy: {
-          sortOrder: "asc"
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      include: {
+        customer: {
+          select: {
+            displayName: true
+          }
         },
-        select: {
-          itemName: true,
-          quantity: true
+        createdBy: {
+          select: {
+            displayName: true
+          }
         },
-        take: 4
-      },
-      order: {
-        select: {
-          id: true,
-          orderNumber: true
+        items: {
+          orderBy: {
+            sortOrder: "asc"
+          },
+          select: {
+            itemName: true,
+            quantity: true
+          },
+          take: 4
+        },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true
+          }
         }
       }
-    }
-  });
+    })
+  ]);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const paginationPage = Math.min(page, totalPages);
   const from = totalCount === 0 ? 0 : (paginationPage - 1) * PAGE_SIZE + 1;
   const to = totalCount === 0 ? 0 : Math.min(paginationPage * PAGE_SIZE, totalCount);
 

@@ -1,10 +1,11 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { PermissionAction, PermissionModule } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hasPermission, type UserWithPermissions } from "@/lib/auth/permissions";
 
-export async function getCurrentAuthUser() {
+export const getCurrentAuthUser = cache(async () => {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -16,9 +17,9 @@ export async function getCurrentAuthUser() {
   }
 
   return user;
-}
+});
 
-export async function getCurrentUserProfile() {
+export const getCurrentUserProfile = cache(async () => {
   const authUser = await getCurrentAuthUser();
 
   if (!authUser) {
@@ -33,7 +34,7 @@ export async function getCurrentUserProfile() {
       permissions: true
     }
   });
-}
+});
 
 export async function requireActiveUser() {
   const user = await getCurrentUserProfile();
