@@ -15,10 +15,12 @@ export function titleCaseLabel(value: string | null | undefined, fallback = "Not
 }
 
 export function formatMoney(value: number, currency = "PHP") {
-  return new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency
+  const amount = new Intl.NumberFormat("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   }).format(value);
+
+  return `${currency} ${amount}`;
 }
 
 export function formatDate(value: Date | string | null | undefined) {
