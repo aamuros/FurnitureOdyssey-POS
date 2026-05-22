@@ -22,24 +22,35 @@ import {
   footerForKind,
   getAppSettings
 } from "@/lib/settings/get-settings";
+import { defaultPdfLogoSource } from "@/lib/pdf/assets";
 import type { AppSettingsInput } from "@/lib/validation/settings";
 import type { OperationalPdfData, OperationalPdfKind, PdfSummaryRow } from "@/lib/pdf/types";
 
-function companyForPdf(settings: AppSettingsInput) {
+function cleanPdfSetting(value: string | null | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed || /placeholder/i.test(trimmed) || /^not (specified|set|assigned|linked)$/i.test(trimmed)) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+export function companyForPdf(settings: AppSettingsInput) {
   return {
-    displayName: settings.companyProfile.companyName,
-    registeredName: settings.companyProfile.registeredName,
-    address: settings.companyProfile.address,
-    contactNumber: settings.companyProfile.contactNumber,
-    email: settings.companyProfile.email,
-    facebookPage: settings.companyProfile.facebookPage,
-    websiteUrl: settings.companyProfile.websiteUrl,
-    logoUrl: settings.companyProfile.logoUrl,
-    logoAltText: settings.companyProfile.logoAltText,
-    bankDetails: settings.payment.bankDetails,
-    eWalletDetails: settings.payment.eWalletDetails,
-    otherPaymentNotes: settings.payment.otherPaymentNotes,
-    paymentInstructions: settings.payment.defaultPaymentInstructions,
+    displayName: cleanPdfSetting(settings.companyProfile.companyName) ?? "Furniture Odyssey",
+    registeredName: cleanPdfSetting(settings.companyProfile.registeredName),
+    address: cleanPdfSetting(settings.companyProfile.address),
+    contactNumber: cleanPdfSetting(settings.companyProfile.contactNumber),
+    email: cleanPdfSetting(settings.companyProfile.email),
+    facebookPage: cleanPdfSetting(settings.companyProfile.facebookPage),
+    websiteUrl: cleanPdfSetting(settings.companyProfile.websiteUrl),
+    logoUrl: settings.companyProfile.logoUrl || defaultPdfLogoSource(),
+    logoAltText: cleanPdfSetting(settings.companyProfile.logoAltText),
+    bankDetails: cleanPdfSetting(settings.payment.bankDetails),
+    eWalletDetails: cleanPdfSetting(settings.payment.eWalletDetails),
+    otherPaymentNotes: cleanPdfSetting(settings.payment.otherPaymentNotes),
+    paymentInstructions: cleanPdfSetting(settings.payment.defaultPaymentInstructions),
     footer: footerForKind(settings, "final-order-summary")
   };
 }
