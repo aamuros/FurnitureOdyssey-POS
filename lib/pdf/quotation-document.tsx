@@ -250,27 +250,34 @@ const styles = StyleSheet.create({
   },
   preparedBy: {
     marginTop: 18,
-    width: 220,
+    width: 210,
     textAlign: "center"
   },
   preparedLabel: {
-    marginBottom: 0,
+    marginBottom: 2,
     fontSize: 8,
     fontWeight: 700,
     textAlign: "left"
   },
   signatureArea: {
-    alignItems: "center",
-    textAlign: "center"
+    position: "relative",
+    height: 46,
+    justifyContent: "flex-end"
   },
   signature: {
-    width: 165,
-    height: 92,
+    position: "absolute",
+    left: 45,
+    bottom: 8,
+    width: 120,
+    height: 38,
     objectFit: "contain",
-    marginBottom: -16
+    zIndex: 2
   },
   preparedName: {
-    fontWeight: 700
+    borderTop: `1px solid ${dark}`,
+    paddingTop: 3,
+    fontWeight: 700,
+    zIndex: 1
   },
   preparedSubtitle: {
     fontSize: 8,
@@ -361,7 +368,7 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
 
         <View style={styles.preparedBy} wrap={false}>
           <Text style={styles.preparedLabel}>PREPARED BY:</Text>
-          <View style={styles.signatureArea} wrap={false}>
+          <View style={styles.signatureArea}>
             {signatureSource ? (
               // React-PDF Image does not expose an alt prop in its TypeScript API.
               // eslint-disable-next-line jsx-a11y/alt-text
