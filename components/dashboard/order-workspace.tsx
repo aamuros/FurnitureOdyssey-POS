@@ -619,6 +619,13 @@ function PaymentForm({ order }: { order: OrderRow }) {
   const [amount, setAmount] = useState("");
   const projectedPaid = roundMoney(order.paidAmountValue + Number(amount || 0));
   const projectedBalance = roundMoney(Math.max(order.totalAmountValue - projectedPaid, 0));
+  const setPaymentAmountShortcut = (value: number) => {
+    const shortcutAmount = roundMoney(value);
+
+    if (shortcutAmount > 0) {
+      setAmount(String(shortcutAmount));
+    }
+  };
 
   return (
     <form action={action} className="space-y-4">
@@ -637,14 +644,26 @@ function PaymentForm({ order }: { order: OrderRow }) {
             onChange={(event) => setAmount(event.target.value)}
           />
         </label>
-        <Button
-          type="button"
-          variant="secondary"
-          className="self-end"
-          onClick={() => setAmount(String(order.balanceAmountValue))}
-        >
-          Use full balance
-        </Button>
+        <div className="flex flex-wrap gap-2 self-end">
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1 whitespace-nowrap sm:flex-none"
+            disabled={order.balanceAmountValue <= 0}
+            onClick={() => setPaymentAmountShortcut(order.balanceAmountValue / 2)}
+          >
+            Half balance
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1 whitespace-nowrap sm:flex-none"
+            disabled={order.balanceAmountValue <= 0}
+            onClick={() => setPaymentAmountShortcut(order.balanceAmountValue)}
+          >
+            Use full balance
+          </Button>
+        </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-2 text-sm font-medium">
@@ -690,9 +709,9 @@ function PaymentForm({ order }: { order: OrderRow }) {
       </details>
       <div className="rounded-md bg-background px-3 py-2 text-sm">
         <span className="text-muted-foreground">Projected after payment: </span>
-        <span className="font-medium">{money(projectedPaid)} paid</span>
-        <span className="text-muted-foreground"> · </span>
         <span className="font-medium">{money(projectedBalance)} balance</span>
+        <span className="text-muted-foreground"> · </span>
+        <span className="font-medium">{money(projectedPaid)} paid</span>
       </div>
       <Button disabled={pending} className="w-full">
         <ReceiptText className="h-4 w-4" />
@@ -879,10 +898,9 @@ function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () =>
         return {
           ...draft,
           selected: !allRemainingItemsSelected,
-          quantityPlanned:
-            !allRemainingItemsSelected && draft.quantityPlanned <= 0
-              ? normalizeIntegerQuantity(Math.min(item.remainingQuantity, 1))
-              : clampDeliveryQuantity(draft.quantityPlanned, item.remainingQuantity)
+          quantityPlanned: !allRemainingItemsSelected
+            ? normalizeIntegerQuantity(item.remainingQuantity)
+            : clampDeliveryQuantity(draft.quantityPlanned, item.remainingQuantity)
         };
       })
     );
@@ -1346,6 +1364,12 @@ function DocumentLinks({
     <div className="space-y-3">
       {canExportDocuments ? (
         <div className="flex flex-wrap gap-2">
+          {order.relatedQuotationId ? (
+            <a href={`/api/documents/quotation/${order.relatedQuotationId}`} className={pdfLinkClass}>
+              <Download className="h-4 w-4" />
+              Quotation PDF
+            </a>
+          ) : null}
           <a href={`/api/documents/invoice/${order.id}`} className={pdfLinkClass}>
             <Download className="h-4 w-4" />
             Invoice PDF
@@ -1395,6 +1419,10 @@ function isDeliveryPartiallyDelivered(order: OrderRow) {
 }
 
 function visibleDeliveryStatus(order: OrderRow) {
+  if (order.nextDeliveryStatus && ["PLANNED", "SCHEDULED", "IN_TRANSIT"].includes(order.nextDeliveryStatus)) {
+    return order.nextDeliveryStatus;
+  }
+
   if (["PARTIALLY_DELIVERED", "DELIVERED", "CANCELLED"].includes(order.deliveryStatus)) {
     return order.deliveryStatus;
   }
@@ -1441,7 +1469,11 @@ function workflowStageLabel(order: OrderRow, canViewPayments: boolean, canViewDe
     return "Ready to complete";
   }
 
-  if (canViewDeliveries && (isDeliveryPartiallyDelivered(order) || isDeliveryInTransit(order))) {
+  if (canViewDeliveries && isDeliveryPartiallyDelivered(order)) {
+    return "Partially delivered";
+  }
+
+  if (canViewDeliveries && isDeliveryInTransit(order)) {
     return "In delivery";
   }
 
@@ -1469,7 +1501,7 @@ function workflowStageTone(stage: string): StatusTone {
     return "teal";
   }
 
-  if (["Ready to schedule", "Collect balance", "Awaiting payment"].includes(stage)) {
+  if (["Ready to schedule", "Collect balance", "Awaiting payment", "Partially delivered"].includes(stage)) {
     return "warning";
   }
 
@@ -1500,6 +1532,10 @@ function workflowStageDescription(order: OrderRow, stage: string, canViewPayment
 
   if (stage === "In delivery" && canViewDeliveries) {
     return "Delivery progress is underway";
+  }
+
+  if (stage === "Partially delivered" && canViewDeliveries) {
+    return "Some items have been delivered";
   }
 
   if (stage === "Ready to complete") {
@@ -4503,7 +4539,7 @@ function ItemsSection({
                 <tr>
                   <th className="py-2 font-medium">Item</th>
                   <th className="py-2 font-medium">Unit cost</th>
-                  <th className="py-2 font-medium">Line cost</th>
+                  <th className="py-2 font-medium">Unit price</th>
                   <th className="py-2 font-medium">Line profit</th>
                 </tr>
               </thead>
@@ -4512,7 +4548,7 @@ function ItemsSection({
                   <tr key={item.id}>
                     <td className="py-2 font-medium">{item.itemName}</td>
                     <td className="py-2 text-muted-foreground">{item.unitCostSnapshot}</td>
-                    <td className="py-2 text-muted-foreground">{item.lineCostTotal}</td>
+                    <td className="py-2 text-muted-foreground">{item.unitPrice}</td>
                     <td className="py-2 font-medium">{item.lineProfit}</td>
                   </tr>
                 ))}
@@ -4720,6 +4756,8 @@ function DeliverySection({
           {order.deliveries.map((delivery) => {
             const progressAction: OpenOrderAction = `deliveryProgress:${delivery.id}`;
             const isProgressFormOpen = activeAction === progressAction;
+            const canUpdateDeliveryProgress =
+              canUpdateDeliveries && ["SCHEDULED", "IN_TRANSIT", "PARTIALLY_DELIVERED"].includes(delivery.status);
 
             return (
               <div key={delivery.id} className="p-3">
@@ -4755,7 +4793,7 @@ function DeliverySection({
                 <p className="mt-2 text-xs text-muted-foreground">
                   Receipt: {delivery.receiptGenerated ? "Generated" : "Not generated"}
                 </p>
-                {canUpdateDeliveries ? (
+                {canUpdateDeliveryProgress ? (
                   <div className="mt-3">
                     <Button
                       type="button"
@@ -4769,7 +4807,7 @@ function DeliverySection({
                     </Button>
                   </div>
                 ) : null}
-                {isProgressFormOpen ? (
+                {isProgressFormOpen && canUpdateDeliveryProgress ? (
                   <div className="mt-4 border-t border-border pt-4">
                     <DeliveryProgressForm delivery={delivery} />
                   </div>

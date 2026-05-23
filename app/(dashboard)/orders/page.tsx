@@ -165,6 +165,36 @@ function normalizeIntegerQuantity(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
 }
 
+function activeDeliveryRank(status: string) {
+  if (status === "IN_TRANSIT") {
+    return 0;
+  }
+
+  if (status === "SCHEDULED") {
+    return 1;
+  }
+
+  if (status === "PLANNED") {
+    return 2;
+  }
+
+  return 3;
+}
+
+function findActiveDelivery(deliveries: OrderListDelivery[]) {
+  return deliveries
+    .filter((delivery) => delivery.scheduledDate && ["PLANNED", "SCHEDULED", "IN_TRANSIT"].includes(delivery.status))
+    .sort((first, second) => {
+      const statusRank = activeDeliveryRank(first.status) - activeDeliveryRank(second.status);
+
+      if (statusRank !== 0) {
+        return statusRank;
+      }
+
+      return Number(first.scheduledDate) - Number(second.scheduledDate);
+    })[0] ?? null;
+}
+
 function formatOptionalInputDate(value: Date | null) {
   return value ? formatInputDate(value) : "";
 }
@@ -1047,10 +1077,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           const documents = (
             canExportDocuments && "documents" in order ? order.documents : []
           ) as OrderListDocument[];
-          const activeDelivery = deliveries.find(
-            (delivery) =>
-              delivery.scheduledDate && !["DELIVERED", "FAILED", "CANCELLED"].includes(delivery.status)
-          );
+          const activeDelivery = findActiveDelivery(deliveries);
           const assignedStaff =
             order.customer.assignedStaff?.displayName ??
             deliveries.find((delivery) => delivery.assignedStaff)?.assignedStaff?.displayName ??
@@ -1136,13 +1163,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 (sum, deliveryItem) => sum + normalizeIntegerQuantity(deliveryItem.quantityPlanned),
                 0
               );
+              const deliveredQuantity = deliveryItems.reduce(
+                (sum, deliveryItem) => sum + normalizeIntegerQuantity(deliveryItem.quantityDelivered),
+                0
+              );
+              const openScheduledQuantity = Math.max(plannedQuantity - deliveredQuantity, 0);
               const quantity = normalizeIntegerQuantity(item.quantity);
 
               return {
                 id: item.id,
                 itemName: item.itemName,
                 quantity,
-                plannedQuantity,
+                plannedQuantity: openScheduledQuantity,
                 remainingQuantity: canViewDeliveries
                   ? Math.max(quantity - plannedQuantity, 0)
                   : 0,
@@ -1151,12 +1183,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 lineCostTotal: canViewPayments ? formatMoney(item.lineCostTotal) : "Restricted",
                 lineProfit: canViewPayments ? formatMoney(item.lineProfit) : "Restricted",
                 lineTotal: canViewPayments ? formatMoney(item.lineTotal) : "Restricted",
-                deliveredQuantity: canViewDeliveries
-                  ? deliveryItems.reduce(
-                      (sum, deliveryItem) => sum + normalizeIntegerQuantity(deliveryItem.quantityDelivered),
-                      0
-                    )
-                  : 0,
+                deliveredQuantity: canViewDeliveries ? deliveredQuantity : 0,
                 discountAmount: canViewPayments ? formatMoney(item.discountAmount) : "Restricted",
                 customerNotes: item.customerNotes,
                 internalNotes: item.internalNotes
