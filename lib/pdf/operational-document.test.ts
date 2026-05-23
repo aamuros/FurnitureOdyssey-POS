@@ -12,7 +12,7 @@ test("default PDF logo resolves to a local tracked image asset", () => {
   const logoPath = defaultPdfLogoPath();
   const logoSource = defaultPdfLogoSource();
 
-  assert.match(logoPath, /public[\\/]logo[\\/]logo\.png$/);
+  assert.match(logoPath, /public[\\/]logo[\\/]dream-home-mnl-logo\.png$/);
   assert.equal(existsSync(logoPath), true);
   assert.ok(logoSource, "default PDF logo source should be configured");
   assert.match(logoSource, /^data:image\/png;base64,/);
@@ -49,32 +49,36 @@ test("PDF money formatting uses clean ASCII currency text without sign glyphs", 
 
 test("shared operational PDF template uses the branded stationery sections on A4 without the old grid", () => {
   const source = readFileSync("lib/pdf/operational-document.tsx", "utf8");
+  const sharedSource = readFileSync("lib/pdf/dream-home-layout.tsx", "utf8");
 
   assert.match(source, /<Page size="A4"/);
-  assert.match(source, /<Image src=\{data\.company\.logoUrl\}/);
-  assert.match(source, /logo:\s*\{[\s\S]*objectFit:\s*"contain"/);
-  assert.match(source, /documentLabelForKind/);
-  assert.match(source, /Bill To:/);
+  assert.match(source, /<DreamHomeHeader/);
+  assert.doesNotMatch(source, /<DreamHomeHeader[^>]*compact/);
+  assert.match(source, /DreamHomePolicies/);
+  assert.match(source, /DreamHomePreparedBy/);
+  assert.match(source, /Issued To:/);
   assert.match(source, /documentDate/);
-  assert.match(source, /TERMS & CONDITION:/);
   assert.match(source, /BUYER\/RECEIVER SIGNATURE AND DATE/);
   assert.match(source, /I HEREBY ACKNOWLEDGE/);
-  assert.match(source, /tableHeader:\s*\{[\s\S]*backgroundColor:\s*"#b66a3c"/);
+  assert.match(source, /tableHeader:\s*\{[\s\S]*backgroundColor:\s*accent/);
+  assert.match(sharedSource, /dream-home-mnl-logo\.png/);
+  assert.match(sharedSource, /Font\.register/);
+  assert.match(sharedSource, /DREAM HOME MNL/);
+  assert.doesNotMatch(sharedSource, /compact(?:Header|Logo|CompanyName|Tagline|DocumentTitle)/);
   assert.doesNotMatch(source, /Document Details/);
   assert.doesNotMatch(source, /data\.subtitle \|\|/);
   assert.doesNotMatch(source, /fallbackText/);
-  assert.doesNotMatch(source, /position:/);
   assert.doesNotMatch(source, /zIndex:/);
 });
 
 test("shared operational PDF template maps every downloadable document type to a stationery label", () => {
-  const source = readFileSync("lib/pdf/operational-document.tsx", "utf8");
+  const source = readFileSync("lib/pdf/dream-home-layout.tsx", "utf8");
 
-  assert.match(source, /return "QUOTATION"/);
-  assert.match(source, /return "INVOICE"/);
-  assert.match(source, /return "RECEIPT"/);
-  assert.match(source, /return "DELIVERY COPY"/);
-  assert.match(source, /return "FINAL ORDER SUMMARY"/);
+  assert.match(source, /return "Product Quotation"/);
+  assert.match(source, /return "Sales Invoice"/);
+  assert.match(source, /return "Payment Receipt"/);
+  assert.match(source, /return "Delivery Receipt"/);
+  assert.match(source, /return "Final Order Summary"/);
 });
 
 test("PDF amount rows hide sales invoice fees and zero money rows while keeping final totals", () => {
@@ -111,8 +115,9 @@ test("PDF amount rows hide sales invoice fees and zero money rows while keeping 
 
 test("Dream Home quotation PDF uses the uploaded logo path and does not render a visible quotation number", async () => {
   const source = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
+  const sharedSource = readFileSync("lib/pdf/dream-home-layout.tsx", "utf8");
 
-  assert.match(source, /public", "logo", "dream-home-mnl-logo\.png"/);
+  assert.match(sharedSource, /public", "logo", "dream-home-mnl-logo\.png"/);
   assert.doesNotMatch(source, /public", "pdf", "dream-home-mnl-logo\.png"/);
   assert.doesNotMatch(source, /Quotation No\./);
 

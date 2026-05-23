@@ -1,13 +1,18 @@
 import React from "react";
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { generatedLabel } from "@/lib/pdf/data";
+import {
+  documentTitleForKind,
+  dreamHomeBrand,
+  dreamHomeColors,
+  dreamHomeFonts,
+  DreamHomeHeader,
+  DreamHomePolicies,
+  DreamHomePreparedBy
+} from "@/lib/pdf/dream-home-layout";
 import { formatDate, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
-const accent = "#b66a3c";
-const ink = "#3f2b22";
-const muted = "#7b6658";
-const border = "#d6c4b2";
+const { accent, dark, muted, border, softFill } = dreamHomeColors;
 
 const standardTerms = [
   "Items delivered/pickup will be considered in good condition if no claim has been made within 24 hours.",
@@ -15,88 +20,38 @@ const standardTerms = [
   "Buyer/receiver must inspect goods immediately upon receipt and note any damages or discrepancies on this document."
 ];
 
+const paymentReceiptTerms = [
+  "This receipt acknowledges the payment recorded for the order shown above.",
+  "Please keep this document for your reference."
+];
+
 const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 40,
-    paddingVertical: 32,
+    paddingTop: 24,
+    paddingBottom: 32,
     fontSize: 9,
-    color: ink,
-    fontFamily: "Helvetica",
+    color: dark,
+    fontFamily: dreamHomeFonts.body,
     lineHeight: 1.22,
     display: "flex",
     flexDirection: "column"
   },
   finalSummaryPage: {
     paddingHorizontal: 34,
-    paddingVertical: 24
-  },
-  header: {
-    alignItems: "center",
-    textAlign: "center",
-    paddingBottom: 8,
-    borderBottom: `1.2px solid ${accent}`,
-    marginBottom: 10
-  },
-  finalSummaryHeader: {
-    paddingBottom: 5,
-    marginBottom: 10
-  },
-  logo: {
-    width: 92,
-    height: 80,
-    objectFit: "contain",
-    marginBottom: 2
-  },
-  finalSummaryLogo: {
-    width: 74,
-    height: 58
-  },
-  company: {
-    fontSize: 19,
-    fontWeight: 700,
-    color: ink
-  },
-  finalSummaryCompany: {
-    fontSize: 17
-  },
-  tagline: {
-    marginTop: 1,
-    fontSize: 7.5,
-    letterSpacing: 1.2,
-    color: muted,
-    textTransform: "uppercase"
-  },
-  companyDetails: {
-    marginTop: 3,
-    fontSize: 7.5,
-    color: muted,
-    lineHeight: 1.18,
-    textAlign: "center"
-  },
-  documentLabel: {
-    marginTop: 0,
-    marginBottom: 9,
-    textAlign: "center",
-    fontSize: 15,
-    fontWeight: 700,
-    color: accent,
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
-  finalSummaryDocumentLabel: {
-    marginTop: 0,
-    marginBottom: 5,
-    fontSize: 14
+    paddingVertical: 24,
+    fontSize: 7.8,
+    lineHeight: 1.08
   },
   metaRow: {
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 20,
-    marginBottom: 6
+    marginBottom: 14
   },
   finalSummaryMetaRow: {
-    marginBottom: 3
+    marginBottom: 1
   },
   billTo: {
     flexGrow: 1,
@@ -116,7 +71,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 10.5,
     fontWeight: 700,
-    color: ink
+    color: dark
   },
   muted: {
     color: muted
@@ -137,9 +92,9 @@ const styles = StyleSheet.create({
     borderBottom: `1px solid ${border}`
   },
   finalSummaryReferenceBlock: {
-    marginTop: 2,
-    marginBottom: 4,
-    paddingVertical: 2
+    marginTop: 1,
+    marginBottom: 2,
+    paddingVertical: 1
   },
   compactRow: {
     display: "flex",
@@ -150,7 +105,7 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "row",
     gap: 10,
-    paddingVertical: 1.2
+    paddingVertical: 0.3
   },
   pairedCell: {
     display: "flex",
@@ -172,23 +127,25 @@ const styles = StyleSheet.create({
     marginTop: 7
   },
   finalSummarySection: {
-    marginTop: 4
+    marginTop: 2
   },
   sectionTitle: {
     marginBottom: 3,
     fontSize: 8,
     fontWeight: 700,
-    color: ink,
+    color: dark,
     textTransform: "uppercase"
   },
   tableHeader: {
     display: "flex",
     flexDirection: "row",
-    backgroundColor: "#b66a3c",
-    paddingVertical: 4,
-    paddingHorizontal: 5,
+    backgroundColor: accent,
+    paddingVertical: 6.5,
+    paddingHorizontal: 8,
     fontWeight: 700,
-    color: "#ffffff"
+    color: "#ffffff",
+    letterSpacing: 0.6,
+    textTransform: "uppercase"
   },
   finalSummaryTableHeader: {
     paddingVertical: 3
@@ -196,16 +153,18 @@ const styles = StyleSheet.create({
   tableRow: {
     display: "flex",
     flexDirection: "row",
+    borderLeft: `1px solid ${border}`,
+    borderRight: `1px solid ${border}`,
     borderBottom: `1px solid ${border}`,
-    paddingVertical: 3,
-    paddingHorizontal: 5
+    paddingVertical: 6,
+    paddingHorizontal: 8
   },
   finalSummaryTableRow: {
-    paddingVertical: 2
+    paddingVertical: 2.2
   },
   itemName: {
-    width: "43%",
-    paddingRight: 8
+    width: "50%",
+    paddingHorizontal: 6
   },
   itemImage: {
     width: 24,
@@ -219,17 +178,28 @@ const styles = StyleSheet.create({
     flexBasis: 0
   },
   qty: {
-    width: "12%",
-    textAlign: "right"
+    width: "10%",
+    textAlign: "center"
   },
   money: {
-    width: "15%",
+    width: "20%",
     textAlign: "right"
   },
+  deliveryQty: {
+    width: "15%",
+    textAlign: "center"
+  },
+  deliveryDesc: {
+    width: "45%",
+    paddingHorizontal: 6
+  },
+  deliveryNotes: {
+    width: "25%"
+  },
   totalsBlock: {
-    marginTop: 4,
+    marginTop: 12,
     marginLeft: "auto",
-    width: 210
+    width: 225
   },
   finalSummaryTotalsBlock: {
     marginTop: 2
@@ -238,7 +208,7 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "row",
     borderBottom: `1px solid ${border}`,
-    paddingVertical: 2
+    paddingVertical: 4
   },
   finalSummaryTotalRow: {
     paddingVertical: 1.4
@@ -259,12 +229,12 @@ const styles = StyleSheet.create({
   paymentBox: {
     marginTop: 7,
     border: `1px solid ${border}`,
-    backgroundColor: "#f8f3ec",
+    backgroundColor: softFill,
     padding: 6
   },
   finalSummaryPaymentBox: {
-    marginTop: 4,
-    padding: 4
+    marginTop: 2,
+    padding: 3
   },
   terms: {
     marginTop: 8,
@@ -272,7 +242,7 @@ const styles = StyleSheet.create({
     lineHeight: 1.2
   },
   finalSummaryTerms: {
-    marginTop: 5
+    marginTop: 2
   },
   termRow: {
     display: "flex",
@@ -287,8 +257,10 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 7.5,
     color: muted,
-    fontStyle: "italic",
     lineHeight: 1.2
+  },
+  policyAndSignatureBlock: {
+    marginTop: 0
   },
   signatureBlock: {
     marginTop: "auto",
@@ -301,13 +273,13 @@ const styles = StyleSheet.create({
   },
   signatureRule: {
     width: 245,
-    borderTop: `1px solid ${ink}`,
+    borderTop: `1px solid ${dark}`,
     marginBottom: 4
   },
   signatureLabel: {
     fontSize: 7.5,
     fontWeight: 700,
-    color: ink
+    color: dark
   },
   signatureAcknowledgement: {
     marginTop: 2,
@@ -318,7 +290,9 @@ const styles = StyleSheet.create({
 
 export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
   const isFinalSummary = data.kind === "final-order-summary";
-  const companyDetailLines = companyLines(data);
+  const isDeliveryReceipt = data.kind === "delivery-receipt";
+  const isPaymentReceipt = data.kind === "payment-receipt";
+  const isInvoice = data.kind === "invoice";
   const customerLines = presentValues([data.customer.detail, data.customer.contact, data.customer.address]);
   const referenceRows = visibleRows(data.summary);
   const totalRows = visibleAmountRows(data.totals ?? []);
@@ -330,34 +304,13 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
   ]);
 
   return (
-    <Document title={data.title} author={data.company.displayName}>
+    <Document title={data.title} author={dreamHomeBrand.companyName}>
       <Page size="A4" style={isFinalSummary ? [styles.page, styles.finalSummaryPage] : styles.page}>
-        <View style={isFinalSummary ? [styles.header, styles.finalSummaryHeader] : styles.header}>
-          {data.company.logoUrl ? (
-            // React-PDF Image does not expose an alt prop in its TypeScript API.
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <Image src={data.company.logoUrl} style={isFinalSummary ? [styles.logo, styles.finalSummaryLogo] : styles.logo} />
-          ) : null}
-          <Text style={isFinalSummary ? [styles.company, styles.finalSummaryCompany] : styles.company}>
-            {data.company.displayName}
-          </Text>
-          {data.company.registeredName ? <Text style={styles.tagline}>{data.company.registeredName}</Text> : null}
-          {companyDetailLines.length ? (
-            <View style={styles.companyDetails}>
-              {companyDetailLines.map((line) => (
-                <Text key={line}>{line}</Text>
-              ))}
-            </View>
-          ) : null}
-        </View>
-
-        <Text style={isFinalSummary ? [styles.documentLabel, styles.finalSummaryDocumentLabel] : styles.documentLabel}>
-          {documentLabelForKind(data.kind)}
-        </Text>
+        <DreamHomeHeader title={documentTitleForKind(data.kind)} />
 
         <View style={isFinalSummary ? [styles.metaRow, styles.finalSummaryMetaRow] : styles.metaRow}>
           <View style={styles.billTo}>
-            <Text style={styles.smallLabel}>Bill To:</Text>
+            <Text style={styles.smallLabel}>{isDeliveryReceipt ? "Deliver To:" : "Issued To:"}</Text>
             <Text style={styles.customerName}>{data.customer.displayName}</Text>
             {customerLines.map((line) => (
               <Text key={line} style={styles.muted}>
@@ -366,9 +319,8 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
             ))}
           </View>
           <View style={styles.dateBox}>
-            <Text style={styles.smallLabel}>Date</Text>
+            <Text style={styles.smallLabel}>Date:</Text>
             <Text style={styles.customerName}>{documentDate(data)}</Text>
-            <Text style={styles.generated}>{generatedLabel(data)}</Text>
           </View>
         </View>
 
@@ -386,14 +338,24 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           {data.items?.length ? (
             <View style={isFinalSummary ? [styles.section, styles.finalSummarySection] : styles.section}>
               <View style={isFinalSummary ? [styles.tableHeader, styles.finalSummaryTableHeader] : styles.tableHeader}>
-                <Text style={styles.qty}>Qty</Text>
-                <Text style={styles.itemName}>Description</Text>
-                <Text style={styles.money}>Unit Price</Text>
-                <Text style={styles.money}>Discount</Text>
-                <Text style={styles.money}>Amount</Text>
+                {isDeliveryReceipt ? (
+                  <>
+                    <Text style={styles.deliveryQty}>QTY</Text>
+                    <Text style={styles.deliveryDesc}>DESCRIPTION</Text>
+                    <Text style={styles.deliveryQty}>DELIVERED</Text>
+                    <Text style={styles.deliveryNotes}>NOTES</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.qty}>QTY</Text>
+                    <Text style={styles.itemName}>DESCRIPTION</Text>
+                    <Text style={styles.money}>UNIT PRICE</Text>
+                    <Text style={styles.money}>TOTAL</Text>
+                  </>
+                )}
               </View>
               {data.items.map((item, index) => (
-                <ItemRow key={`${item.name}-${index}`} item={item} compact={isFinalSummary} />
+                <ItemRow key={`${item.name}-${index}`} item={item} compact={isFinalSummary} delivery={isDeliveryReceipt} />
               ))}
             </View>
           ) : null}
@@ -449,23 +411,32 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
             </View>
           ) : null}
 
-          <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms}>
-            <Text style={styles.sectionTitle}>TERMS & CONDITION:</Text>
-            {standardTerms.map((term) => (
-              <View key={term} style={styles.termRow}>
-                <Text style={styles.bullet}>-</Text>
-                <Text>{term}</Text>
-              </View>
-            ))}
-            <View style={styles.footer}>
-              <Text>{footerNote(data)}</Text>
+          {isInvoice ? (
+            <View style={styles.policyAndSignatureBlock} wrap={false}>
+              <DreamHomePolicies compact />
+              <DreamHomePreparedBy />
             </View>
-          </View>
+          ) : null}
 
-          {isFinalSummary ? <SignatureBlock compact /> : null}
+          {isInvoice ? null : (
+            <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms}>
+              <Text style={styles.sectionTitle}>{isPaymentReceipt || isDeliveryReceipt ? "Note:" : "Terms:"}</Text>
+              {(isPaymentReceipt ? paymentReceiptTerms : standardTerms).map((term) => (
+                <View key={term} style={styles.termRow}>
+                  <Text style={styles.bullet}>-</Text>
+                  <Text>{term}</Text>
+                </View>
+              ))}
+              <View style={styles.footer}>
+                <Text>{footerNote(data)}</Text>
+              </View>
+            </View>
+          )}
+
+          {isFinalSummary ? <DreamHomePreparedBy compact /> : null}
         </View>
 
-        {isFinalSummary ? null : <SignatureBlock />}
+        {data.signatureRequired && isDeliveryReceipt ? <SignatureBlock /> : null}
       </Page>
     </Document>
   );
@@ -525,53 +496,54 @@ function SignatureBlock({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function ItemRow({ item, compact = false }: { item: PdfItemRow; compact?: boolean }) {
+function ItemRow({ item, compact = false, delivery = false }: { item: PdfItemRow; compact?: boolean; delivery?: boolean }) {
   const descriptionParts = presentValues([item.description, item.discountDetail, item.notes]);
+
+  if (delivery) {
+    return (
+      <View style={compact ? [styles.tableRow, styles.finalSummaryTableRow] : styles.tableRow} wrap={false}>
+        <Text style={styles.deliveryQty}>{item.quantity}</Text>
+        <View style={styles.deliveryDesc}>
+          <ItemDescription item={item} descriptionParts={presentValues([item.description])} />
+        </View>
+        <Text style={styles.deliveryQty}>{item.quantityDelivered ?? ""}</Text>
+        <Text style={styles.deliveryNotes}>{item.notes ?? ""}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={compact ? [styles.tableRow, styles.finalSummaryTableRow] : styles.tableRow} wrap={false}>
       <Text style={styles.qty}>
-        {item.quantityDelivered ? `${item.quantity} planned\n${item.quantityDelivered} delivered` : item.quantity}
+        {item.quantity}
       </Text>
       <View style={styles.itemName}>
-        <View style={{ display: "flex", flexDirection: "row" }}>
-          {item.imageUrl ? (
-            // React-PDF Image does not expose an alt prop in its TypeScript API.
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <Image src={item.imageUrl} style={styles.itemImage} />
-          ) : null}
-          <View style={styles.itemBody}>
-            <Text>{presentValues([item.code, item.name]).join(" - ")}</Text>
-            {descriptionParts.map((line) => (
-              <Text key={line} style={styles.muted}>
-                {line}
-              </Text>
-            ))}
-          </View>
-        </View>
+        <ItemDescription item={item} descriptionParts={descriptionParts} />
       </View>
       <Text style={styles.money}>{isPresent(item.unitPrice) ? item.unitPrice : ""}</Text>
-      <Text style={styles.money}>{isPresent(item.discount) ? item.discount : ""}</Text>
       <Text style={styles.money}>{isPresent(item.total) ? item.total : ""}</Text>
     </View>
   );
 }
 
-function documentLabelForKind(kind: OperationalPdfData["kind"]) {
-  switch (kind) {
-    case "quotation":
-      return "QUOTATION";
-    case "invoice":
-      return "INVOICE";
-    case "payment-receipt":
-      return "RECEIPT";
-    case "delivery-receipt":
-      return "DELIVERY COPY";
-    case "final-order-summary":
-      return "FINAL ORDER SUMMARY";
-    default:
-      return "DOCUMENT";
-  }
+function ItemDescription({ item, descriptionParts }: { item: PdfItemRow; descriptionParts: string[] }) {
+  return (
+    <View style={{ display: "flex", flexDirection: "row" }}>
+      {item.imageUrl ? (
+        // React-PDF Image does not expose an alt prop in its TypeScript API.
+        // eslint-disable-next-line jsx-a11y/alt-text
+        <Image src={item.imageUrl} style={styles.itemImage} />
+      ) : null}
+      <View style={styles.itemBody}>
+        <Text>{presentValues([item.code, item.name]).join(" - ")}</Text>
+        {descriptionParts.map((line) => (
+          <Text key={line} style={styles.muted}>
+            {line}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function documentDate(data: OperationalPdfData) {
@@ -580,24 +552,19 @@ function documentDate(data: OperationalPdfData) {
   return dateRow?.value ?? formatDate(data.generatedAt);
 }
 
-function companyLines(data: OperationalPdfData) {
-  const contactLine = presentValues([
-    data.company.contactNumber,
-    data.company.facebookPage,
-    data.company.websiteUrl
-  ]).join(" | ");
-
-  return presentValues([data.company.address, contactLine, data.company.email]);
-}
-
 function visibleRows(rows: PdfSummaryRow[]) {
-  return rows.filter((row) => shouldDisplayPdfAmountRow(row));
+  return rows.filter((row) =>
+    shouldDisplayPdfAmountRow(row, {
+      alwaysShowLabels: [/^(final total|total paid|amount paid|payment amount|balance|balance after)$/i],
+      hideZeroMoneyRows: true
+    })
+  );
 }
 
 function visibleAmountRows(rows: PdfSummaryRow[]) {
   return rows.filter((row) =>
     shouldDisplayPdfAmountRow(row, {
-      alwaysShowLabels: [/^(final total|total|paid|balance)$/i],
+      alwaysShowLabels: [/^(final total|total|total paid|paid|balance|amount paid|payment amount|balance after)$/i],
       hideZeroMoneyRows: true
     })
   );
@@ -620,5 +587,5 @@ function footerNote(data: OperationalPdfData) {
     return data.company.footer;
   }
 
-  return `This ${documentLabelForKind(data.kind).toLowerCase()} is generated for Furniture Odyssey sales operations and does not claim tax or accounting compliance.`;
+  return `This ${documentTitleForKind(data.kind).toLowerCase()} is generated for Furniture Odyssey sales operations.`;
 }

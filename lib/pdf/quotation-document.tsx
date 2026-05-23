@@ -1,88 +1,18 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import React from "react";
-import { Document, Font, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import {
+  documentTitleForKind,
+  dreamHomeBrand,
+  dreamHomeColors,
+  dreamHomeFonts,
+  DreamHomeHeader,
+  DreamHomePolicies,
+  DreamHomePreparedBy
+} from "@/lib/pdf/dream-home-layout";
 import { isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
-const brand = {
-  companyName: "DREAM HOME MNL",
-  tagline: "D H M  F U R N I T U R E S  O N L I N E  S T O R E",
-  address: "129 CALIRAYA DRIVE SMDP MARIAN LAKEVIEW PARANAQUE CITY",
-  contact: "CONTACT NUMBER: 09603123335",
-  email: "EMAIL ADDRESS: DREAMHOMEMNL01@GMAIL.COM",
-  preparedBy: "Arriane Escobia",
-  preparedBySubtitle: "DHM Online store"
-};
-
-const brandGold = "#a87546";
-const accent = "#c28a4f";
-const dark = "#222222";
-const muted = "#6f6258";
-const border = "#d8d0c6";
-
-const fontFiles = {
-  aleoRegular: firstExistingPath("Aleo-Regular.ttf"),
-  aleoBold: firstExistingPath("Aleo-Bold.ttf"),
-  balginRegular: firstExistingPath("Balgin-Regular.ttf", "Balgin-Regular.otf"),
-  openSansRegular: firstExistingPath("OpenSans-Regular.ttf"),
-  openSansSemiBold: firstExistingPath("OpenSans-SemiBold.ttf"),
-  openSansBold: firstExistingPath("OpenSans-Bold.ttf")
-};
-
-const fontFamilies = registerQuotationFonts();
-const logoSource = imageSource(path.join(process.cwd(), "public", "logo", "dream-home-mnl-logo.png"));
-const signatureSource = imageSource(firstExistingAssetPath(
-  path.join(process.cwd(), "public", "sign.png"),
-  path.join(process.cwd(), "public", "logo", "sign.png")
-));
-
-type QuotationPolicy =
-  | {
-      label: string;
-      lines: string[];
-    }
-  | {
-      label: string;
-      text: string;
-    };
-
-const policies: QuotationPolicy[] = [
-  {
-    label: "1. Payment Policy and Delivery Options",
-    lines: [
-      "a. Customers can choose to make full payment at the time of ordering to secure their products, with delivery scheduled for a later date.",
-      "b. Cash on delivery applies to orders scheduled for immediate delivery, subject to serviceable areas.",
-      "c. Down payments are accepted depending on delivery schedule and agreement.",
-      "d. Payment-first policy applies to transactions outside Metro Manila or nearby provinces.",
-      "e. Check payments require clearing before delivery."
-    ]
-  },
-  {
-    label: "2. Shipping Fees:",
-    text: "Shipping fees are not included, and applicable toll fees will be covered by the client."
-  },
-  {
-    label: "3. Delivery Terms:",
-    text: "Items will be delivered unassembled, and assembly fees will apply when requested."
-  },
-  {
-    label: "4. Warranty:",
-    text: "Warranty covers factory defects only; change of mind is not accepted."
-  },
-  {
-    label: "5. Payment Method:",
-    text: "Payments are to be made via bank transfer unless otherwise agreed."
-  },
-  {
-    label: "6. Delivery Instructions:",
-    text: "Clients should provide delivery instructions, including if a helper is needed for unloading. Additional charges may apply."
-  },
-  {
-    label: "7. Assembly Policy:",
-    text: "Assembled items are considered sold and are not eligible for return or exchange."
-  }
-];
+const { accent, dark, muted, border } = dreamHomeColors;
 
 const styles = StyleSheet.create({
   page: {
@@ -91,68 +21,43 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     backgroundColor: "#ffffff",
     color: dark,
-    fontFamily: fontFamilies.body,
+    fontFamily: dreamHomeFonts.body,
     fontSize: 9.2,
     lineHeight: 1.35
-  },
-  header: {
-    alignItems: "center",
-    textAlign: "center",
-    marginBottom: 20
-  },
-  logo: {
-    width: 152,
-    height: 118,
-    objectFit: "contain",
-    marginBottom: 5
-  },
-  companyName: {
-    fontFamily: fontFamilies.aleo,
-    fontSize: 20,
-    fontWeight: 700,
-    letterSpacing: 1,
-    color: brandGold
-  },
-  tagline: {
-    marginTop: 10,
-    fontFamily: fontFamilies.balgin,
-    fontSize: 8.2,
-    letterSpacing: 1.45,
-    color: brandGold
-  },
-  brandLine: {
-    marginTop: 1.6,
-    fontSize: 6.8,
-    letterSpacing: 0.35,
-    color: muted
   },
   issuedRow: {
     display: "flex",
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 20,
-    marginBottom: 6
+    marginBottom: 14
   },
   issuedCell: {
     flexGrow: 1,
     flexBasis: 0,
     display: "flex",
     flexDirection: "row",
-    gap: 5
+    gap: 5,
+    fontFamily: dreamHomeFonts.body,
+    fontWeight: 400
   },
   dateCell: {
     width: 172,
     display: "flex",
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 5
+    gap: 5,
+    fontFamily: dreamHomeFonts.body,
+    fontWeight: 400
   },
   label: {
     fontWeight: 700,
     color: dark
   },
   table: {
-    marginTop: 0
+    marginTop: 0,
+    fontFamily: dreamHomeFonts.body,
+    fontWeight: 400
   },
   tableHeader: {
     display: "flex",
@@ -182,6 +87,21 @@ const styles = StyleSheet.create({
     width: "50%",
     paddingHorizontal: 6
   },
+  itemDescription: {
+    display: "flex",
+    flexDirection: "row"
+  },
+  itemImage: {
+    width: 28,
+    height: 28,
+    objectFit: "cover",
+    marginRight: 6,
+    border: `1px solid ${border}`
+  },
+  itemBody: {
+    flexGrow: 1,
+    flexBasis: 0
+  },
   priceCol: {
     width: "20%",
     textAlign: "right"
@@ -201,7 +121,9 @@ const styles = StyleSheet.create({
   totalsBlock: {
     marginTop: 12,
     marginLeft: "auto",
-    width: 225
+    width: 225,
+    fontFamily: dreamHomeFonts.body,
+    fontWeight: 400
   },
   totalRow: {
     display: "flex",
@@ -234,54 +156,8 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     textAlign: "right"
   },
-  terms: {
-    marginTop: 18,
-    fontSize: 7.8,
-    lineHeight: 1.32
-  },
-  policyBlock: {
-    marginBottom: 4
-  },
-  policyTitle: {
-    fontWeight: 700
-  },
-  policyLine: {
-    marginTop: 1.5
-  },
-  preparedBy: {
-    marginTop: 18,
-    width: 210,
-    textAlign: "center"
-  },
-  preparedLabel: {
-    marginBottom: 2,
-    fontSize: 8,
-    fontWeight: 700,
-    textAlign: "left"
-  },
-  signatureArea: {
-    position: "relative",
-    height: 46,
-    justifyContent: "flex-end"
-  },
-  signature: {
-    position: "absolute",
-    left: 45,
-    bottom: 8,
-    width: 120,
-    height: 38,
-    objectFit: "contain",
-    zIndex: 2
-  },
-  preparedName: {
-    borderTop: `1px solid ${dark}`,
-    paddingTop: 3,
-    fontWeight: 700,
-    zIndex: 1
-  },
-  preparedSubtitle: {
-    fontSize: 8,
-    color: muted
+  policyAndSignatureBlock: {
+    marginTop: 0
   }
 });
 
@@ -289,20 +165,9 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
   const totalRows = visibleRows(data.totals ?? []);
 
   return (
-    <Document title={data.title} author={brand.companyName}>
+    <Document title={data.title} author={dreamHomeBrand.companyName}>
       <Page size="A4" style={styles.page}>
-        <View style={styles.header} fixed>
-          {logoSource ? (
-            // React-PDF Image does not expose an alt prop in its TypeScript API.
-            // eslint-disable-next-line jsx-a11y/alt-text
-            <Image src={logoSource} style={styles.logo} />
-          ) : null}
-          <Text style={styles.companyName}>{brand.companyName}</Text>
-          <Text style={styles.tagline}>{brand.tagline}</Text>
-          <Text style={styles.brandLine}>{brand.address}</Text>
-          <Text style={styles.brandLine}>{brand.contact}</Text>
-          <Text style={styles.brandLine}>{brand.email}</Text>
-        </View>
+        <DreamHomeHeader title={documentTitleForKind(data.kind)} fixed />
 
         <View style={styles.issuedRow} wrap={false}>
           <View style={styles.issuedCell}>
@@ -344,39 +209,9 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
           </View>
         ) : null}
 
-        <View style={styles.terms} wrap={false}>
-          {policies.map((policy) => (
-            <View key={policy.label} style={styles.policyBlock}>
-              {"lines" in policy ? (
-                <>
-                  <Text style={styles.policyTitle}>{policy.label}</Text>
-                  {policy.lines.map((line) => (
-                    <Text key={line} style={styles.policyLine}>
-                      {line}
-                    </Text>
-                  ))}
-                </>
-              ) : (
-                <Text>
-                  <Text style={styles.policyTitle}>{policy.label} </Text>
-                  {policy.text}
-                </Text>
-              )}
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.preparedBy} wrap={false}>
-          <Text style={styles.preparedLabel}>PREPARED BY:</Text>
-          <View style={styles.signatureArea}>
-            {signatureSource ? (
-              // React-PDF Image does not expose an alt prop in its TypeScript API.
-              // eslint-disable-next-line jsx-a11y/alt-text
-              <Image src={signatureSource} style={styles.signature} />
-            ) : null}
-            <Text style={styles.preparedName}>{brand.preparedBy}</Text>
-          </View>
-          <Text style={styles.preparedSubtitle}>{brand.preparedBySubtitle}</Text>
+        <View style={styles.policyAndSignatureBlock} wrap={false}>
+          <DreamHomePolicies />
+          <DreamHomePreparedBy />
         </View>
       </Page>
     </Document>
@@ -391,12 +226,21 @@ function QuotationItemRow({ item }: { item: PdfItemRow }) {
     <View style={styles.tableRow} wrap={false}>
       <Text style={styles.qtyCol}>{item.quantity}</Text>
       <View style={styles.descCol}>
-        <Text style={styles.itemName}>{description}</Text>
-        {detailLines.map((line) => (
-          <Text key={line} style={styles.itemDetail}>
-            {line}
-          </Text>
-        ))}
+        <View style={styles.itemDescription}>
+          {item.imageUrl ? (
+            // React-PDF Image does not expose an alt prop in its TypeScript API.
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image src={item.imageUrl} style={styles.itemImage} />
+          ) : null}
+          <View style={styles.itemBody}>
+            <Text style={styles.itemName}>{description}</Text>
+            {detailLines.map((line) => (
+              <Text key={line} style={styles.itemDetail}>
+                {line}
+              </Text>
+            ))}
+          </View>
+        </View>
       </View>
       <Text style={styles.priceCol}>{item.unitPrice ?? ""}</Text>
       <Text style={styles.totalCol}>{item.total ?? ""}</Text>
@@ -431,70 +275,4 @@ function presentValues(values: Array<string | null | undefined>) {
 
 function isPresent(value: string | null | undefined): value is string {
   return isPresentPdfText(value);
-}
-
-function registerQuotationFonts() {
-  const openSansSources = [
-    fontSource(fontFiles.openSansRegular, 400),
-    fontSource(fontFiles.openSansSemiBold, 600),
-    fontSource(fontFiles.openSansBold, 700)
-  ].filter((source): source is { src: string; fontWeight: number } => Boolean(source));
-
-  if (openSansSources.length) {
-    Font.register({ family: "Open Sans", fonts: openSansSources });
-  }
-
-  const aleoSources = [
-    fontSource(fontFiles.aleoRegular, 400),
-    fontSource(fontFiles.aleoBold, 700)
-  ].filter((source): source is { src: string; fontWeight: number } => Boolean(source));
-
-  if (aleoSources.length) {
-    Font.register({ family: "Aleo", fonts: aleoSources });
-  }
-
-  if (fontFiles.balginRegular && existsSync(fontFiles.balginRegular)) {
-    Font.register({ family: "Balgin", src: fontFiles.balginRegular });
-  }
-
-  return {
-    body: openSansSources.length ? "Open Sans" : "Helvetica",
-    aleo: aleoSources.length ? "Aleo" : "Helvetica",
-    balgin: fontFiles.balginRegular && existsSync(fontFiles.balginRegular) ? "Balgin" : "Helvetica"
-  };
-}
-
-function fontSource(src: string | null, fontWeight: number) {
-  return src && existsSync(src) ? { src, fontWeight } : null;
-}
-
-function firstExistingPath(...filenames: string[]) {
-  const roots = [
-    path.join(process.cwd(), "public", "fonts"),
-    path.join(process.cwd(), "public", "logo", "fonts")
-  ];
-
-  for (const root of roots) {
-    for (const filename of filenames) {
-      const candidate = path.join(root, filename);
-
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-    }
-  }
-
-  return path.join(roots[0], filenames[0]);
-}
-
-function imageSource(src: string) {
-  if (!existsSync(src)) {
-    return null;
-  }
-
-  return `data:image/png;base64,${readFileSync(src).toString("base64")}`;
-}
-
-function firstExistingAssetPath(...candidates: string[]) {
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }

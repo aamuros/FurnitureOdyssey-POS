@@ -4,10 +4,16 @@ import path from "node:path";
 let cachedDefaultLogoSource: string | null | undefined;
 
 export function defaultPdfLogoPath() {
-  const publicLogoPath = path.join(process.cwd(), "public", "logo", "logo.png");
+  const publicLogoPath = path.join(process.cwd(), "public", "logo", "dream-home-mnl-logo.png");
 
   if (existsSync(publicLogoPath)) {
     return publicLogoPath;
+  }
+
+  const legacyPublicLogoPath = path.join(process.cwd(), "public", "logo", "logo.png");
+
+  if (existsSync(legacyPublicLogoPath)) {
+    return legacyPublicLogoPath;
   }
 
   return path.join(process.cwd(), "assets", "pdf", "logo.png");
