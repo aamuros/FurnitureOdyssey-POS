@@ -65,8 +65,10 @@ export async function updateCompanyProfileSettingsAction(
     companyProfile: parsed.data
   };
 
-  await saveAppSettings(next, actor.id);
-  await logSettingsUpdate(actor.id, "company profile");
+  await Promise.all([
+    saveAppSettings(next, actor.id),
+    logSettingsUpdate(actor.id, "company profile")
+  ]);
 
   revalidatePath("/settings");
   return {
@@ -101,8 +103,10 @@ export async function updatePaymentSettingsAction(
     payment: parsed.data
   };
 
-  await saveAppSettings(next, actor.id);
-  await logSettingsUpdate(actor.id, "payment and MOP");
+  await Promise.all([
+    saveAppSettings(next, actor.id),
+    logSettingsUpdate(actor.id, "payment and MOP")
+  ]);
 
   revalidatePath("/settings");
   return {
@@ -143,8 +147,10 @@ export async function updateDocumentSettingsAction(
     documents: parsed.data
   };
 
-  await saveAppSettings(next, actor.id);
-  await logSettingsUpdate(actor.id, "document and PDF defaults");
+  await Promise.all([
+    saveAppSettings(next, actor.id),
+    logSettingsUpdate(actor.id, "document and PDF defaults")
+  ]);
 
   revalidatePath("/settings");
   return {

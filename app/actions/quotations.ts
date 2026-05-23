@@ -194,8 +194,11 @@ export async function createQuotationAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("QUOTATIONS", "CREATE");
   const intent = String(formData.get("intent") ?? "save_draft");
-  if (intent === "save_mark_sent") {
-    await requirePermission("QUOTATIONS", "UPDATE");
+  if (intent === "save_mark_sent" && !hasPermission(actor, "QUOTATIONS", "UPDATE")) {
+    return {
+      ok: false,
+      message: "You don't have permission to mark quotations as sent."
+    };
   }
   const parsed = parseQuotationInput(formData);
 
@@ -260,38 +263,44 @@ export async function createQuotationAction(
       }
     });
 
-    if (parsed.data.inquiryId) {
-      await tx.inquiry.update({
-        where: {
-          id: parsed.data.inquiryId
-        },
+    const sideEffects: Promise<unknown>[] = [
+      tx.activityLog.create({
         data: {
-          status: "QUOTED"
+          action: "QUOTATION_CREATED",
+          actorId: actor.id,
+          summary: `Created ${nextStatus.toLowerCase()} quotation for ${references.customer.displayName}.`,
+          metadata: {
+            quotationId: created.id,
+            quotationNumber: created.quotationNumber,
+            customerId: references.customer.id,
+            inquiryId: parsed.data.inquiryId ?? "",
+            totalAmount: totals.totalAmount,
+            assemblyFeeTotal: totals.assemblyFeeTotal,
+            salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
+            needsAssembly: parsed.data.needsAssembly,
+            salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+            modeOfDelivery: parsed.data.modeOfDelivery,
+            deliveryMethod: parsed.data.deliveryMethod,
+            paymentTerms: parsed.data.paymentTerms
+          }
         }
-      });
+      })
+    ];
+
+    if (parsed.data.inquiryId) {
+      sideEffects.push(
+        tx.inquiry.update({
+          where: {
+            id: parsed.data.inquiryId
+          },
+          data: {
+            status: "QUOTED"
+          }
+        })
+      );
     }
 
-    await tx.activityLog.create({
-      data: {
-        action: "QUOTATION_CREATED",
-        actorId: actor.id,
-        summary: `Created ${nextStatus.toLowerCase()} quotation for ${references.customer.displayName}.`,
-        metadata: {
-          quotationId: created.id,
-          quotationNumber: created.quotationNumber,
-          customerId: references.customer.id,
-          inquiryId: parsed.data.inquiryId ?? "",
-          totalAmount: totals.totalAmount,
-          assemblyFeeTotal: totals.assemblyFeeTotal,
-          salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
-          needsAssembly: parsed.data.needsAssembly,
-          salesInvoiceRequested: parsed.data.salesInvoiceRequested,
-          modeOfDelivery: parsed.data.modeOfDelivery,
-          deliveryMethod: parsed.data.deliveryMethod,
-          paymentTerms: parsed.data.paymentTerms
-        }
-      }
-    });
+    await Promise.all(sideEffects);
 
     return created;
   });
@@ -337,18 +346,19 @@ export async function updateDraftQuotationAction(
     };
   }
 
-  const existing = await prisma.quotation.findUnique({
-    where: {
-      id: quotationId
-    },
-    include: {
-      customer: {
-        select: {
-          displayName: true
-        }
+  const [existing, references] = await Promise.all([
+    prisma.quotation.findUnique({
+      where: {
+        id: quotationId
+      },
+      select: {
+        id: true,
+        status: true,
+        quotationNumber: true
       }
-    }
-  });
+    }),
+    validateQuotationReferences(parsed.data)
+  ]);
 
   if (!existing) {
     return {
@@ -363,8 +373,6 @@ export async function updateDraftQuotationAction(
       message: "Only draft or sent quotations can be edited."
     };
   }
-
-  const references = await validateQuotationReferences(parsed.data);
 
   if (!references.ok) {
     return references;
@@ -393,58 +401,59 @@ export async function updateDraftQuotationAction(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.quotation.update({
-      where: {
-        id: existing.id
-      },
-      data: {
-        customerId: parsed.data.customerId,
-        inquiryId: parsed.data.inquiryId,
-        status: nextStatus,
-        subtotalAmount: totals.subtotalAmount,
-        itemDiscountTotal: totals.itemDiscountTotal,
-        quotationDiscountType: parsed.data.quotationDiscountType as DiscountType | undefined,
-        quotationDiscountValue: parsed.data.quotationDiscountValue,
-        quotationDiscountAmount: totals.quotationDiscountAmount,
-        assemblyFeeTotal: totals.assemblyFeeTotal,
-        salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
-        totalAmount: totals.totalAmount,
-        needsAssembly: parsed.data.needsAssembly,
-        salesInvoiceRequested: parsed.data.salesInvoiceRequested,
-        modeOfDelivery: parsed.data.modeOfDelivery,
-        deliveryMethod: parsed.data.deliveryMethod,
-        paymentTerms: parsed.data.paymentTerms,
-        specialInstructions: parsed.data.specialInstructions,
-        customerNotes: parsed.data.customerNotes,
-        internalNotes: parsed.data.internalNotes,
-        updatedById: actor.id,
-        items: {
-          deleteMany: {},
-          create: parsed.data.items.map(quotationItemCreateData)
-        }
-      }
-    });
-
-    await tx.activityLog.create({
-      data: {
-        action: "QUOTATION_UPDATED",
-        actorId: actor.id,
-        summary: `Updated quotation for ${references.customer.displayName}.`,
-        metadata: {
-          entityType: "quotation",
-          entityId: existing.id,
-          quotationId: existing.id,
-          quotationNumber: existing.quotationNumber,
-          customerId: references.customer.id,
-          oldStatus: existing.status,
-          newStatus: nextStatus,
-          totalAmount: totals.totalAmount,
+    await Promise.all([
+      tx.quotation.update({
+        where: {
+          id: existing.id
+        },
+        data: {
+          customerId: parsed.data.customerId,
+          inquiryId: parsed.data.inquiryId,
+          status: nextStatus,
+          subtotalAmount: totals.subtotalAmount,
+          itemDiscountTotal: totals.itemDiscountTotal,
+          quotationDiscountType: parsed.data.quotationDiscountType as DiscountType | undefined,
+          quotationDiscountValue: parsed.data.quotationDiscountValue,
+          quotationDiscountAmount: totals.quotationDiscountAmount,
           assemblyFeeTotal: totals.assemblyFeeTotal,
           salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
-          sourceAction: "quotation_update"
+          totalAmount: totals.totalAmount,
+          needsAssembly: parsed.data.needsAssembly,
+          salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+          modeOfDelivery: parsed.data.modeOfDelivery,
+          deliveryMethod: parsed.data.deliveryMethod,
+          paymentTerms: parsed.data.paymentTerms,
+          specialInstructions: parsed.data.specialInstructions,
+          customerNotes: parsed.data.customerNotes,
+          internalNotes: parsed.data.internalNotes,
+          updatedById: actor.id,
+          items: {
+            deleteMany: {},
+            create: parsed.data.items.map(quotationItemCreateData)
+          }
         }
-      }
-    });
+      }),
+      tx.activityLog.create({
+        data: {
+          action: "QUOTATION_UPDATED",
+          actorId: actor.id,
+          summary: `Updated quotation for ${references.customer.displayName}.`,
+          metadata: {
+            entityType: "quotation",
+            entityId: existing.id,
+            quotationId: existing.id,
+            quotationNumber: existing.quotationNumber,
+            customerId: references.customer.id,
+            oldStatus: existing.status,
+            newStatus: nextStatus,
+            totalAmount: totals.totalAmount,
+            assemblyFeeTotal: totals.assemblyFeeTotal,
+            salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
+            sourceAction: "quotation_update"
+          }
+        }
+      })
+    ]);
   });
 
   revalidatePath("/quotations");
@@ -490,15 +499,18 @@ export async function updateQuotationStatusAction(
     where: {
       id: quotationId
     },
-    include: {
+    select: {
+      id: true,
+      status: true,
+      quotationNumber: true,
       customer: {
         select: {
           displayName: true
         }
       },
-      items: {
+      _count: {
         select: {
-          id: true
+          items: true
         }
       }
     }
@@ -511,7 +523,7 @@ export async function updateQuotationStatusAction(
     };
   }
 
-  if (status === "ACCEPTED" && quotation.items.length === 0) {
+  if (status === "ACCEPTED" && quotation._count.items === 0) {
     return {
       ok: false,
       message: "Quotation needs at least one item before approval."
@@ -531,32 +543,33 @@ export async function updateQuotationStatusAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.quotation.update({
-        where: {
-          id: quotation.id
-        },
-        data: {
-          status: nextStatus,
-          updatedById: actor.id
-        }
-      });
-
-      await tx.activityLog.create({
-        data: {
-          action: "QUOTATION_UPDATED",
-          actorId: actor.id,
-          summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
-          metadata: {
-            entityType: "quotation",
-            entityId: quotation.id,
-            quotationId: quotation.id,
-            oldStatus: quotation.status,
-            newStatus: nextStatus,
-            reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
-            sourceAction: "quotation_status_update"
+      await Promise.all([
+        tx.quotation.update({
+          where: {
+            id: quotation.id
+          },
+          data: {
+            status: nextStatus,
+            updatedById: actor.id
           }
-        }
-      });
+        }),
+        tx.activityLog.create({
+          data: {
+            action: "QUOTATION_UPDATED",
+            actorId: actor.id,
+            summary: `Updated quotation status for ${quotation.customer.displayName} to ${status}.`,
+            metadata: {
+              entityType: "quotation",
+              entityId: quotation.id,
+              quotationId: quotation.id,
+              oldStatus: quotation.status,
+              newStatus: nextStatus,
+              reason: String(formData.get("reason") ?? formData.get("note") ?? ""),
+              sourceAction: "quotation_status_update"
+            }
+          }
+        })
+      ]);
 
       if (nextStatus === "ACCEPTED") {
         await convertAcceptedQuotationToOrderTx(tx, quotation.id, actor.id);
@@ -601,7 +614,10 @@ export async function deleteQuotationAction(
     where: {
       id: quotationId
     },
-    include: {
+    select: {
+      id: true,
+      status: true,
+      quotationNumber: true,
       order: {
         select: {
           id: true
@@ -631,27 +647,28 @@ export async function deleteQuotationAction(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.quotation.delete({
-      where: {
-        id: quotation.id
-      }
-    });
-
-    await tx.activityLog.create({
-      data: {
-        action: "QUOTATION_UPDATED",
-        actorId: actor.id,
-        summary: `Deleted quotation for ${quotation.customer.displayName}.`,
-        metadata: {
-          entityType: "quotation",
-          entityId: quotation.id,
-          quotationId: quotation.id,
-          quotationNumber: quotation.quotationNumber,
-          oldStatus: quotation.status,
-          sourceAction: "quotation_delete"
+    await Promise.all([
+      tx.quotation.delete({
+        where: {
+          id: quotation.id
         }
-      }
-    });
+      }),
+      tx.activityLog.create({
+        data: {
+          action: "QUOTATION_UPDATED",
+          actorId: actor.id,
+          summary: `Deleted quotation for ${quotation.customer.displayName}.`,
+          metadata: {
+            entityType: "quotation",
+            entityId: quotation.id,
+            quotationId: quotation.id,
+            quotationNumber: quotation.quotationNumber,
+            oldStatus: quotation.status,
+            sourceAction: "quotation_delete"
+          }
+        }
+      })
+    ]);
   });
 
   revalidatePath("/quotations");

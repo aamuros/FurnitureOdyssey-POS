@@ -148,13 +148,26 @@ async function updateOrderPaymentSummaryTx(tx: OrderTx, orderId: string, actorId
     where: {
       id: orderId
     },
-    include: {
+    select: {
+      id: true,
+      status: true,
+      totalAmount: true,
+      paymentStatus: true,
+      paymentDueTiming: true,
+      deliveryStatus: true,
+      orderNumber: true,
       payments: {
         where: {
           status: "RECORDED"
         },
         orderBy: {
           paymentDate: "desc"
+        },
+        select: {
+          amount: true,
+          status: true,
+          paymentType: true,
+          paymentDate: true
         }
       }
     }
@@ -219,9 +232,16 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
     where: {
       id: orderId
     },
-    include: {
+    select: {
+      id: true,
+      status: true,
+      paymentStatus: true,
+      deliveryStatus: true,
+      orderNumber: true,
       items: {
-        include: {
+        select: {
+          id: true,
+          quantity: true,
           deliveryItems: {
             where: {
               delivery: {
@@ -230,7 +250,8 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
                 }
               }
             },
-            include: {
+            select: {
+              quantityDelivered: true,
               delivery: {
                 select: {
                   status: true
@@ -245,6 +266,9 @@ async function updateOrderDeliverySummaryTx(tx: OrderTx, orderId: string, actorI
           status: {
             notIn: ["CANCELLED", "FAILED"]
           }
+        },
+        select: {
+          status: true
         }
       }
     }
@@ -651,22 +675,41 @@ export async function createManualOrderAction(
     };
   }
 
-  const customer = await prisma.customer.findFirst({
-    where: {
-      id: parsed.data.customerId,
-      archivedAt: null
-    },
-    include: {
-      contacts: {
-        orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
-        take: 1
+  const catalogProductIds = parsed.data.items
+    .filter((item) => item.itemType === "CATALOG_PRODUCT" && item.productId)
+    .map((item) => item.productId as string);
+
+  const [customer, productCosts] = await Promise.all([
+    prisma.customer.findFirst({
+      where: {
+        id: parsed.data.customerId,
+        archivedAt: null
       },
-      addresses: {
-        orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
-        take: 1
+      include: {
+        contacts: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          take: 1
+        },
+        addresses: {
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+          take: 1
+        }
       }
-    }
-  });
+    }),
+    catalogProductIds.length
+      ? prisma.product.findMany({
+          where: {
+            id: {
+              in: catalogProductIds
+            }
+          },
+          select: {
+            id: true,
+            referenceCost: true
+          }
+        })
+      : Promise.resolve([])
+  ]);
 
   if (!customer) {
     return {
@@ -674,23 +717,6 @@ export async function createManualOrderAction(
       message: "Customer was not found."
     };
   }
-
-  const catalogProductIds = parsed.data.items
-    .filter((item) => item.itemType === "CATALOG_PRODUCT" && item.productId)
-    .map((item) => item.productId as string);
-  const productCosts = catalogProductIds.length
-    ? await prisma.product.findMany({
-        where: {
-          id: {
-            in: catalogProductIds
-          }
-        },
-        select: {
-          id: true,
-          referenceCost: true
-        }
-      })
-    : [];
   const productCostById = new Map(
     productCosts.map((product) => [product.id, Number(product.referenceCost ?? 0)])
   );
@@ -1241,9 +1267,25 @@ export async function updateDeliveryProgressAction(
         where: {
           id: parsed.data.deliveryId
         },
-        include: {
-          order: true,
-          items: true
+        select: {
+          id: true,
+          status: true,
+          orderId: true,
+          deliveredAt: true,
+          internalNotes: true,
+          order: {
+            select: {
+              status: true,
+              orderNumber: true
+            }
+          },
+          items: {
+            select: {
+              id: true,
+              quantityPlanned: true,
+              quantityDelivered: true
+            }
+          }
         }
       });
 
@@ -1281,17 +1323,19 @@ export async function updateDeliveryProgressAction(
         }
       });
 
-      for (const item of progressUpdate.items) {
-        await tx.deliveryItem.update({
-          where: {
-            id: item.id
-          },
-          data: {
-            quantityDelivered: item.quantityDelivered,
-            notes: item.notes
-          }
-        });
-      }
+      await Promise.all(
+        progressUpdate.items.map((item) =>
+          tx.deliveryItem.update({
+            where: {
+              id: item.id
+            },
+            data: {
+              quantityDelivered: item.quantityDelivered,
+              notes: item.notes
+            }
+          })
+        )
+      );
 
       await updateOrderDeliverySummaryTx(tx, delivery.orderId, actor.id);
 
@@ -1490,80 +1534,63 @@ export async function createOrderDocumentAction(
         throw new ActionError("Order was not found.");
       }
 
-      if (parsed.data.paymentId) {
-        const payment = await tx.payment.findFirst({
-          where: {
-            id: parsed.data.paymentId,
-            orderId: order.id
-          },
-          select: {
-            id: true
-          }
-        });
+      const [validatedPayment, validatedDelivery] = await Promise.all([
+        parsed.data.paymentId
+          ? tx.payment.findFirst({
+              where: {
+                id: parsed.data.paymentId,
+                orderId: order.id
+              },
+              select: {
+                id: true,
+                paymentNumber: true
+              }
+            })
+          : Promise.resolve(null),
+        parsed.data.deliveryId
+          ? tx.delivery.findFirst({
+              where: {
+                id: parsed.data.deliveryId,
+                orderId: order.id
+              },
+              select: {
+                id: true,
+                deliveryNumber: true
+              }
+            })
+          : Promise.resolve(null)
+      ]);
 
-        if (!payment) {
-          throw new ActionError("Related payment was not found for this order.");
-        }
+      if (parsed.data.paymentId && !validatedPayment) {
+        throw new ActionError("Related payment was not found for this order.");
       }
 
-      if (parsed.data.deliveryId) {
-        const delivery = await tx.delivery.findFirst({
-          where: {
-            id: parsed.data.deliveryId,
-            orderId: order.id
-          },
-          select: {
-            id: true
-          }
-        });
-
-        if (!delivery) {
-          throw new ActionError("Related delivery was not found for this order.");
-        }
+      if (parsed.data.deliveryId && !validatedDelivery) {
+        throw new ActionError("Related delivery was not found for this order.");
       }
 
       let documentNumber: string | null = null;
 
-      if (parsed.data.documentType === "PAYMENT_RECEIPT" && parsed.data.paymentId) {
-        const payment = await tx.payment.findUnique({
-          where: {
-            id: parsed.data.paymentId
-          },
-          select: {
-            id: true,
-            paymentNumber: true
-          }
-        });
+      if (parsed.data.documentType === "PAYMENT_RECEIPT" && parsed.data.paymentId && validatedPayment) {
+        documentNumber = validatedPayment.paymentNumber ?? (await generatePaymentNumber(tx));
 
-        documentNumber = payment?.paymentNumber ?? (await generatePaymentNumber(tx));
-
-        if (payment && !payment.paymentNumber) {
+        if (!validatedPayment.paymentNumber) {
           await tx.payment.update({
             where: {
-              id: payment.id
+              id: validatedPayment.id
             },
             data: {
               paymentNumber: documentNumber
             }
           });
         }
-      } else if (parsed.data.documentType === "DELIVERY_RECEIPT" && parsed.data.deliveryId) {
-        const delivery = await tx.delivery.findUnique({
-          where: {
-            id: parsed.data.deliveryId
-          },
-          select: {
-            id: true,
-            deliveryNumber: true
-          }
-        });
+      } else if (parsed.data.documentType === "DELIVERY_RECEIPT" && parsed.data.deliveryId && validatedDelivery) {
+        documentNumber = validatedDelivery.deliveryNumber ?? (await generateDeliveryReceiptNumber(tx));
 
-        documentNumber = delivery?.deliveryNumber ?? (await generateDeliveryReceiptNumber(tx));
-
-        if (delivery && !delivery.deliveryNumber) {
+        if (!validatedDelivery.deliveryNumber) {
           await tx.delivery.update({
             where: {
-              id: delivery.id
+              id: validatedDelivery.id
             },
             data: {
               deliveryNumber: documentNumber

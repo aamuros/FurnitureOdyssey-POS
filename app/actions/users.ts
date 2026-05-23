@@ -142,27 +142,32 @@ export async function updateUserAction(
     };
   }
 
-  const activeAdminCount = await prisma.userProfile.count({
-    where: {
-      role: "ADMIN",
-      status: "ACTIVE"
-    }
-  });
-
-  const existing = await prisma.userProfile.findUnique({
-    where: {
-      id: parsed.data.userId
-    },
-    include: {
-      permissions: {
-        select: {
-          module: true,
-          action: true,
-          allowed: true
+  const [activeAdminCount, existing] = await Promise.all([
+    prisma.userProfile.count({
+      where: {
+        role: "ADMIN",
+        status: "ACTIVE"
+      }
+    }),
+    prisma.userProfile.findUnique({
+      where: {
+        id: parsed.data.userId
+      },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        permissions: {
+          select: {
+            module: true,
+            action: true,
+            allowed: true
+          }
         }
       }
-    }
-  });
+    })
+  ]);
 
   if (!existing) {
     return {

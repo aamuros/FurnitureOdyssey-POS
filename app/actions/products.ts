@@ -671,7 +671,8 @@ export async function setPrimaryProductImageAction(formData: FormData): Promise<
       id: imageId,
       productId
     },
-    include: {
+    select: {
+      id: true,
       product: {
         select: {
           name: true
@@ -748,7 +749,10 @@ export async function removeProductImageAction(formData: FormData): Promise<Acti
       id: imageId,
       productId
     },
-    include: {
+    select: {
+      id: true,
+      isPrimary: true,
+      cloudinaryPublicId: true,
       product: {
         select: {
           name: true

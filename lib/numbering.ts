@@ -26,6 +26,9 @@ async function getSettings(tx: NumberingTx) {
   const setting = await tx.appSetting.findUnique({
     where: {
       key: APP_SETTINGS_KEY
+    },
+    select: {
+      value: true
     }
   });
 
@@ -34,26 +37,28 @@ async function getSettings(tx: NumberingTx) {
 
 async function generateDocumentNumber(tx: NumberingTx, type: NumberType) {
   const year = new Date().getFullYear();
-  const settings = await getSettings(tx);
-  const prefix = documentPrefixForKind(settings, numberTypeToKind[type]);
-  const counter = await tx.documentCounter.upsert({
-    where: {
-      type_year: {
+  const [settings, counter] = await Promise.all([
+    getSettings(tx),
+    tx.documentCounter.upsert({
+      where: {
+        type_year: {
+          type,
+          year
+        }
+      },
+      create: {
         type,
-        year
+        year,
+        nextValue: 2
+      },
+      update: {
+        nextValue: {
+          increment: 1
+        }
       }
-    },
-    create: {
-      type,
-      year,
-      nextValue: 2
-    },
-    update: {
-      nextValue: {
-        increment: 1
-      }
-    }
-  });
+    })
+  ]);
+  const prefix = documentPrefixForKind(settings, numberTypeToKind[type]);
   const value = counter.nextValue - 1;
 
   return `${prefix}-${year}-${value.toString().padStart(6, "0")}`;

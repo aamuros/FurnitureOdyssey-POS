@@ -28,3 +28,4 @@
 [  139483ms] [LOG] [Fast Refresh] done in 629ms @ http://127.0.0.1:3000/_next/static/chunks/node_modules_next_dist_client_cf1d9188._.js:5816
 [  150871ms] [LOG] [Fast Refresh] rebuilding @ http://127.0.0.1:3000/_next/static/chunks/node_modules_next_dist_client_cf1d9188._.js:5956
 [  151218ms] [LOG] [Fast Refresh] done in 448ms @ http://127.0.0.1:3000/_next/static/chunks/node_modules_next_dist_client_cf1d9188._.js:5816
+[20701606ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://127.0.0.1:55521/auth/v1/token?grant_type=refresh_token:0
