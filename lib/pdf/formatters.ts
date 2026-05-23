@@ -79,3 +79,53 @@ export function safeFilename(value: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
 }
+
+export function isPresentPdfText(value: string | null | undefined): value is string {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  return !/placeholder/i.test(trimmed) && !/^not (specified|set|linked|assigned)$/i.test(trimmed);
+}
+
+export function isSalesInvoiceFeeLabel(label: string) {
+  return /^sales invoice fee$/i.test(label.trim());
+}
+
+export function moneyValueFromText(value: string | null | undefined) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = trimmed
+    .replace(/\(([^)]+)\)/g, "-$1")
+    .replace(/[^\d.-]/g, "");
+  const parsed = Number(normalized);
+
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function shouldDisplayPdfAmountRow(
+  row: { label: string; value: string | null | undefined },
+  options: { alwaysShowLabels?: RegExp[]; hideZeroMoneyRows?: boolean } = {}
+) {
+  if (isSalesInvoiceFeeLabel(row.label) || !isPresentPdfText(row.value)) {
+    return false;
+  }
+
+  if (options.alwaysShowLabels?.some((pattern) => pattern.test(row.label))) {
+    return true;
+  }
+
+  const moneyValue = moneyValueFromText(row.value);
+
+  if (options.hideZeroMoneyRows && moneyValue !== null) {
+    return moneyValue > 0;
+  }
+
+  return true;
+}

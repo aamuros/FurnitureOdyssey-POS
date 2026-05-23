@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { defaultPdfLogoPath, defaultPdfLogoSource } from "@/lib/pdf/assets";
 import { companyForPdf } from "@/lib/pdf/data";
-import { formatMoney } from "@/lib/pdf/formatters";
-import { renderOperationalPdf } from "@/lib/pdf/render";
+import { formatMoney, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
+import { renderOperationalPdf, renderQuotationPdf } from "@/lib/pdf/render";
 import { defaultAppSettings } from "@/lib/settings/get-settings";
 import type { OperationalPdfData } from "@/lib/pdf/types";
 
@@ -77,8 +77,77 @@ test("shared operational PDF template maps every downloadable document type to a
   assert.match(source, /return "FINAL ORDER SUMMARY"/);
 });
 
+test("PDF amount rows hide sales invoice fees and zero money rows while keeping final totals", () => {
+  assert.equal(shouldDisplayPdfAmountRow({ label: "Sales Invoice Fee", value: "PHP 968.80" }), false);
+  assert.equal(
+    shouldDisplayPdfAmountRow(
+      { label: "Additional Fees", value: "PHP 0.00" },
+      { hideZeroMoneyRows: true }
+    ),
+    false
+  );
+  assert.equal(
+    shouldDisplayPdfAmountRow(
+      { label: "Additional Discount", value: "-PHP 0.00" },
+      { hideZeroMoneyRows: true }
+    ),
+    false
+  );
+  assert.equal(
+    shouldDisplayPdfAmountRow(
+      { label: "Assembly Fee", value: "PHP 1,000.00" },
+      { hideZeroMoneyRows: true }
+    ),
+    true
+  );
+  assert.equal(
+    shouldDisplayPdfAmountRow(
+      { label: "Final Total", value: "PHP 0.00" },
+      { alwaysShowLabels: [/^final total$/i], hideZeroMoneyRows: true }
+    ),
+    true
+  );
+});
+
+test("Dream Home quotation PDF uses the uploaded logo path and does not render a visible quotation number", async () => {
+  const source = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
+
+  assert.match(source, /public", "logo", "dream-home-mnl-logo\.png"/);
+  assert.doesNotMatch(source, /public", "pdf", "dream-home-mnl-logo\.png"/);
+  assert.doesNotMatch(source, /Quotation No\./);
+
+  const buffer = await renderQuotationPdf({
+    ...sampleQuotationData(),
+    totals: [
+      { label: "Subtotal for Items", value: "PHP 11,110.00" },
+      { label: "Additional Fees", value: "PHP 0.00" },
+      { label: "Additional Discount", value: "-PHP 0.00" },
+      { label: "Sales Invoice Fee", value: "PHP 968.80" },
+      { label: "Final Total", value: "PHP 13,078.80" }
+    ]
+  });
+
+  assert.ok(buffer.length > 1000);
+  assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
+});
+
 test("React-PDF renderer can produce a logo-branded A4 operational PDF buffer", async () => {
-  const data: OperationalPdfData = {
+  const data = sampleQuotationData();
+
+  const buffer = await renderOperationalPdf(data);
+
+  assert.ok(buffer.length > 1000);
+  assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
+});
+
+test("typical final order summary keeps the signature on a single A4 page", async () => {
+  const buffer = await renderOperationalPdf(finalOrderSummaryData());
+
+  assert.equal(countPdfPages(buffer), 1);
+});
+
+function sampleQuotationData(): OperationalPdfData {
+  return {
     kind: "quotation",
     title: "Quotation",
     subtitle: "Furniture quotation for review and approval",
@@ -109,18 +178,7 @@ test("React-PDF renderer can produce a logo-branded A4 operational PDF buffer", 
     totals: [{ label: "Total", value: "PHP 10,000.00" }],
     footerNote: "Generated for Furniture Odyssey sales operations."
   };
-
-  const buffer = await renderOperationalPdf(data);
-
-  assert.ok(buffer.length > 1000);
-  assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
-});
-
-test("typical final order summary keeps the signature on a single A4 page", async () => {
-  const buffer = await renderOperationalPdf(finalOrderSummaryData());
-
-  assert.equal(countPdfPages(buffer), 1);
-});
+}
 
 function finalOrderSummaryData(): OperationalPdfData {
   return {

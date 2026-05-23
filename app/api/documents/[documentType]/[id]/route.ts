@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { getOperationalPdfData } from "@/lib/pdf/data";
-import { renderOperationalPdf } from "@/lib/pdf/render";
+import { renderOperationalPdf, renderQuotationPdf } from "@/lib/pdf/render";
 import type { OperationalPdfKind } from "@/lib/pdf/types";
 
 export const runtime = "nodejs";
@@ -49,7 +49,9 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
 
   const data = await getOperationalPdfData(kind, id);
-  const buffer = await renderOperationalPdf(data);
+  const buffer = kind === "quotation"
+    ? await renderQuotationPdf(data)
+    : await renderOperationalPdf(data);
 
   return new Response(new Uint8Array(buffer), {
     headers: {

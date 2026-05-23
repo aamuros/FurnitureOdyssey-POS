@@ -1,7 +1,7 @@
 import React from "react";
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { generatedLabel } from "@/lib/pdf/data";
-import { formatDate } from "@/lib/pdf/formatters";
+import { formatDate, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
 const accent = "#b66a3c";
@@ -321,7 +321,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
   const companyDetailLines = companyLines(data);
   const customerLines = presentValues([data.customer.detail, data.customer.contact, data.customer.address]);
   const referenceRows = visibleRows(data.summary);
-  const totalRows = visibleRows(data.totals ?? []);
+  const totalRows = visibleAmountRows(data.totals ?? []);
   const paymentInstructionLines = presentValues([
     data.paymentInstructions ?? data.company.paymentInstructions,
     data.company.bankDetails,
@@ -591,7 +591,16 @@ function companyLines(data: OperationalPdfData) {
 }
 
 function visibleRows(rows: PdfSummaryRow[]) {
-  return rows.filter((row) => isPresent(row.value));
+  return rows.filter((row) => shouldDisplayPdfAmountRow(row));
+}
+
+function visibleAmountRows(rows: PdfSummaryRow[]) {
+  return rows.filter((row) =>
+    shouldDisplayPdfAmountRow(row, {
+      alwaysShowLabels: [/^(final total|total|paid|balance)$/i],
+      hideZeroMoneyRows: true
+    })
+  );
 }
 
 function presentValues(values: Array<string | null | undefined>) {
@@ -599,13 +608,7 @@ function presentValues(values: Array<string | null | undefined>) {
 }
 
 function isPresent(value: string | null | undefined): value is string {
-  const trimmed = value?.trim();
-
-  if (!trimmed) {
-    return false;
-  }
-
-  return !/placeholder/i.test(trimmed) && !/^not (specified|set|linked)$/i.test(trimmed);
+  return isPresentPdfText(value);
 }
 
 function footerNote(data: OperationalPdfData) {
