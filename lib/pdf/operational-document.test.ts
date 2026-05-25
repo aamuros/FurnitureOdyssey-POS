@@ -50,17 +50,26 @@ test("PDF money formatting uses clean ASCII currency text without sign glyphs", 
 test("shared operational PDF template uses the branded stationery sections on A4 without the old grid", () => {
   const source = readFileSync("lib/pdf/operational-document.tsx", "utf8");
   const sharedSource = readFileSync("lib/pdf/dream-home-layout.tsx", "utf8");
+  const quotationSource = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
 
   assert.match(source, /<Page size="A4"/);
   assert.match(source, /<DreamHomeHeader/);
   assert.doesNotMatch(source, /<DreamHomeHeader[^>]*compact/);
   assert.match(source, /DreamHomePolicies/);
   assert.match(source, /DreamHomePreparedBy/);
-  assert.match(source, /Issued To:/);
+  assert.match(source, /Billed To:/);
   assert.match(source, /documentDate/);
   assert.match(source, /BUYER\/RECEIVER SIGNATURE AND DATE/);
   assert.match(source, /I HEREBY ACKNOWLEDGE/);
   assert.match(source, /tableHeader:\s*\{[\s\S]*backgroundColor:\s*accent/);
+  assert.match(sharedSource, /brandGold:\s*"#956c41"/);
+  assert.match(sharedSource, /accent:\s*"#d09172"/);
+  assert.match(sharedSource, /background:\s*"#fefbf8"/);
+  assert.match(source, /backgroundColor:\s*background/);
+  assert.match(quotationSource, /backgroundColor:\s*background/);
+  assert.match(sharedSource, /\{title\.toUpperCase\(\)\}/);
+  assert.match(source, /\{data\.customer\.displayName\.toUpperCase\(\)\}/);
+  assert.match(quotationSource, /\{data\.customer\.displayName\.toUpperCase\(\)\}/);
   assert.match(sharedSource, /dream-home-mnl-logo\.png/);
   assert.match(sharedSource, /Font\.register/);
   assert.match(sharedSource, /DREAM HOME MNL/);
@@ -118,6 +127,10 @@ test("Dream Home quotation PDF uses the uploaded logo path and does not render a
   const sharedSource = readFileSync("lib/pdf/dream-home-layout.tsx", "utf8");
 
   assert.match(sharedSource, /public", "logo", "dream-home-mnl-logo\.png"/);
+  assert.match(sharedSource, /brandGold:\s*"#956c41"/);
+  assert.match(sharedSource, /companyName:\s*\{[\s\S]*color:\s*dreamHomeColors\.brandGold/);
+  assert.match(sharedSource, /tagline:\s*\{[\s\S]*color:\s*dreamHomeColors\.brandGold/);
+  assert.match(sharedSource, /brandLine:\s*\{[\s\S]*color:\s*dreamHomeColors\.brandGold/);
   assert.doesNotMatch(source, /public", "pdf", "dream-home-mnl-logo\.png"/);
   assert.doesNotMatch(source, /Quotation No\./);
 
@@ -134,6 +147,43 @@ test("Dream Home quotation PDF uses the uploaded logo path and does not render a
 
   assert.ok(buffer.length > 1000);
   assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
+});
+
+test("delivery receipt uses the required terms and conditions copy", () => {
+  const source = readFileSync("lib/pdf/operational-document.tsx", "utf8");
+
+  assert.match(source, /const deliveryReceiptTerms = \[/);
+  assert.match(source, /TERMS & CONDITION:/);
+  assert.match(
+    source,
+    /Items delivered\/pickup will be considered good condition if no claim has been made within 24 hours/
+  );
+  assert.match(source, /Warranty: Warranty covers factory defects only; change of mind is not accepted\./);
+  assert.match(
+    source,
+    /Inspection: The terms may require the buyer to inspect the goods immediately upon receipt and to note any damages or discrepancies on the receipt\./
+  );
+  assert.match(source, /isDeliveryReceipt \? deliveryReceiptTerms : isPaymentReceipt \? paymentReceiptTerms : standardTerms/);
+});
+
+test("quotation PDF renders customer address between issued row and item table only when present", () => {
+  const source = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
+
+  assert.match(source, /backgroundColor:\s*background/);
+  assert.match(source, /issuedCell:\s*\{[\s\S]*flexDirection:\s*"column"/);
+  assert.match(source, /issuedCustomerName:\s*\{[\s\S]*fontFamily:\s*dreamHomeFonts\.body/);
+  assert.match(source, /issuedCustomerName:\s*\{[\s\S]*fontWeight:\s*400/);
+  assert.match(source, /issuedCustomerName:\s*\{[\s\S]*letterSpacing:\s*1/);
+  assert.match(source, /issuedCustomerName:\s*\{[\s\S]*lineHeight:\s*1\.2/);
+  assert.match(source, /\{data\.customer\.displayName\.toUpperCase\(\)\}/);
+  assert.match(source, /const customerAddress = data\.customer\.address\?\.trim\(\);/);
+  assert.match(source, /customerAddress \? \(/);
+  assert.match(source, /<Text style=\{styles\.addressText\}>\{customerAddress\}<\/Text>/);
+  assert.match(
+    source,
+    /<\/View>\s*\{customerAddress \? \([\s\S]*?<Text style=\{styles\.addressText\}>\{customerAddress\}<\/Text>[\s\S]*?\) : null\}\s*\{data\.items\?\.length \? \(/,
+    "customer address block should sit after Issued To/date and before the item table"
+  );
 });
 
 test("React-PDF renderer can produce a logo-branded A4 operational PDF buffer", async () => {

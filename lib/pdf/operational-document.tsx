@@ -12,12 +12,18 @@ import {
 import { formatDate, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
-const { accent, dark, muted, border, softFill } = dreamHomeColors;
+const { accent, background, dark, muted, border, softFill } = dreamHomeColors;
 
 const standardTerms = [
   "Items delivered/pickup will be considered in good condition if no claim has been made within 24 hours.",
   "Warranty covers factory defects only; change of mind is not accepted.",
   "Buyer/receiver must inspect goods immediately upon receipt and note any damages or discrepancies on this document."
+];
+
+const deliveryReceiptTerms = [
+  "Items delivered/pickup will be considered good condition if no claim has been made within 24 hours",
+  "Warranty: Warranty covers factory defects only; change of mind is not accepted.",
+  "Inspection: The terms may require the buyer to inspect the goods immediately upon receipt and to note any damages or discrepancies on the receipt."
 ];
 
 const paymentReceiptTerms = [
@@ -30,6 +36,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
     paddingTop: 24,
     paddingBottom: 32,
+    backgroundColor: background,
     fontSize: 9,
     color: dark,
     fontFamily: dreamHomeFonts.body,
@@ -70,7 +77,9 @@ const styles = StyleSheet.create({
   customerName: {
     marginTop: 2,
     fontSize: 10.5,
-    fontWeight: 700,
+    fontWeight: 400,
+    letterSpacing: 1,
+    lineHeight: 1.2,
     color: dark
   },
   muted: {
@@ -310,8 +319,8 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
 
         <View style={isFinalSummary ? [styles.metaRow, styles.finalSummaryMetaRow] : styles.metaRow}>
           <View style={styles.billTo}>
-            <Text style={styles.smallLabel}>{isDeliveryReceipt ? "Deliver To:" : "Issued To:"}</Text>
-            <Text style={styles.customerName}>{data.customer.displayName}</Text>
+            <Text style={styles.smallLabel}>{isDeliveryReceipt ? "Deliver To:" : "Billed To:"}</Text>
+            <Text style={styles.customerName}>{data.customer.displayName.toUpperCase()}</Text>
             {customerLines.map((line) => (
               <Text key={line} style={styles.muted}>
                 {line}
@@ -420,8 +429,10 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
 
           {isInvoice ? null : (
             <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms}>
-              <Text style={styles.sectionTitle}>{isPaymentReceipt || isDeliveryReceipt ? "Note:" : "Terms:"}</Text>
-              {(isPaymentReceipt ? paymentReceiptTerms : standardTerms).map((term) => (
+              <Text style={styles.sectionTitle}>
+                {isDeliveryReceipt ? "TERMS & CONDITION:" : isPaymentReceipt ? "Note:" : "Terms:"}
+              </Text>
+              {(isDeliveryReceipt ? deliveryReceiptTerms : isPaymentReceipt ? paymentReceiptTerms : standardTerms).map((term) => (
                 <View key={term} style={styles.termRow}>
                   <Text style={styles.bullet}>-</Text>
                   <Text>{term}</Text>

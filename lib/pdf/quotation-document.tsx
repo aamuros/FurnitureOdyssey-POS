@@ -12,14 +12,14 @@ import {
 import { isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
-const { accent, dark, muted, border } = dreamHomeColors;
+const { accent, background, dark, muted, border } = dreamHomeColors;
 
 const styles = StyleSheet.create({
   page: {
     paddingHorizontal: 42,
     paddingTop: 24,
     paddingBottom: 32,
-    backgroundColor: "#ffffff",
+    backgroundColor: background,
     color: dark,
     fontFamily: dreamHomeFonts.body,
     fontSize: 9.2,
@@ -30,14 +30,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 20,
-    marginBottom: 14
+    marginBottom: 6
   },
   issuedCell: {
     flexGrow: 1,
     flexBasis: 0,
     display: "flex",
-    flexDirection: "row",
-    gap: 5,
+    flexDirection: "column",
+    gap: 2,
     fontFamily: dreamHomeFonts.body,
     fontWeight: 400
   },
@@ -53,6 +53,21 @@ const styles = StyleSheet.create({
   label: {
     fontWeight: 700,
     color: dark
+  },
+  issuedCustomerName: {
+    fontFamily: dreamHomeFonts.body,
+    fontWeight: 400,
+    letterSpacing: 1,
+    lineHeight: 1.2
+  },
+  addressBlock: {
+    marginBottom: 12,
+    maxWidth: 340
+  },
+  addressText: {
+    color: muted,
+    fontSize: 8.4,
+    lineHeight: 1.28
   },
   table: {
     marginTop: 0,
@@ -163,6 +178,7 @@ const styles = StyleSheet.create({
 
 export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
   const totalRows = visibleRows(data.totals ?? []);
+  const customerAddress = data.customer.address?.trim();
 
   return (
     <Document title={data.title} author={dreamHomeBrand.companyName}>
@@ -172,13 +188,19 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
         <View style={styles.issuedRow} wrap={false}>
           <View style={styles.issuedCell}>
             <Text style={styles.label}>ISSUED TO:</Text>
-            <Text>{data.customer.displayName}</Text>
+            <Text style={styles.issuedCustomerName}>{data.customer.displayName.toUpperCase()}</Text>
           </View>
           <View style={styles.dateCell}>
             <Text style={styles.label}>DATE:</Text>
             <Text>{quotationDate(data)}</Text>
           </View>
         </View>
+
+        {customerAddress ? (
+          <View style={styles.addressBlock} wrap={false}>
+            <Text style={styles.addressText}>{customerAddress}</Text>
+          </View>
+        ) : null}
 
         {data.items?.length ? (
           <View style={styles.table}>

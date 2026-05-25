@@ -15,8 +15,9 @@ export const dreamHomeBrand = {
 };
 
 export const dreamHomeColors = {
-  brandGold: "#a87546",
-  accent: "#c28a4f",
+  background: "#fefbf8",
+  brandGold: "#956c41",
+  accent: "#d09172",
   dark: "#222222",
   muted: "#6f6258",
   border: "#d8d0c6",
@@ -120,7 +121,7 @@ export const dreamHomeSharedStyles = StyleSheet.create({
     fontFamily: dreamHomeFonts.body,
     fontSize: 6.8,
     letterSpacing: 0.35,
-    color: dreamHomeColors.muted
+    color: dreamHomeColors.brandGold
   },
   documentTitle: {
     marginTop: 10,
@@ -227,7 +228,7 @@ export function DreamHomeHeader({
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.address}</Text>
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.contact}</Text>
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.email}</Text>
-      <Text style={dreamHomeSharedStyles.documentTitle}>{title}</Text>
+      <Text style={dreamHomeSharedStyles.documentTitle}>{title.toUpperCase()}</Text>
     </View>
   );
 }
