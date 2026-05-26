@@ -435,6 +435,7 @@ model Product {
   isWebsiteVisible Boolean                @default(false)
   websiteSortOrder Int                    @default(0)
   websitePages     String[]               @default([])
+  websitePageSortOrders Json              @default("{}")
   internalNotes    String?
   createdById      String?                @db.Uuid
   updatedById      String?                @db.Uuid
@@ -443,6 +444,7 @@ model Product {
   createdBy        UserProfile?           @relation("ProductCreator", fields: [createdById], references: [id], onDelete: SetNull)
   updatedBy        UserProfile?           @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
   images           ProductImage[]
+  colorVariants    ProductColorVariant[]
   quotationItems   QuotationItem[]
   orderItems       OrderItem[]
   tagAssignments   ProductTagAssignment[]
@@ -456,9 +458,27 @@ model Product {
   @@index([createdAt])
 }
 
+model ProductColorVariant {
+  id        String         @id @default(uuid()) @db.Uuid
+  productId String         @db.Uuid
+  name      String
+  hex       String?
+  sortOrder Int            @default(0)
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  product   Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images    ProductImage[]
+
+  @@index([productId])
+  @@index([isActive])
+  @@index([sortOrder])
+}
+
 model ProductImage {
   id                 String               @id @default(uuid()) @db.Uuid
   productId          String               @db.Uuid
+  colorVariantId     String?              @db.Uuid
   cloudinaryPublicId String
   secureUrl          String
   resourceType       String               @default("image")
@@ -472,10 +492,12 @@ model ProductImage {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   product            Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorVariant       ProductColorVariant? @relation(fields: [colorVariantId], references: [id], onDelete: Cascade)
   quotationImages    QuotationItemImage[]
   orderImages        OrderItemImage[]
 
   @@index([productId])
+  @@index([colorVariantId])
   @@index([isPrimary])
 }
 

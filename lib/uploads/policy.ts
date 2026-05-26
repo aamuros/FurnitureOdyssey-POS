@@ -114,6 +114,20 @@ export const uploadPolicies = {
     permission: { module: "DOCUMENTS", action: "EXPORT" },
     pdfStorageMode: "generate-on-demand",
     notes: "Operational PDFs are generated on demand by default. Store a PDF only when an explicit finalized/exported artifact is needed."
+  },
+  "catalogue-static-image": {
+    category: "catalogue-static-image",
+    allowedMimeTypes: imageMimeTypes,
+    allowedExtensions: imageExtensions,
+    maxBytes: UPLOAD_MAX_IMAGE_BYTES,
+    provider: "cloudinary",
+    folderTemplate: "catalogue/page-content/{cataloguePage}/{catalogueSection}/{catalogueFieldKey}/{fileId}",
+    requiresImageDimensions: true,
+    applyImageNormalization: true,
+    replacementAllowed: true,
+    deletionPolicy: "hard-delete-allowed",
+    permission: { module: "SETTINGS", action: "UPDATE" },
+    notes: "Mutable public catalogue static imagery managed from the internal catalogue content screen."
   }
 } as const satisfies Record<UploadCategory, UploadCategoryPolicy>;
 

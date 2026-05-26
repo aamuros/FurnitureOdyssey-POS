@@ -54,11 +54,13 @@ Safe public fields:
 - `isWebsiteVisible`
 - `websiteSortOrder`
 - `websitePages`
+- `websitePageSortOrders`
 
 Public read view aliases:
 
 - `website_sort_order`
 - `website_pages`
+- `website_page_sort_orders`
 
 Valid `websitePages` / `website_pages` page keys:
 
@@ -72,6 +74,7 @@ Catalogue filter rule:
 - Only show products where `isWebsiteVisible = true`.
 - Only show products where `status = ACTIVE`.
 - Use `website_pages` to decide which visible products appear on Home, Chairs, Tables, and Collections.
+- Use `website_page_sort_orders` for page-specific ordering. It is a JSON object keyed by `home`, `chairs`, `tables`, and `collections`; missing keys should be treated as `0`.
 
 Do not expose:
 
@@ -89,6 +92,7 @@ Safe public fields:
 
 - `id`
 - `productId`
+- `colorVariantId`
 - `secureUrl`
 - `altText`
 - `sortOrder`
@@ -96,9 +100,31 @@ Safe public fields:
 
 Rules:
 
-- Use the primary image first.
-- Fallback to the lowest `sortOrder` image.
+- Products can have multiple images.
+- Images with `colorVariantId = null` are general product images.
+- Images with `colorVariantId` set belong to that admin-managed color variation.
+- Use the primary general product image first.
+- Fallback to the lowest `sortOrder` general image, then the first available color variation image.
 - If no image exists, catalogue should use its existing placeholder.
+
+### Product Color Variants
+
+Canonical admin model: `ProductColorVariant`
+
+Safe public fields:
+
+- `id`
+- `productId`
+- `name`
+- `hex`
+- `sortOrder`
+- `isActive`
+
+Rules:
+
+- Color variants are optional and managed in the admin dashboard.
+- Catalogue reads active variants only.
+- Use `ProductImage.colorVariantId` to group variation images.
 
 ### Page Content
 
@@ -163,6 +189,7 @@ Recommended functions:
 
 - `getCatalogueProducts()` - read visible, active products and their primary image fields.
 - `getCatalogueProductImages()` - read public product images for visible, active products.
+- `getCatalogueProductColorVariants()` - read active public color variants for visible, active products.
 - `getPageContent(page: string)` - read page content rows for one page and map them by section and field key.
 - `getTags()` - read tag IDs and names for filter controls.
 - `getProductTagAssignments()` - read product-to-tag assignments for visible, active products.

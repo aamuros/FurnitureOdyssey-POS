@@ -1,18 +1,31 @@
--- Catalogue public read model reference.
---
--- This file documents safe public read views for the separate catalogue website.
--- It is a reference file only unless an admin-dashboard migration explicitly
--- applies these views.
---
--- Architecture notes:
--- - The admin dashboard owns Prisma, migrations, and writes.
--- - The catalogue should only have SELECT access to public-safe data.
--- - Do not create public INSERT, UPDATE, or DELETE policies.
--- - Admin writes happen through Prisma/server actions with permission checks.
--- - Do not create old catalogue tables.
--- - Do not create table_options.
--- - Do not create option_incompatibilities.
--- - Do not create a duplicate products table.
+CREATE TABLE "ProductColorVariant" (
+  "id" UUID NOT NULL,
+  "productId" UUID NOT NULL,
+  "name" TEXT NOT NULL,
+  "hex" TEXT,
+  "sortOrder" INTEGER NOT NULL DEFAULT 0,
+  "isActive" BOOLEAN NOT NULL DEFAULT true,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+
+  CONSTRAINT "ProductColorVariant_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "ProductColorVariant"
+ADD CONSTRAINT "ProductColorVariant_productId_fkey"
+FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "ProductImage"
+ADD COLUMN "colorVariantId" UUID;
+
+ALTER TABLE "ProductImage"
+ADD CONSTRAINT "ProductImage_colorVariantId_fkey"
+FOREIGN KEY ("colorVariantId") REFERENCES "ProductColorVariant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE INDEX "ProductColorVariant_productId_idx" ON "ProductColorVariant"("productId");
+CREATE INDEX "ProductColorVariant_isActive_idx" ON "ProductColorVariant"("isActive");
+CREATE INDEX "ProductColorVariant_sortOrder_idx" ON "ProductColorVariant"("sortOrder");
+CREATE INDEX "ProductImage_colorVariantId_idx" ON "ProductImage"("colorVariantId");
 
 CREATE OR REPLACE VIEW public.public_catalog_products AS
 SELECT
@@ -25,10 +38,10 @@ SELECT
   p."referencePrice" AS reference_price,
   p."currency",
   p."websiteSortOrder" AS website_sort_order,
-  p."websitePages" AS website_pages,
-  p."websitePageSortOrders" AS website_page_sort_orders,
   primary_image."secureUrl" AS primary_image_url,
-  primary_image."altText" AS primary_image_alt
+  primary_image."altText" AS primary_image_alt,
+  p."websitePages" AS website_pages,
+  p."websitePageSortOrders" AS website_page_sort_orders
 FROM public."Product" p
 LEFT JOIN LATERAL (
   SELECT
@@ -50,11 +63,11 @@ CREATE OR REPLACE VIEW public.public_catalog_product_images AS
 SELECT
   pi."id",
   pi."productId" AS product_id,
-  pi."colorVariantId" AS color_variant_id,
   pi."secureUrl" AS secure_url,
   pi."altText" AS alt_text,
   pi."sortOrder" AS sort_order,
-  pi."isPrimary" AS is_primary
+  pi."isPrimary" AS is_primary,
+  pi."colorVariantId" AS color_variant_id
 FROM public."ProductImage" pi
 INNER JOIN public."Product" p ON p."id" = pi."productId"
 LEFT JOIN public."ProductColorVariant" pcv ON pcv."id" = pi."colorVariantId"
@@ -76,30 +89,6 @@ WHERE p."isWebsiteVisible" = true
   AND p."status" = 'ACTIVE'
   AND pcv."isActive" = true;
 
-CREATE OR REPLACE VIEW public.public_catalog_page_content AS
-SELECT
-  pc.id,
-  pc.page,
-  pc.section,
-  pc.field_key,
-  pc.field_value,
-  pc.updated_at
-FROM public.page_content pc;
-
-CREATE OR REPLACE VIEW public.public_catalog_tags AS
-SELECT
-  t.id,
-  t.name,
-  t.created_at
-FROM public.tags t;
-
-CREATE OR REPLACE VIEW public.public_catalog_product_tags AS
-SELECT
-  pta.product_id,
-  pta.tag_id,
-  t.name AS tag_name
-FROM public.product_tag_assignments pta
-INNER JOIN public.tags t ON t.id = pta.tag_id
-INNER JOIN public."Product" p ON p."id" = pta.product_id
-WHERE p."isWebsiteVisible" = true
-  AND p."status" = 'ACTIVE';
+GRANT SELECT ON public.public_catalog_products TO anon, authenticated;
+GRANT SELECT ON public.public_catalog_product_images TO anon, authenticated;
+GRANT SELECT ON public.public_catalog_product_color_variants TO anon, authenticated;

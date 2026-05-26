@@ -33,6 +33,7 @@ import {
   updateQuotationStatusAction
 } from "@/app/actions/quotations";
 import { convertQuotationToOrderAction } from "@/app/actions/orders";
+import { AdminModal } from "@/components/dashboard/admin-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -1206,50 +1207,49 @@ function ProductPicker({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-foreground/35 p-3 backdrop-blur-sm md:p-6"
-      onMouseDown={onClose}
+    <AdminModal
+      onBackdropMouseDown={onClose}
+      labelledBy="quotation-product-picker-title"
+      className="items-start justify-center"
+      panelClassName="mx-auto flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl"
     >
-      <div
-        className="mx-auto flex max-h-[94vh] max-w-7xl flex-col overflow-hidden rounded-xl border border-border bg-panel shadow-xl"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <div>
-            <p className="studio-kicker">Products</p>
-            <h2 className="text-base font-semibold">Add product</h2>
-          </div>
-          <Button type="button" variant="ghost" onClick={onClose} className="min-h-9 px-2">
-            <X className="h-4 w-4" />
-          </Button>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div>
+          <p className="studio-kicker">Products</p>
+          <h2 id="quotation-product-picker-title" className="text-base font-semibold">
+            Add product
+          </h2>
         </div>
-        <div className="shrink-0 border-b border-border p-5">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search by product name, code, or category"
-              className="pl-9"
-            />
-          </label>
-        </div>
-        <div
-          ref={productGridRef}
-          className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-5 sm:grid-cols-2 xl:grid-cols-3"
-        >
-          {filteredProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-          {filteredProducts.length === 0 ? (
-            <div className="studio-empty px-4 py-8 text-sm md:col-span-2">
-              No products match that search.
-            </div>
-          ) : null}
-        </div>
+        <Button type="button" variant="ghost" onClick={onClose} className="min-h-9 px-2">
+          <X className="h-4 w-4" />
+        </Button>
       </div>
-    </div>
+      <div className="shrink-0 border-b border-border p-5">
+        <label className="relative block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by product name, code, or category"
+            className="pl-9"
+          />
+        </label>
+      </div>
+      <div
+        ref={productGridRef}
+        className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain p-5 sm:grid-cols-2 xl:grid-cols-3"
+      >
+        {filteredProducts.map((product) => (
+          <ProductCard key={product.id} product={product} />
+        ))}
+        {filteredProducts.length === 0 ? (
+          <div className="studio-empty px-4 py-8 text-sm md:col-span-2">
+            No products match that search.
+          </div>
+        ) : null}
+      </div>
+    </AdminModal>
   );
 }
 

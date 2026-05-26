@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
-import { RotateCcw, Save } from "lucide-react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import { ImagePlus, RotateCcw, Save, X } from "lucide-react";
 import { updatePageContentAction } from "@/app/actions/catalogue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +148,7 @@ export function CatalogueContentWorkspace({ rows, canUpdate }: CatalogueContentW
           <p className="studio-kicker">{activePageConfig.label}</p>
           <h2 className="mt-1 text-lg font-semibold tracking-normal">Page Content</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Edit text values only. Product, tag, and image asset management stay in their own workflows.
+            Edit catalogue copy and static image URLs used by the public catalogue.
           </p>
         </div>
         <div className="grid gap-4 p-4">
@@ -199,28 +200,83 @@ function CatalogueSection({
 
 function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canUpdate: boolean }) {
   const [state, action, pending] = useActionState(updatePageContentAction, initialState);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [savedValue, setSavedValue] = useState(row.fieldValue);
   const [draftValue, setDraftValue] = useState(row.fieldValue);
-  const isDirty = draftValue !== savedValue;
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const [selectedPreviewUrl, setSelectedPreviewUrl] = useState("");
+  const isImage = isImageField(row.fieldKey);
+  const imagePreviewUrl = selectedPreviewUrl || draftValue.trim();
+  const hasSelectedFile = Boolean(selectedPreviewUrl);
+  const isDirty = draftValue !== savedValue || hasSelectedFile;
   const useTextarea = isLongField(row);
 
   useEffect(() => {
     setSavedValue(row.fieldValue);
     setDraftValue(row.fieldValue);
+    clearSelectedImage();
   }, [row.id, row.fieldValue]);
 
   useEffect(() => {
     if (state.ok && state.id === row.id && state.fieldValue !== undefined) {
       setSavedValue(state.fieldValue);
       setDraftValue(state.fieldValue);
+      clearSelectedImage();
     }
   }, [row.id, state.fieldValue, state.id, state.ok]);
 
   useEffect(() => {
     if (!canUpdate) {
       setDraftValue(row.fieldValue);
+      clearSelectedImage();
     }
   }, [canUpdate, row.fieldValue]);
+
+  useEffect(() => {
+    return () => {
+      if (selectedPreviewUrl) {
+        URL.revokeObjectURL(selectedPreviewUrl);
+      }
+    };
+  }, [selectedPreviewUrl]);
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+
+    if (selectedPreviewUrl) {
+      URL.revokeObjectURL(selectedPreviewUrl);
+    }
+
+    if (!file) {
+      setSelectedFileName("");
+      setSelectedPreviewUrl("");
+      return;
+    }
+
+    setSelectedFileName(file.name);
+    setSelectedPreviewUrl(URL.createObjectURL(file));
+  }
+
+  function clearSelectedImage() {
+    setSelectedFileName("");
+
+    setSelectedPreviewUrl((current) => {
+      if (current) {
+        URL.revokeObjectURL(current);
+      }
+
+      return "";
+    });
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  function resetDraft() {
+    setDraftValue(savedValue);
+    clearSelectedImage();
+  }
 
   return (
     <form action={action} className="rounded-lg border border-border bg-panel/70 p-3">
@@ -236,7 +292,65 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
           <p className="mt-1 text-xs text-muted-foreground">Last updated {formatDate(row.updatedAt)}</p>
         </div>
 
-        {useTextarea ? (
+        {isImage ? (
+          <div className="grid gap-3">
+            <div className="overflow-hidden rounded-lg border border-border bg-background">
+              {imagePreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={imagePreviewUrl}
+                  alt={`${fieldLabel(row.fieldKey)} preview`}
+                  className="h-48 w-full object-contain"
+                />
+              ) : (
+                <div className="flex h-48 items-center justify-center text-muted-foreground">
+                  <ImagePlus className="h-7 w-7" />
+                </div>
+              )}
+            </div>
+            <Input
+              id={`field-${row.id}`}
+              name="fieldValue"
+              value={draftValue}
+              onChange={(event) => setDraftValue(event.target.value)}
+              disabled={!canUpdate || pending}
+              placeholder="/images/example.png or https://..."
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <label
+                htmlFor={`image-file-${row.id}`}
+                className={cn(
+                  "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition duration-150 hover:bg-soft-accent focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30",
+                  (!canUpdate || pending) && "pointer-events-none cursor-not-allowed opacity-60"
+                )}
+              >
+                <ImagePlus className="h-4 w-4" />
+                {savedValue ? "Replace image" : "Choose image"}
+              </label>
+              {selectedFileName ? (
+                <span className="min-w-0 truncate text-sm text-muted-foreground">{selectedFileName}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">Current: {savedValue || "No image set"}</span>
+              )}
+              {hasSelectedFile ? (
+                <Button type="button" variant="ghost" onClick={clearSelectedImage} disabled={pending}>
+                  <X className="h-4 w-4" />
+                  Remove selected
+                </Button>
+              ) : null}
+            </div>
+            <input
+              ref={fileInputRef}
+              id={`image-file-${row.id}`}
+              name="imageFile"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="sr-only"
+              onChange={handleImageChange}
+              disabled={!canUpdate || pending}
+            />
+          </div>
+        ) : useTextarea ? (
           <Textarea
             id={`field-${row.id}`}
             name="fieldValue"
@@ -263,7 +377,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setDraftValue(savedValue)}
+            onClick={resetDraft}
             disabled={!canUpdate || pending || !isDirty}
           >
             <RotateCcw className="h-4 w-4" />
@@ -330,6 +444,10 @@ function humanize(value: string) {
 
 function isLongField(row: CatalogueContentRow) {
   return row.fieldKey.startsWith("description") || row.fieldValue.length > 120;
+}
+
+function isImageField(fieldKey: string) {
+  return fieldKey === "image" || fieldKey.startsWith("image");
 }
 
 function formatDate(value: string) {

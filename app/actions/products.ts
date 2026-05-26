@@ -8,23 +8,13 @@ import { prisma } from "@/lib/prisma";
 import { uploadFileToCloudinary } from "@/lib/uploads/server";
 import {
   createProductSchema,
-  updateProductSchema,
-  type ProductImageInput
+  updateProductSchema
 } from "@/lib/validation/products";
 
 type ActionState = {
   ok: boolean;
   message: string;
 };
-
-function parseImages(value: FormDataEntryValue | null) {
-  try {
-    const parsed = JSON.parse(String(value ?? "[]"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
 
 function parseWebsitePages(formData: FormData) {
   return formData
@@ -33,13 +23,133 @@ function parseWebsitePages(formData: FormData) {
     .filter(Boolean);
 }
 
-function imageCreateData(images: ProductImageInput[]) {
-  return images.map((image, index) => ({
-    cloudinaryPublicId: image.cloudinaryPublicId,
-    secureUrl: image.secureUrl,
-    altText: image.altText,
-    sortOrder: image.sortOrder ?? index,
-    isPrimary: image.isPrimary || index === 0
+type ImageManifestItem = {
+  clientId: string;
+  id?: string;
+  colorVariantClientId?: string | null;
+  cloudinaryPublicId?: string;
+  secureUrl?: string;
+  altText?: string;
+  sortOrder: number;
+  isPrimary: boolean;
+  remove?: boolean;
+};
+
+type ColorVariantManifestItem = {
+  clientId: string;
+  id?: string;
+  name: string;
+  hex?: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  remove?: boolean;
+};
+
+function parseImageManifest(value: FormDataEntryValue | null): ImageManifestItem[] {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]"));
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item, index) => ({
+        clientId: String(item.clientId ?? item.id ?? `image-${index}`),
+        id: item.id ? String(item.id) : undefined,
+        colorVariantClientId:
+          item.colorVariantClientId === null || item.colorVariantClientId === undefined
+            ? null
+            : String(item.colorVariantClientId),
+        cloudinaryPublicId: item.cloudinaryPublicId ? String(item.cloudinaryPublicId) : undefined,
+        secureUrl: item.secureUrl ? String(item.secureUrl) : undefined,
+        altText: item.altText ? String(item.altText) : undefined,
+        sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+        isPrimary: Boolean(item.isPrimary),
+        remove: Boolean(item.remove)
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function parseColorVariantManifest(value: FormDataEntryValue | null): ColorVariantManifestItem[] {
+  try {
+    const parsed = JSON.parse(String(value ?? "[]"));
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item, index) => ({
+        clientId: String(item.clientId ?? item.id ?? `variant-${index}`),
+        id: item.id ? String(item.id) : undefined,
+        name: String(item.name ?? "").trim(),
+        hex: item.hex ? String(item.hex).trim() : undefined,
+        sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+        isActive: item.isActive !== false,
+        remove: Boolean(item.remove)
+      }))
+      .filter((item) => item.remove || item.name.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+const validWebsitePages = ["home", "chairs", "tables", "collections"] as const;
+
+function parseWebsitePageSortOrders(formData: FormData, selectedPages: string[]) {
+  const selectedPageSet = new Set(selectedPages);
+
+  return Object.fromEntries(
+    validWebsitePages
+      .filter((page) => selectedPageSet.has(page))
+      .map((page) => {
+        const rawValue = formData.get(`websitePageSortOrder_${page}`);
+        const sortOrder = Number(rawValue ?? 0);
+
+        return [page, Number.isFinite(sortOrder) ? Math.max(0, Math.trunc(sortOrder)) : 0];
+      })
+  );
+}
+
+async function uploadManifestImages(productId: string, formData: FormData, images: ImageManifestItem[]) {
+  const uploadedByClientId = new Map<string, Awaited<ReturnType<typeof uploadFileToCloudinary>>>();
+
+  for (const image of images) {
+    if (image.remove) {
+      continue;
+    }
+
+    const file = formData.get(`imageFile_${image.clientId}`);
+
+    if (file instanceof File && file.size > 0) {
+      uploadedByClientId.set(
+        image.clientId,
+        await uploadFileToCloudinary({
+          category: "product-image",
+          file,
+          path: {
+            productId
+          }
+        })
+      );
+    }
+  }
+
+  return uploadedByClientId;
+}
+
+function normalizePrimaryImages(images: ImageManifestItem[]) {
+  const keptGeneralImages = images
+    .filter((image) => !image.remove && !image.colorVariantClientId)
+    .sort((first, second) => first.sortOrder - second.sortOrder);
+  const primary = keptGeneralImages.find((image) => image.isPrimary) ?? keptGeneralImages[0];
+
+  return images.map((image) => ({
+    ...image,
+    isPrimary: primary ? image.clientId === primary.clientId : false
   }));
 }
 
@@ -90,7 +200,9 @@ export async function createProductAction(
   formData: FormData
 ): Promise<ActionState> {
   const actor = await requirePermission("PRODUCTS", "CREATE");
-  const imageFile = formData.get("imageFile");
+  const websitePages = formData.has("websitePagesMode") ? parseWebsitePages(formData) : [];
+  const imageManifest = normalizePrimaryImages(parseImageManifest(formData.get("imageManifest")));
+  const colorVariantManifest = parseColorVariantManifest(formData.get("colorVariantManifest"));
   const parsed = createProductSchema.safeParse({
     code: formData.get("code"),
     name: formData.get("name"),
@@ -104,8 +216,9 @@ export async function createProductAction(
     internalNotes: formData.get("internalNotes"),
     isWebsiteVisible: formData.get("isWebsiteVisible") === "on",
     websiteSortOrder: formData.get("websiteSortOrder"),
-    websitePages: formData.has("websitePagesMode") ? parseWebsitePages(formData) : [],
-    images: parseImages(formData.get("images"))
+    websitePages,
+    websitePageSortOrders: parseWebsitePageSortOrders(formData, websitePages),
+    images: []
   });
 
   if (!parsed.success) {
@@ -131,14 +244,11 @@ export async function createProductAction(
           isWebsiteVisible: parsed.data.isWebsiteVisible,
           websiteSortOrder: parsed.data.websiteSortOrder,
           websitePages: parsed.data.websitePages,
+          websitePageSortOrders: parsed.data.websitePageSortOrders,
           internalNotes: parsed.data.internalNotes,
           createdById: actor.id,
           updatedById: actor.id,
-          images: parsed.data.images.length
-            ? {
-                create: imageCreateData(parsed.data.images)
-              }
-            : undefined
+          images: undefined
         }
       });
 
@@ -158,32 +268,53 @@ export async function createProductAction(
       return created;
     });
 
-    if (imageFile instanceof File && imageFile.size > 0) {
+    if (imageManifest.some((image) => !image.remove) || colorVariantManifest.some((variant) => !variant.remove)) {
       try {
-        const uploaded = await uploadFileToCloudinary({
-          category: "product-image",
-          file: imageFile,
-          path: {
-            productId: product.id
-          }
-        });
+        const uploadedByClientId = await uploadManifestImages(product.id, formData, imageManifest);
 
         await prisma.$transaction(async (tx) => {
-          const image = await tx.productImage.create({
-            data: {
-              productId: product.id,
-              cloudinaryPublicId: uploaded.cloudinaryPublicId,
-              secureUrl: uploaded.secureUrl,
-              resourceType: uploaded.resourceType,
-              format: uploaded.format,
-              width: uploaded.width,
-              height: uploaded.height,
-              bytes: uploaded.bytes,
-              altText: product.name,
-              sortOrder: 0,
-              isPrimary: true
+          const variantIdByClientId = new Map<string, string>();
+
+          for (const variant of colorVariantManifest.filter((item) => !item.remove)) {
+            const createdVariant = await tx.productColorVariant.create({
+              data: {
+                productId: product.id,
+                name: variant.name,
+                hex: variant.hex,
+                sortOrder: variant.sortOrder,
+                isActive: variant.isActive
+              }
+            });
+
+            variantIdByClientId.set(variant.clientId, createdVariant.id);
+          }
+
+          for (const image of imageManifest.filter((item) => !item.remove)) {
+            const uploaded = uploadedByClientId.get(image.clientId);
+
+            if (!uploaded) {
+              continue;
             }
-          });
+
+            await tx.productImage.create({
+              data: {
+                productId: product.id,
+                colorVariantId: image.colorVariantClientId
+                  ? variantIdByClientId.get(image.colorVariantClientId)
+                  : undefined,
+                cloudinaryPublicId: uploaded.cloudinaryPublicId,
+                secureUrl: uploaded.secureUrl,
+                resourceType: uploaded.resourceType,
+                format: uploaded.format,
+                width: uploaded.width,
+                height: uploaded.height,
+                bytes: uploaded.bytes,
+                altText: image.altText || product.name,
+                sortOrder: image.sortOrder,
+                isPrimary: image.isPrimary
+              }
+            });
+          }
 
           await tx.product.update({
             where: {
@@ -201,10 +332,8 @@ export async function createProductAction(
               summary: `Uploaded image for product ${product.name}.`,
               metadata: {
                 productId: product.id,
-                productImageId: image.id,
-                cloudinaryPublicId: uploaded.cloudinaryPublicId,
-                originalFilename: uploaded.originalFilename,
-                isPrimary: true
+                imageCount: uploadedByClientId.size,
+                colorVariantCount: variantIdByClientId.size
               }
             }
           });
@@ -247,7 +376,8 @@ export async function updateProductAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("PRODUCTS", "UPDATE");
   const productId = String(formData.get("productId") ?? "");
-  const imageFile = formData.get("imageFile");
+  const imageManifest = normalizePrimaryImages(parseImageManifest(formData.get("imageManifest")));
+  const colorVariantManifest = parseColorVariantManifest(formData.get("colorVariantManifest"));
 
   if (!productId) {
     return {
@@ -268,6 +398,7 @@ export async function updateProductAction(
       isWebsiteVisible: true,
       websiteSortOrder: true,
       websitePages: true,
+      websitePageSortOrders: true,
       internalNotes: true
     }
   });
@@ -279,6 +410,7 @@ export async function updateProductAction(
     };
   }
 
+  const websitePages = formData.has("websitePagesMode") ? parseWebsitePages(formData) : existing.websitePages;
   const parsed = updateProductSchema.safeParse({
     productId,
     code: formData.get("code"),
@@ -299,8 +431,11 @@ export async function updateProductAction(
     websiteSortOrder: formData.has("websiteSortOrder")
       ? formData.get("websiteSortOrder")
       : existing.websiteSortOrder,
-    websitePages: formData.has("websitePagesMode") ? parseWebsitePages(formData) : existing.websitePages,
-    images: undefined
+    websitePages,
+    websitePageSortOrders: formData.has("websitePagesMode")
+      ? parseWebsitePageSortOrders(formData, websitePages)
+      : existing.websitePageSortOrders,
+    images: []
   });
 
   if (!parsed.success) {
@@ -345,6 +480,7 @@ export async function updateProductAction(
 
       if (formData.has("websitePagesMode")) {
         data.websitePages = parsed.data.websitePages;
+        data.websitePageSortOrders = parsed.data.websitePageSortOrders;
       }
 
       if (formData.has("internalNotes")) {
@@ -375,39 +511,130 @@ export async function updateProductAction(
       return updated;
     });
 
-    if (imageFile instanceof File && imageFile.size > 0) {
+    if (formData.has("imageManifest") || formData.has("colorVariantManifest")) {
       try {
-        const uploaded = await uploadFileToCloudinary({
-          category: "product-image",
-          file: imageFile,
-          path: {
-            productId: product.id
-          }
-        });
+        const uploadedByClientId = await uploadManifestImages(product.id, formData, imageManifest);
 
         await prisma.$transaction(async (tx) => {
+          const variantIdByClientId = new Map<string, string>();
+
+          for (const variant of colorVariantManifest) {
+            if (variant.id && variant.remove) {
+              await tx.productColorVariant.deleteMany({
+                where: {
+                  id: variant.id,
+                  productId: product.id
+                }
+              });
+              continue;
+            }
+
+            if (variant.remove) {
+              continue;
+            }
+
+            if (variant.id) {
+              const updatedVariant = await tx.productColorVariant.update({
+                where: {
+                  id: variant.id
+                },
+                data: {
+                  name: variant.name,
+                  hex: variant.hex,
+                  sortOrder: variant.sortOrder,
+                  isActive: variant.isActive
+                }
+              });
+
+              variantIdByClientId.set(variant.clientId, updatedVariant.id);
+            } else {
+              const createdVariant = await tx.productColorVariant.create({
+                data: {
+                  productId: product.id,
+                  name: variant.name,
+                  hex: variant.hex,
+                  sortOrder: variant.sortOrder,
+                  isActive: variant.isActive
+                }
+              });
+
+              variantIdByClientId.set(variant.clientId, createdVariant.id);
+            }
+          }
+
+          for (const image of imageManifest) {
+            if (image.id && image.remove) {
+              await tx.productImage.deleteMany({
+                where: {
+                  id: image.id,
+                  productId: product.id
+                }
+              });
+              continue;
+            }
+
+            if (image.remove) {
+              continue;
+            }
+
+            const uploaded = uploadedByClientId.get(image.clientId);
+            const colorVariantId = image.colorVariantClientId
+              ? variantIdByClientId.get(image.colorVariantClientId)
+              : null;
+
+            if (image.id) {
+              await tx.productImage.updateMany({
+                where: {
+                  id: image.id,
+                  productId: product.id
+                },
+                data: {
+                  colorVariantId,
+                  ...(uploaded
+                    ? {
+                        cloudinaryPublicId: uploaded.cloudinaryPublicId,
+                        secureUrl: uploaded.secureUrl,
+                        resourceType: uploaded.resourceType,
+                        format: uploaded.format,
+                        width: uploaded.width,
+                        height: uploaded.height,
+                        bytes: uploaded.bytes
+                      }
+                    : {}),
+                  altText: image.altText || product.name,
+                  sortOrder: image.sortOrder,
+                  isPrimary: image.isPrimary
+                }
+              });
+            } else if (uploaded) {
+              await tx.productImage.create({
+                data: {
+                  productId: product.id,
+                  colorVariantId,
+                  cloudinaryPublicId: uploaded.cloudinaryPublicId,
+                  secureUrl: uploaded.secureUrl,
+                  resourceType: uploaded.resourceType,
+                  format: uploaded.format,
+                  width: uploaded.width,
+                  height: uploaded.height,
+                  bytes: uploaded.bytes,
+                  altText: image.altText || product.name,
+                  sortOrder: image.sortOrder,
+                  isPrimary: image.isPrimary
+                }
+              });
+            }
+          }
+
           await tx.productImage.updateMany({
             where: {
-              productId: product.id
+              productId: product.id,
+              colorVariantId: {
+                not: null
+              }
             },
             data: {
               isPrimary: false
-            }
-          });
-
-          const image = await tx.productImage.create({
-            data: {
-              productId: product.id,
-              cloudinaryPublicId: uploaded.cloudinaryPublicId,
-              secureUrl: uploaded.secureUrl,
-              resourceType: uploaded.resourceType,
-              format: uploaded.format,
-              width: uploaded.width,
-              height: uploaded.height,
-              bytes: uploaded.bytes,
-              altText: product.name,
-              sortOrder: 0,
-              isPrimary: true
             }
           });
 
@@ -427,10 +654,8 @@ export async function updateProductAction(
               summary: `Uploaded image for product ${product.name}.`,
               metadata: {
                 productId: product.id,
-                productImageId: image.id,
-                cloudinaryPublicId: uploaded.cloudinaryPublicId,
-                originalFilename: uploaded.originalFilename,
-                isPrimary: true
+                imageCount: imageManifest.filter((image) => !image.remove).length,
+                colorVariantCount: colorVariantManifest.filter((variant) => !variant.remove).length
               }
             }
           });
@@ -634,6 +859,86 @@ export async function updateProductStatusAction(
   return {
     ok: true,
     message: `${updated.name} ${updated.status === "ACTIVE" ? "reactivated" : "deactivated"}.`
+  };
+}
+
+export async function updateProductWebsiteVisibilityAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "UPDATE");
+  const productId = String(formData.get("productId") ?? "");
+  const isWebsiteVisible = formData.get("isWebsiteVisible") === "on";
+
+  if (!productId) {
+    return {
+      ok: false,
+      message: "Choose a product to update."
+    };
+  }
+
+  const existing = await prisma.product.findUnique({
+    where: {
+      id: productId
+    },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      isWebsiteVisible: true
+    }
+  });
+
+  if (!existing) {
+    return {
+      ok: false,
+      message: "Product was not found."
+    };
+  }
+
+  if (existing.isWebsiteVisible === isWebsiteVisible) {
+    return {
+      ok: true,
+      message: `${existing.name} is already ${isWebsiteVisible ? "visible" : "hidden"} on the website.`
+    };
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const product = await tx.product.update({
+      where: {
+        id: productId
+      },
+      data: {
+        isWebsiteVisible,
+        updatedById: actor.id
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "PRODUCT_UPDATED",
+        actorId: actor.id,
+        summary: `${isWebsiteVisible ? "Showed" : "Hid"} product ${product.name} on the website.`,
+        metadata: {
+          productId: product.id,
+          code: product.code ?? "",
+          previousIsWebsiteVisible: existing.isWebsiteVisible,
+          isWebsiteVisible: product.isWebsiteVisible
+        }
+      }
+    });
+
+    return product;
+  });
+
+  revalidatePath("/products");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
+  revalidatePath("/catalogue");
+
+  return {
+    ok: true,
+    message: `${updated.name} is now ${updated.isWebsiteVisible ? "visible" : "hidden"} on the website.`
   };
 }
 

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { ChangeEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
   AlertCircle,
   Ban,
@@ -20,8 +22,10 @@ import {
   createProductAction,
   deleteProductAction,
   updateProductAction,
-  updateProductStatusAction
+  updateProductStatusAction,
+  updateProductWebsiteVisibilityAction
 } from "@/app/actions/products";
+import { AdminModal } from "@/components/dashboard/admin-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -43,11 +47,59 @@ type ProductRow = {
   isWebsiteVisible: boolean;
   websiteSortOrder: number;
   websitePages: string[];
+  websitePageSortOrders: Record<string, number>;
   primaryImage: {
+    id: string;
     secureUrl: string;
     altText: string | null;
+    colorVariantId: string | null;
+    sortOrder: number;
+    isPrimary: boolean;
   } | null;
+  images: ProductImageRow[];
+  colorVariants: ProductColorVariantRow[];
   updatedAt: string;
+};
+
+type ProductImageRow = {
+  id: string;
+  colorVariantId: string | null;
+  secureUrl: string;
+  altText: string | null;
+  sortOrder: number;
+  isPrimary: boolean;
+};
+
+type ProductColorVariantRow = {
+  id: string;
+  name: string;
+  hex: string | null;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+type ImageHolderDraft = {
+  clientId: string;
+  id?: string;
+  colorVariantClientId?: string | null;
+  secureUrl?: string;
+  altText?: string | null;
+  sortOrder: number;
+  isPrimary: boolean;
+  file?: File;
+  previewUrl?: string;
+  fileName?: string;
+  remove?: boolean;
+};
+
+type ColorVariantDraft = {
+  clientId: string;
+  id?: string;
+  name: string;
+  hex: string;
+  sortOrder: number;
+  isActive: boolean;
+  remove?: boolean;
 };
 
 type ProductWorkspaceProps = {
@@ -88,6 +140,7 @@ type ProductFormDraft = {
   isWebsiteVisible: boolean;
   websiteSortOrder: string;
   websitePages: string[];
+  websitePageSortOrders: Record<string, string>;
   description: string;
   specifications: string;
 };
@@ -98,6 +151,9 @@ type ProductWorkspaceDraft = {
   createDraft: ProductFormDraft;
   editDrafts: Record<string, ProductFormDraft>;
 };
+
+type QuickSavingField = "status" | "website";
+type QuickSavingState = Partial<Record<QuickSavingField, string>>;
 
 const fieldClassName = "flex min-h-[78px] flex-col gap-2 text-sm font-medium";
 const productCategoryOptions = ["Chair", "Table", "Others"] as const;
@@ -124,6 +180,7 @@ const blankProductDraft: ProductFormDraft = {
   isWebsiteVisible: false,
   websiteSortOrder: "0",
   websitePages: [],
+  websitePageSortOrders: {},
   description: "",
   specifications: ""
 };
@@ -148,6 +205,17 @@ function normalizeWebsitePages(pages?: string[] | null) {
   return Array.from(new Set((pages ?? []).filter((page) => allowedPages.has(page))));
 }
 
+function normalizeWebsitePageSortOrders(sortOrders?: Record<string, number | string> | null) {
+  return Object.fromEntries(
+    websitePageOptions.map((page) => {
+      const rawValue = sortOrders?.[page.value];
+      const value = Number(rawValue ?? 0);
+
+      return [page.value, Number.isFinite(value) ? String(Math.max(0, Math.trunc(value))) : "0"];
+    })
+  ) as Record<WebsitePageValue, string>;
+}
+
 function productToDraft(product: ProductRow): ProductFormDraft {
   return {
     name: product.name,
@@ -159,9 +227,126 @@ function productToDraft(product: ProductRow): ProductFormDraft {
     isWebsiteVisible: product.isWebsiteVisible,
     websiteSortOrder: String(product.websiteSortOrder),
     websitePages: normalizeWebsitePages(product.websitePages),
+    websitePageSortOrders: normalizeWebsitePageSortOrders(product.websitePageSortOrders),
     description: product.description ?? "",
     specifications: product.specifications ?? ""
   };
+}
+
+function normalizedProductDraftForDirtyCheck(draft: ProductFormDraft) {
+  const websitePages = normalizeWebsitePages(draft.websitePages);
+
+  return {
+    name: draft.name,
+    code: draft.code,
+    category: normalizeProductCategory(draft.category),
+    referencePrice: draft.referencePrice,
+    referenceCost: draft.referenceCost,
+    status: draft.status,
+    isWebsiteVisible: draft.isWebsiteVisible,
+    websiteSortOrder: draft.websiteSortOrder,
+    websitePages,
+    websitePageSortOrders: Object.fromEntries(
+      websitePages.map((page) => [page, draft.websitePageSortOrders[page] ?? "0"])
+    ),
+    description: draft.description,
+    specifications: draft.specifications
+  };
+}
+
+function productDraftsMatch(first: ProductFormDraft, second: ProductFormDraft) {
+  return (
+    JSON.stringify(normalizedProductDraftForDirtyCheck(first)) ===
+    JSON.stringify(normalizedProductDraftForDirtyCheck(second))
+  );
+}
+
+function makeClientId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function imagesForProduct(product?: ProductRow): ImageHolderDraft[] {
+  const images =
+    product?.images
+      .filter((image) => image.colorVariantId === null)
+      .map((image, index) => ({
+        clientId: image.id,
+        id: image.id,
+        colorVariantClientId: null,
+        secureUrl: image.secureUrl,
+        altText: image.altText,
+        sortOrder: image.sortOrder ?? index,
+        isPrimary: image.isPrimary
+      })) ?? [];
+
+  return images.length
+    ? images
+    : [
+        {
+          clientId: makeClientId("image"),
+          colorVariantClientId: null,
+          sortOrder: 0,
+          isPrimary: true
+        }
+      ];
+}
+
+function colorVariantsForProduct(product?: ProductRow): ColorVariantDraft[] {
+  return (
+    product?.colorVariants.map((variant, index) => ({
+      clientId: variant.id,
+      id: variant.id,
+      name: variant.name,
+      hex: variant.hex ?? "#111111",
+      sortOrder: variant.sortOrder ?? index,
+      isActive: variant.isActive
+    })) ?? []
+  );
+}
+
+function imagesForColorVariants(product?: ProductRow): ImageHolderDraft[] {
+  return (
+    product?.images
+      .filter((image) => image.colorVariantId !== null)
+      .map((image, index) => ({
+        clientId: image.id,
+        id: image.id,
+        colorVariantClientId: image.colorVariantId,
+        secureUrl: image.secureUrl,
+        altText: image.altText,
+        sortOrder: image.sortOrder ?? index,
+        isPrimary: false
+      })) ?? []
+  );
+}
+
+function sortOrderSummary(product: ProductRow) {
+  const pages = normalizeWebsitePages(product.websitePages);
+
+  if (pages.length === 0) {
+    return "-";
+  }
+
+  return pages
+    .map((page) => {
+      const label = websitePageOptions.find((option) => option.value === page)?.label ?? page;
+      const value = product.websitePageSortOrders?.[page] ?? 0;
+
+      return `${label} ${value}`;
+    })
+    .join(", ");
+}
+
+function websitePageSummary(product: ProductRow) {
+  const pages = normalizeWebsitePages(product.websitePages);
+
+  if (pages.length === 0) {
+    return "-";
+  }
+
+  return pages
+    .map((page) => websitePageOptions.find((option) => option.value === page)?.label ?? page)
+    .join(", ");
 }
 
 function statusTone(status: ProductRow["status"]) {
@@ -192,13 +377,105 @@ function ProductForm({
   canViewProductCost
 }: ProductFormProps) {
   const isEdit = mode === "edit";
-  const imageInputId = useId();
-  const [selectedFileName, setSelectedFileName] = useState("");
+  const [productImages, setProductImages] = useState<ImageHolderDraft[]>(() => imagesForProduct(product));
+  const [colorVariants, setColorVariants] = useState<ColorVariantDraft[]>(() => colorVariantsForProduct(product));
+  const [variantImages, setVariantImages] = useState<ImageHolderDraft[]>(() => imagesForColorVariants(product));
+  const previewUrlsRef = useRef<Set<string>>(new Set());
   const selectedWebsitePages = normalizeWebsitePages(draft.websitePages);
+  const selectedWebsitePageSet = new Set(selectedWebsitePages);
+  const pageSortOrders = normalizeWebsitePageSortOrders(draft.websitePageSortOrders);
+  const activeProductImages = productImages.filter((image) => !image.remove);
+  const activeVariantImages = variantImages.filter((image) => !image.remove);
+  const activeColorVariants = colorVariants.filter((variant) => !variant.remove);
+  const imageManifest = [
+    ...productImages.map((image, index) => ({
+      clientId: image.clientId,
+      id: image.id,
+      colorVariantClientId: null,
+      cloudinaryPublicId: undefined,
+      secureUrl: image.secureUrl,
+      altText: image.altText ?? draft.name,
+      sortOrder: index,
+      isPrimary: image.isPrimary,
+      remove: Boolean(image.remove)
+    })),
+    ...variantImages.map((image, index) => ({
+      clientId: image.clientId,
+      id: image.id,
+      colorVariantClientId: image.colorVariantClientId,
+      cloudinaryPublicId: undefined,
+      secureUrl: image.secureUrl,
+      altText: image.altText ?? draft.name,
+      sortOrder: index,
+      isPrimary: false,
+      remove: Boolean(image.remove)
+    }))
+  ];
+  const colorVariantManifest = colorVariants.map((variant, index) => ({
+    clientId: variant.clientId,
+    id: variant.id,
+    name: variant.name,
+    hex: variant.hex,
+    sortOrder: index,
+    isActive: variant.isActive,
+    remove: Boolean(variant.remove)
+  }));
 
   useEffect(() => {
-    setSelectedFileName("");
-  }, [product?.id, mode]);
+    setProductImages(imagesForProduct(product));
+    setColorVariants(colorVariantsForProduct(product));
+    setVariantImages(imagesForColorVariants(product));
+  }, [product, mode]);
+
+  useEffect(() => {
+    const previewUrls = previewUrlsRef.current;
+
+    return () => {
+      previewUrls.forEach((previewUrl) => {
+        URL.revokeObjectURL(previewUrl);
+      });
+      previewUrls.clear();
+    };
+  }, []);
+
+  function revokePreviewUrl(previewUrl?: string) {
+    if (!previewUrl) {
+      return;
+    }
+
+    URL.revokeObjectURL(previewUrl);
+    previewUrlsRef.current.delete(previewUrl);
+  }
+
+  function createPreviewUrl(file: File) {
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlsRef.current.add(previewUrl);
+    return previewUrl;
+  }
+
+  function imageHasContent(image: ImageHolderDraft) {
+    return Boolean(image.secureUrl || image.previewUrl || image.file);
+  }
+
+  function ensureProductPrimaryImage(images: ImageHolderDraft[]) {
+    const visibleImages = images.filter((image) => !image.remove && imageHasContent(image));
+
+    if (visibleImages.length === 0) {
+      return images.map((image) => ({
+        ...image,
+        isPrimary: false
+      }));
+    }
+
+    if (visibleImages.some((image) => image.isPrimary)) {
+      return images;
+    }
+
+    return images.map((image) => ({
+      ...image,
+      isPrimary: image.clientId === visibleImages[0].clientId
+    }));
+  }
 
   function toggleWebsitePage(page: WebsitePageValue) {
     if (!draft.isWebsiteVisible) {
@@ -213,26 +490,271 @@ function ProductForm({
       selectedPages.add(page);
     }
 
+    const nextWebsitePages = websitePageOptions
+      .map((option) => option.value)
+      .filter((value) => selectedPages.has(value));
+    const nextSortOrders = {
+      ...pageSortOrders,
+      [page]: pageSortOrders[page] ?? "0"
+    };
+
     onDraftChange({
-      websitePages: websitePageOptions
-        .map((option) => option.value)
-        .filter((value) => selectedPages.has(value))
+      websitePages: nextWebsitePages,
+      websitePageSortOrders: nextSortOrders
     });
   }
 
+  function updatePageSortOrder(page: WebsitePageValue, value: string) {
+    onDraftChange({
+      websitePageSortOrders: {
+        ...pageSortOrders,
+        [page]: value
+      }
+    });
+  }
+
+  function updateImageFile(
+    imageClientId: string,
+    file: File | null,
+    scope: "product" | "variant"
+  ) {
+    const updater = (images: ImageHolderDraft[]) =>
+      images.map((image) => {
+        if (image.clientId !== imageClientId) {
+          return image;
+        }
+
+        if (image.previewUrl) {
+          revokePreviewUrl(image.previewUrl);
+        }
+
+        if (!file) {
+          return {
+            ...image,
+            file: undefined,
+            fileName: undefined,
+            previewUrl: undefined
+          };
+        }
+
+        const previewUrl = createPreviewUrl(file);
+
+        return {
+          ...image,
+          file,
+          fileName: file.name,
+          previewUrl,
+          remove: false
+        };
+      });
+
+    if (scope === "product") {
+      setProductImages((current) => ensureProductPrimaryImage(updater(current)));
+    } else {
+      setVariantImages(updater);
+    }
+  }
+
+  function removeImageHolder(
+    event: ReactMouseEvent<HTMLButtonElement>,
+    imageClientId: string,
+    scope: "product" | "variant"
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const updater = (images: ImageHolderDraft[]) => {
+      const nextImages = images.flatMap((image) => {
+        if (image.clientId !== imageClientId) {
+          return [image];
+        }
+
+        revokePreviewUrl(image.previewUrl);
+
+        if (!image.id) {
+          return [];
+        }
+
+        return [
+          {
+            ...image,
+            file: undefined,
+            fileName: undefined,
+            previewUrl: undefined,
+            remove: true,
+            isPrimary: false
+          }
+        ];
+      });
+
+      if (scope === "product") {
+        return ensureProductPrimaryImage(nextImages);
+      }
+
+      return nextImages;
+    };
+
+    if (scope === "product") {
+      setProductImages(updater);
+    } else {
+      setVariantImages(updater);
+    }
+  }
+
+  function addProductImageHolder() {
+    setProductImages((current) => [
+      ...current,
+      {
+        clientId: makeClientId("image"),
+        colorVariantClientId: null,
+        sortOrder: current.length,
+        isPrimary: false
+      }
+    ]);
+  }
+
+  function addVariantImageHolder(variantClientId: string) {
+    setVariantImages((current) => [
+      ...current,
+      {
+        clientId: makeClientId("variant-image"),
+        colorVariantClientId: variantClientId,
+        sortOrder: current.filter((image) => image.colorVariantClientId === variantClientId).length,
+        isPrimary: false
+      }
+    ]);
+  }
+
+  function setPrimaryImage(imageClientId: string) {
+    setProductImages((current) =>
+      current.map((image) => ({
+        ...image,
+        isPrimary: image.clientId === imageClientId
+      }))
+    );
+  }
+
+  function addColorVariant() {
+    const clientId = makeClientId("variant");
+    setColorVariants((current) => [
+      ...current,
+      {
+        clientId,
+        name: "",
+        hex: "#111111",
+        sortOrder: current.length,
+        isActive: true
+      }
+    ]);
+    addVariantImageHolder(clientId);
+  }
+
+  function updateColorVariant(clientId: string, patch: Partial<ColorVariantDraft>) {
+    setColorVariants((current) =>
+      current.map((variant) => (variant.clientId === clientId ? { ...variant, ...patch } : variant))
+    );
+  }
+
+  function removeColorVariant(clientId: string) {
+    setColorVariants((current) =>
+      current.map((variant) =>
+        variant.clientId === clientId ? { ...variant, remove: true } : variant
+      )
+    );
+    setVariantImages((current) =>
+      current.map((image) =>
+        image.colorVariantClientId === clientId ? { ...image, remove: true } : image
+      )
+    );
+  }
+
+  function handleImageInputChange(
+    event: ChangeEvent<HTMLInputElement>,
+    imageClientId: string,
+    scope: "product" | "variant"
+  ) {
+    const file = event.target.files?.[0] ?? null;
+    updateImageFile(imageClientId, file, scope);
+  }
+
+  function renderImageHolder(image: ImageHolderDraft, scope: "product" | "variant") {
+    const inputId = `${image.clientId}-file`;
+    const imageUrl = image.previewUrl || image.secureUrl || "";
+    const hasImage = Boolean(imageUrl || image.file);
+
+    return (
+      <div
+        key={image.clientId}
+        className="relative flex min-h-[220px] flex-col gap-3 rounded-lg border border-border bg-background/70 p-3"
+      >
+        <button
+          type="button"
+          onClick={(event) => removeImageHolder(event, image.clientId, scope)}
+          className="absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-panel/95 text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          aria-label="Remove image holder"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-md border border-border bg-muted/50">
+          {imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt={image.altText ?? draft.name ?? "Product image"}
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <ImagePlus className="h-6 w-6 text-muted-foreground" />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label
+            htmlFor={inputId}
+            className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-border bg-soft-accent/70 px-3 text-sm font-semibold text-foreground transition hover:bg-soft-accent focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30"
+          >
+            <ImagePlus className="h-4 w-4" />
+            {hasImage ? "Replace photo" : "Add photo"}
+          </label>
+          {scope === "product" && hasImage ? (
+            <button
+              type="button"
+              onClick={() => setPrimaryImage(image.clientId)}
+              className={
+                image.isPrimary
+                  ? "min-h-9 rounded-md border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground"
+                  : "min-h-9 rounded-md border border-border bg-panel px-3 text-sm font-semibold text-foreground transition hover:bg-muted"
+              }
+            >
+              {image.isPrimary ? "Primary" : "Set primary"}
+            </button>
+          ) : null}
+        </div>
+        <p className="min-h-5 truncate text-xs text-muted-foreground">
+          {image.fileName || image.altText || image.secureUrl || "No image selected"}
+        </p>
+        <input
+          id={inputId}
+          name={`imageFile_${image.clientId}`}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          onChange={(event) => handleImageInputChange(event, image.clientId, scope)}
+        />
+      </div>
+    );
+  }
+
   return (
-    <section className="border-y border-border bg-muted/20">
+    <section>
       <div className="px-5 pb-3 pt-5">
-        <p className="studio-kicker">{isEdit ? "Edit Product" : "Furniture Catalog"}</p>
-        <h2 className="text-base font-semibold">
-          {isEdit ? `Edit product: ${product?.name ?? "Product"}` : "New product"}
-        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Keep the catalog details simple. Pricing can still be adjusted later in quotations.
         </p>
       </div>
       <form key={product?.id ?? "new"} action={action}>
         {isEdit && product ? <input type="hidden" name="productId" value={product.id} /> : null}
+        <input type="hidden" name="imageManifest" value={JSON.stringify(imageManifest)} />
+        <input type="hidden" name="colorVariantManifest" value={JSON.stringify(colorVariantManifest)} />
 
         <div className="space-y-4 px-5 pb-5 pt-2">
           <div className="grid gap-4 md:grid-cols-[1.1fr_0.7fr]">
@@ -335,10 +857,17 @@ function ProductForm({
             />
             {!draft.isWebsiteVisible
               ? selectedWebsitePages.map((page) => (
-                  <input key={page} type="hidden" name="websitePages" value={page} />
+                  <span key={page}>
+                    <input type="hidden" name="websitePages" value={page} />
+                    <input
+                      type="hidden"
+                      name={`websitePageSortOrder_${page}`}
+                      value={pageSortOrders[page as WebsitePageValue] ?? "0"}
+                    />
+                  </span>
                 ))
               : null}
-            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_minmax(260px,1fr)_180px] lg:items-start">
+            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_minmax(260px,1fr)] lg:items-start">
               <fieldset className="flex flex-col gap-2 text-sm font-medium">
                 <legend>Website visible</legend>
                 <div className="inline-flex w-fit overflow-hidden rounded-lg border border-border bg-panel p-1">
@@ -405,22 +934,28 @@ function ProductForm({
                   })}
                 </div>
               </fieldset>
-
-              <label className="flex flex-col gap-2 text-sm font-medium">
-                Website sort order
-                <Input
-                  name="websiteSortOrder"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={draft.websiteSortOrder}
-                  onChange={(event) => onDraftChange({ websiteSortOrder: event.target.value })}
-                />
-                <span className="block text-xs font-normal leading-5 text-muted-foreground">
-                  Lower values appear earlier.
-                </span>
-              </label>
             </div>
+            <input type="hidden" name="websiteSortOrder" value={draft.websiteSortOrder} />
+            {selectedWebsitePages.length > 0 ? (
+              <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                {websitePageOptions
+                  .filter((page) => selectedWebsitePageSet.has(page.value))
+                  .map((page) => (
+                    <label key={page.value} className="flex flex-col gap-2 text-sm font-medium">
+                      {page.label} sort order
+                      <Input
+                        name={`websitePageSortOrder_${page.value}`}
+                        type="number"
+                        min="0"
+                        step="1"
+                        disabled={!draft.isWebsiteVisible}
+                        value={pageSortOrders[page.value] ?? "0"}
+                        onChange={(event) => updatePageSortOrder(page.value, event.target.value)}
+                      />
+                    </label>
+                  ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -446,46 +981,125 @@ function ProductForm({
 
           {canUploadImage ? (
             <div className="rounded-lg border border-border bg-panel/70 p-4">
-              <div className="grid gap-4 sm:grid-cols-[96px_1fr] sm:items-center">
-                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
-                  {isEdit && product?.primaryImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={product.primaryImage.secureUrl}
-                      alt={product.primaryImage.altText ?? product.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">Product photo</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Optional. Add one main photo for the catalog thumbnail.
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Product images</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Add general product photos. The primary image is used for the product list and catalogue thumbnail.
                   </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-3">
-                    <label
-                      htmlFor={imageInputId}
-                      className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition duration-150 hover:bg-soft-accent focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30"
-                    >
-                      <ImagePlus className="h-4 w-4" />
-                      {isEdit ? "Change photo" : "Choose product photo"}
-                    </label>
-                    <span className="min-w-0 truncate text-sm text-muted-foreground">
-                      {selectedFileName || "No file selected"}
-                    </span>
-                  </div>
                 </div>
-                <input
-                  id={imageInputId}
-                  name="imageFile"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="sr-only"
-                  onChange={(event) => setSelectedFileName(event.target.files?.[0]?.name ?? "")}
-                />
+                <Button type="button" variant="secondary" onClick={addProductImageHolder}>
+                  <Plus className="h-4 w-4" />
+                  Add image holder
+                </Button>
               </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {activeProductImages.map((image) => renderImageHolder(image, "product"))}
+              </div>
+            </div>
+          ) : null}
+
+          {canUploadImage ? (
+            <div className="rounded-lg border border-border bg-panel/70 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Color variations</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Optional colors can have their own image galleries.
+                  </p>
+                </div>
+                <Button type="button" variant="secondary" onClick={addColorVariant}>
+                  <Plus className="h-4 w-4" />
+                  Add color variation
+                </Button>
+              </div>
+
+              {activeColorVariants.length ? (
+                <div className="mt-4 space-y-4">
+                  {activeColorVariants.map((variant) => {
+                    const images = activeVariantImages.filter(
+                      (image) => image.colorVariantClientId === variant.clientId
+                    );
+
+                    return (
+                      <section
+                        key={variant.clientId}
+                        className="rounded-lg border border-border bg-background/70 p-4"
+                      >
+                        <div className="grid gap-3 md:grid-cols-[1fr_160px_auto_auto] md:items-end">
+                          <label className="flex flex-col gap-2 text-sm font-medium">
+                            Color name
+                            <Input
+                              value={variant.name}
+                              onChange={(event) =>
+                                updateColorVariant(variant.clientId, { name: event.target.value })
+                              }
+                              placeholder="Red, Black, Walnut"
+                            />
+                          </label>
+                          <label className="flex flex-col gap-2 text-sm font-medium">
+                            Color
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="color"
+                                value={variant.hex || "#111111"}
+                                onChange={(event) =>
+                                  updateColorVariant(variant.clientId, { hex: event.target.value })
+                                }
+                                className="h-10 w-14 p-1"
+                              />
+                              <Input
+                                value={variant.hex}
+                                onChange={(event) =>
+                                  updateColorVariant(variant.clientId, { hex: event.target.value })
+                                }
+                                placeholder="#111111"
+                              />
+                            </div>
+                          </label>
+                          <label className="flex min-h-10 items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={variant.isActive}
+                              onChange={(event) =>
+                                updateColorVariant(variant.clientId, { isActive: event.target.checked })
+                              }
+                            />
+                            Active
+                          </label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => removeColorVariant(variant.clientId)}
+                            className="text-danger hover:bg-danger/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm font-medium">Images</p>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => addVariantImageHolder(variant.clientId)}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add image holder
+                          </Button>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                          {images.map((image) => renderImageHolder(image, "variant"))}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-4 rounded-md border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                  No color variations.
+                </p>
+              )}
             </div>
           ) : null}
 
@@ -538,7 +1152,7 @@ function ProductEmptyState({
           </Link>
         ) : null}
         {canCreate ? (
-          <Button type="button" variant="secondary" onClick={onCreate}>
+          <Button type="button" onClick={onCreate}>
             <Plus className="h-4 w-4" />
             New product
           </Button>
@@ -563,8 +1177,8 @@ function ProductNotice({
     <div
       className={
         isDanger
-          ? "mx-5 mb-5 flex items-start gap-3 rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger"
-          : "mx-5 mb-5 flex items-start gap-3 rounded-md border border-success/20 bg-success/10 px-3 py-2 text-sm text-success"
+          ? "mx-5 mb-5 mt-5 flex items-start gap-3 rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger"
+          : "mx-5 mb-5 mt-5 flex items-start gap-3 rounded-md border border-success/20 bg-success/10 px-3 py-2 text-sm text-success"
       }
       role="status"
     >
@@ -579,6 +1193,145 @@ function ProductNotice({
         <X className="h-4 w-4" />
       </button>
     </div>
+  );
+}
+
+function ProductFormModal({
+  title,
+  children,
+  onClose
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      const firstField = contentRef.current?.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([type="file"]):not([disabled]), textarea:not([disabled]), select:not([disabled])'
+      );
+      firstField?.focus();
+    });
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onCloseRef.current();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  return (
+    <AdminModal
+      onBackdropMouseDown={onClose}
+      labelledBy="product-form-modal-title"
+      className="items-start justify-center bg-foreground/35 px-4 py-6 sm:py-10"
+      panelClassName="flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-xl sm:max-h-[calc(100vh-5rem)]"
+    >
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border bg-panel px-5 py-4">
+        <div>
+          <p className="studio-kicker">Furniture Catalog</p>
+          <h2 id="product-form-modal-title" className="text-base font-semibold">
+            {title}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          aria-label="Close product form"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {children}
+      </div>
+    </AdminModal>
+  );
+}
+
+function QuickStatusPill({
+  product,
+  canUpdate,
+  pending,
+  onChange
+}: {
+  product: ProductRow;
+  canUpdate: boolean;
+  pending: boolean;
+  onChange: (product: ProductRow, nextStatus: ProductRow["status"]) => void;
+}) {
+  const nextStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+
+  if (!canUpdate) {
+    return <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>;
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={(event) => {
+        event.stopPropagation();
+        onChange(product, nextStatus);
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      className="inline-flex rounded-full transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+      aria-label={`${product.status === "ACTIVE" ? "Deactivate" : "Activate"} ${product.name}`}
+    >
+      <StatusPill tone={statusTone(product.status)}>{pending ? "Saving..." : product.status}</StatusPill>
+    </button>
+  );
+}
+
+function QuickWebsitePill({
+  product,
+  canUpdate,
+  pending,
+  onToggle
+}: {
+  product: ProductRow;
+  canUpdate: boolean;
+  pending: boolean;
+  onToggle: (product: ProductRow) => void;
+}) {
+  if (!canUpdate) {
+    return (
+      <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
+        {product.isWebsiteVisible ? "Visible" : "Hidden"}
+      </StatusPill>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle(product);
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      className="inline-flex rounded-full transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
+      aria-label={`${product.isWebsiteVisible ? "Hide" : "Show"} ${product.name} on the website`}
+    >
+      <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
+        {pending ? "Saving..." : product.isWebsiteVisible ? "Visible" : "Hidden"}
+      </StatusPill>
+    </button>
   );
 }
 
@@ -723,7 +1476,11 @@ function ProductRowActions({
         aria-expanded={isOpen}
         aria-label={`${product.name} actions`}
         disabled={isBusy}
-        onClick={toggleMenu}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleMenu();
+        }}
+        onKeyDown={(event) => event.stopPropagation()}
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-foreground transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <MoreHorizontal className="h-3.5 w-3.5" />
@@ -734,6 +1491,7 @@ function ProductRowActions({
           ref={menuRef}
           role="menu"
           className="fixed z-[80] grid min-w-48 gap-1 rounded-lg border border-border bg-panel p-2 text-left shadow-xl"
+          onClick={(event) => event.stopPropagation()}
           style={{
             left: menuPosition.left,
             top: menuPosition.top,
@@ -803,34 +1561,41 @@ function ProductTable({
   canDelete,
   canViewProductCost,
   selectedProductId,
+  quickSaving,
   statusAction,
-  statusPending,
   deleteAction,
   deletePending,
-  onEdit
+  onEdit,
+  onView,
+  onStatusChange,
+  onWebsiteToggle
 }: {
   products: ProductRow[];
   canUpdate: boolean;
   canDelete: boolean;
   canViewProductCost: boolean;
   selectedProductId: string;
+  quickSaving: QuickSavingState;
   statusAction: (formData: FormData) => void;
-  statusPending: boolean;
   deleteAction: (formData: FormData) => void;
   deletePending: boolean;
   onEdit: (product: ProductRow) => void;
+  onView: (product: ProductRow) => void;
+  onStatusChange: (product: ProductRow, nextStatus: ProductRow["status"]) => void;
+  onWebsiteToggle: (product: ProductRow) => void;
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="studio-table w-full min-w-[1000px] table-fixed text-left text-sm">
+      <table className="studio-table w-full min-w-[1120px] table-fixed text-left text-sm">
         <colgroup>
           <col className="w-[76px]" />
-          <col className={canViewProductCost ? "w-[24%]" : "w-[28%]"} />
-          <col className="w-[14%]" />
+          <col className={canViewProductCost ? "w-[22%]" : "w-[26%]"} />
+          <col className="w-[12%]" />
           <col className="w-[124px]" />
           {canViewProductCost ? <col className="w-[124px]" /> : null}
           <col className="w-[104px]" />
           <col className="w-[120px]" />
+          <col className="w-[180px]" />
           <col className="w-[112px]" />
           {canUpdate || canDelete ? <col className="w-[88px]" /> : null}
         </colgroup>
@@ -843,6 +1608,7 @@ function ProductTable({
             {canViewProductCost ? <th className="px-4 py-3 text-right font-medium">Product cost</th> : null}
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Website</th>
+            <th className="px-4 py-3 font-medium">Sort Order</th>
             <th className="px-4 py-3 font-medium">Updated</th>
             {canUpdate || canDelete ? <th className="px-4 py-3 text-right font-medium">Action</th> : null}
           </tr>
@@ -850,7 +1616,23 @@ function ProductTable({
         <tbody className="divide-y divide-border">
           {products.map((product) => {
             return (
-              <tr key={product.id} className={selectedProductId === product.id ? "bg-soft-accent/35" : undefined}>
+              <tr
+                key={product.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onView(product)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onView(product);
+                  }
+                }}
+                className={
+                  selectedProductId === product.id
+                    ? "cursor-pointer bg-soft-accent/35 transition hover:bg-soft-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                    : "cursor-pointer transition hover:bg-soft-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                }
+              >
                 <td className="px-4 py-4 align-middle">
                   <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
                     {product.primaryImage ? (
@@ -879,25 +1661,33 @@ function ProductTable({
                   </td>
                 ) : null}
                 <td className="px-4 py-4 align-middle">
-                  <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
+                  <QuickStatusPill
+                    product={product}
+                    canUpdate={canUpdate}
+                    pending={quickSaving.status === product.id}
+                    onChange={onStatusChange}
+                  />
                 </td>
                 <td className="px-4 py-4 align-middle">
-                  <div className="space-y-1">
-                    <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
-                      {product.isWebsiteVisible ? "Visible" : "Hidden"}
-                    </StatusPill>
-                    <p className="text-xs text-muted-foreground">Sort {product.websiteSortOrder}</p>
-                  </div>
+                  <QuickWebsitePill
+                    product={product}
+                    canUpdate={canUpdate}
+                    pending={quickSaving.website === product.id}
+                    onToggle={onWebsiteToggle}
+                  />
+                </td>
+                <td className="px-4 py-4 align-middle">
+                  <p className="line-clamp-2 text-xs text-muted-foreground">{sortOrderSummary(product)}</p>
                 </td>
                 <td className="px-4 py-4 align-middle text-muted-foreground">{product.updatedAt}</td>
                 {canUpdate || canDelete ? (
-                  <td className="whitespace-nowrap px-4 py-4 text-right align-middle">
+                  <td className="whitespace-nowrap px-4 py-4 text-right align-middle" onClick={(event) => event.stopPropagation()}>
                     <ProductRowActions
                       product={product}
                       canUpdate={canUpdate}
                       canDelete={canDelete}
                       statusAction={statusAction}
-                      statusPending={statusPending}
+                      statusPending={quickSaving.status === product.id}
                       deleteAction={deleteAction}
                       deletePending={deletePending}
                       onEdit={onEdit}
@@ -913,6 +1703,228 @@ function ProductTable({
   );
 }
 
+function ProductViewModal({
+  product,
+  canUpdate,
+  canDelete,
+  canViewProductCost,
+  statusPending,
+  deletePending,
+  onClose,
+  onEdit,
+  onStatusChange,
+  onDelete
+}: {
+  product: ProductRow;
+  canUpdate: boolean;
+  canDelete: boolean;
+  canViewProductCost: boolean;
+  statusPending: boolean;
+  deletePending: boolean;
+  onClose: () => void;
+  onEdit: (product: ProductRow) => void;
+  onStatusChange: (product: ProductRow, nextStatus: ProductRow["status"]) => void;
+  onDelete: (product: ProductRow) => void;
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const nextStatus = product.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  const statusActionLabel = product.status === "ACTIVE" ? "Deactivate" : "Activate";
+  const detailRows = [
+    ["Code", product.code ?? "No code"],
+    ["Category", product.category ?? "Uncategorized"],
+    ["Unit price", formatMoney(product.referencePrice, product.currency)],
+    ...(canViewProductCost ? [["Product cost", formatMoney(product.referenceCost, product.currency)]] : []),
+    ["Website", product.isWebsiteVisible ? "Visible" : "Hidden"],
+    ["Website pages", websitePageSummary(product)],
+    ["Sort order", sortOrderSummary(product)],
+    ["Last updated", product.updatedAt]
+  ];
+  const generalImages = product.images.filter((image) => image.colorVariantId === null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <AdminModal
+      onBackdropMouseDown={onClose}
+      labelledBy="product-view-modal-title"
+      className="items-center justify-center px-4 py-6"
+      panelClassName="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-xl sm:max-h-[calc(100vh-5rem)]"
+    >
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border bg-panel px-5 py-4">
+        <div>
+          <p className="studio-kicker">View Product</p>
+          <h2 id="product-view-modal-title" className="text-base font-semibold">
+            {product.name}
+          </h2>
+        </div>
+        <button
+          ref={closeButtonRef}
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          aria-label="Close product details"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
+        <div className="grid gap-5 lg:grid-cols-[260px_1fr]">
+          <div className="space-y-3">
+            <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
+              {product.primaryImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={product.primaryImage.secureUrl}
+                  alt={product.primaryImage.altText ?? product.name}
+                  className="h-full w-full object-contain"
+                />
+              ) : (
+                <PackageOpen className="h-8 w-8 text-muted-foreground/80" />
+              )}
+            </div>
+            {generalImages.length > 1 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {generalImages.map((image) => (
+                  <div
+                    key={image.id}
+                    className="flex aspect-square items-center justify-center overflow-hidden rounded-md border border-border bg-muted/50"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={image.secureUrl}
+                      alt={image.altText ?? product.name}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="min-w-0 space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
+              <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
+                {product.isWebsiteVisible ? "Visible" : "Hidden"}
+              </StatusPill>
+            </div>
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {detailRows.map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-border bg-background/70 p-3">
+                  <dt className="text-xs font-medium uppercase text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 break-words text-sm font-medium text-foreground">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <section className="rounded-lg border border-border bg-background/70 p-4">
+            <h3 className="text-sm font-semibold">Description</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+              {product.description || "No description."}
+            </p>
+          </section>
+          <section className="rounded-lg border border-border bg-background/70 p-4">
+            <h3 className="text-sm font-semibold">Specifications</h3>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+              {product.specifications || "No specifications."}
+            </p>
+          </section>
+        </div>
+        {product.colorVariants.length ? (
+          <section className="mt-5 rounded-lg border border-border bg-background/70 p-4">
+            <h3 className="text-sm font-semibold">Color variations</h3>
+            <div className="mt-3 space-y-4">
+              {product.colorVariants.map((variant) => {
+                const images = product.images.filter((image) => image.colorVariantId === variant.id);
+
+                return (
+                  <div key={variant.id} className="rounded-lg border border-border bg-panel/70 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className="h-5 w-5 rounded-full border border-border"
+                        style={{ backgroundColor: variant.hex ?? "#f3f4f6" }}
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm font-semibold">{variant.name}</p>
+                      <StatusPill tone={variant.isActive ? "success" : "neutral"}>
+                        {variant.isActive ? "Active" : "Inactive"}
+                      </StatusPill>
+                    </div>
+                    {images.length ? (
+                      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+                        {images.map((image) => (
+                          <div
+                            key={image.id}
+                            className="flex aspect-square items-center justify-center overflow-hidden rounded-md border border-border bg-muted/50"
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={image.secureUrl}
+                              alt={image.altText ?? `${product.name} ${variant.name}`}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-panel/70 px-5 py-4">
+        {canUpdate ? (
+          <Button type="button" onClick={() => onEdit(product)}>
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Button>
+        ) : null}
+        {canUpdate ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={statusPending}
+            onClick={() => onStatusChange(product, nextStatus)}
+          >
+            {product.status === "ACTIVE" ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+            {statusPending ? "Saving..." : statusActionLabel}
+          </Button>
+        ) : null}
+        {canDelete ? (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={deletePending}
+            onClick={() => onDelete(product)}
+            className="text-danger hover:bg-danger/10"
+          >
+            <Trash2 className="h-4 w-4" />
+            {deletePending ? "Deleting..." : "Delete"}
+          </Button>
+        ) : null}
+        <Button type="button" variant="ghost" onClick={onClose} className="ml-auto">
+          <X className="h-4 w-4" />
+          Close
+        </Button>
+      </div>
+    </AdminModal>
+  );
+}
+
 export function ProductWorkspace({
   products,
   canCreate,
@@ -922,6 +1934,7 @@ export function ProductWorkspace({
   hasActiveFilters,
   persistenceUserKey
 }: ProductWorkspaceProps) {
+  const router = useRouter();
   const initialWorkspaceDraft: ProductWorkspaceDraft = {
     selectedProductId: "",
     showCreateForm: false,
@@ -932,15 +1945,22 @@ export function ProductWorkspace({
     usePersistentPageState<ProductWorkspaceDraft>({
       scope: "products",
       userKey: persistenceUserKey,
-      version: 3,
+      version: 4,
       initialState: initialWorkspaceDraft
     });
   const hasAppliedWorkspaceDraft = useRef(false);
   const [createState, createAction, createPending] = useActionState(createProductAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateProductAction, initialState);
   const [statusState, statusAction, statusPending] = useActionState(updateProductStatusAction, initialState);
+  const [websiteState, websiteAction] = useActionState(
+    updateProductWebsiteVisibilityAction,
+    initialState
+  );
   const [deleteState, deleteAction, deletePending] = useActionState(deleteProductAction, initialState);
+  const [, startQuickTransition] = useTransition();
+  const [quickSaving, setQuickSaving] = useState<QuickSavingState>({});
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [viewedProductId, setViewedProductId] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"success" | "danger">("success");
@@ -986,6 +2006,9 @@ export function ProductWorkspace({
     setSelectedProductId((current) =>
       current && products.some((product) => product.id === current) ? current : ""
     );
+    setViewedProductId((current) =>
+      current && products.some((product) => product.id === current) ? current : ""
+    );
   }, [products]);
 
   useEffect(() => {
@@ -994,6 +2017,7 @@ export function ProductWorkspace({
       setNoticeTone("success");
       setShowCreateForm(false);
       setSelectedProductId("");
+      router.refresh();
       setWorkspaceDraft((current) => ({
         ...current,
         showCreateForm: false,
@@ -1001,7 +2025,7 @@ export function ProductWorkspace({
         createDraft: blankProductDraft
       }));
     }
-  }, [createState.ok, createState.message, setWorkspaceDraft]);
+  }, [createState.ok, createState.message, router, setWorkspaceDraft]);
 
   useEffect(() => {
     if (updateState.ok && updateState.message) {
@@ -1009,6 +2033,7 @@ export function ProductWorkspace({
       setNoticeTone("success");
       setShowCreateForm(false);
       setSelectedProductId("");
+      router.refresh();
       setWorkspaceDraft((current) => ({
         ...current,
         showCreateForm: false,
@@ -1016,44 +2041,72 @@ export function ProductWorkspace({
         editDrafts: {}
       }));
     }
-  }, [setWorkspaceDraft, updateState.ok, updateState.message]);
+  }, [router, setWorkspaceDraft, updateState.ok, updateState.message]);
 
   useEffect(() => {
     if (statusState.message) {
       setNotice(statusState.message);
       setNoticeTone(statusState.ok ? "success" : "danger");
-      setSelectedProductId("");
+      setQuickSaving((current) => ({
+        ...current,
+        status: undefined
+      }));
+      router.refresh();
       setShowCreateForm(false);
     }
-  }, [statusState.message, statusState.ok]);
+  }, [router, statusState]);
+
+  useEffect(() => {
+    if (websiteState.message) {
+      setNotice(websiteState.message);
+      setNoticeTone(websiteState.ok ? "success" : "danger");
+      setQuickSaving((current) => ({
+        ...current,
+        website: undefined
+      }));
+      router.refresh();
+      setShowCreateForm(false);
+    }
+  }, [router, websiteState]);
 
   useEffect(() => {
     if (deleteState.message) {
       setNotice(deleteState.message);
       setNoticeTone(deleteState.ok ? "success" : "danger");
       setSelectedProductId("");
+      if (deleteState.ok) {
+        setViewedProductId("");
+      }
+      router.refresh();
       setShowCreateForm(false);
     }
-  }, [deleteState.message, deleteState.ok]);
+  }, [deleteState.message, deleteState.ok, router]);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId) ?? null,
     [products, selectedProductId]
   );
+  const viewedProduct = useMemo(
+    () => products.find((product) => product.id === viewedProductId) ?? null,
+    [products, viewedProductId]
+  );
 
   function openCreateForm() {
     setNotice("");
     setSelectedProductId("");
+    setViewedProductId("");
     setShowCreateForm(true);
     setWorkspaceDraft((current) => ({
       ...current,
       selectedProductId: "",
-      showCreateForm: true
+      showCreateForm: true,
+      createDraft: blankProductDraft
     }));
   }
 
   function openEditForm(product: ProductRow) {
     setNotice("");
+    setViewedProductId("");
     setShowCreateForm(false);
     setSelectedProductId(product.id);
     setWorkspaceDraft((current) => ({
@@ -1085,6 +2138,66 @@ export function ProductWorkspace({
         createDraft: blankProductDraft,
         editDrafts: nextEditDrafts
       };
+    });
+  }
+
+  function openViewModal(product: ProductRow) {
+    setNotice("");
+    setShowCreateForm(false);
+    setSelectedProductId("");
+    setViewedProductId(product.id);
+  }
+
+  function closeViewModal() {
+    setViewedProductId("");
+  }
+
+  function submitStatusUpdate(product: ProductRow, nextStatus: ProductRow["status"]) {
+    if (
+      nextStatus === "INACTIVE" &&
+      !window.confirm(`Deactivate ${product.name}? It will be hidden from normal quotation selection.`)
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("productId", product.id);
+    formData.set("status", nextStatus);
+    setQuickSaving((current) => ({
+      ...current,
+      status: product.id
+    }));
+    startQuickTransition(() => {
+      statusAction(formData);
+    });
+  }
+
+  function toggleWebsiteVisibility(product: ProductRow) {
+    const formData = new FormData();
+    formData.set("productId", product.id);
+    formData.set("isWebsiteVisible", product.isWebsiteVisible ? "off" : "on");
+    setQuickSaving((current) => ({
+      ...current,
+      website: product.id
+    }));
+    startQuickTransition(() => {
+      websiteAction(formData);
+    });
+  }
+
+  function submitDelete(product: ProductRow) {
+    if (
+      !window.confirm(
+        `Delete ${product.name}? Only unused products can be deleted. Products already used in quotations or orders should be deactivated instead.`
+      )
+    ) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("productId", product.id);
+    startQuickTransition(() => {
+      deleteAction(formData);
     });
   }
 
@@ -1124,6 +2237,21 @@ export function ProductWorkspace({
         ...(workspaceDraft.editDrafts[selectedProduct.id] ?? {})
       }
     : blankProductDraft;
+  const selectedProductInitialDraft = selectedProduct ? productToDraft(selectedProduct) : blankProductDraft;
+  const createHasUnsavedChanges = !productDraftsMatch(createDraft, blankProductDraft);
+  const selectedProductHasUnsavedChanges =
+    selectedProduct !== null && !productDraftsMatch(selectedProductDraft, selectedProductInitialDraft);
+
+  function requestCloseForm(hasUnsavedChanges: boolean) {
+    if (
+      hasUnsavedChanges &&
+      !window.confirm("You have unsaved changes. Are you sure you want to leave?")
+    ) {
+      return;
+    }
+
+    closeForm();
+  }
 
   return (
     <div className="space-y-6">
@@ -1137,7 +2265,7 @@ export function ProductWorkspace({
             </p>
           </div>
           {canCreate ? (
-            <Button type="button" variant="secondary" onClick={openCreateForm}>
+            <Button type="button" onClick={openCreateForm}>
               <Plus className="h-4 w-4" />
               New product
             </Button>
@@ -1148,35 +2276,6 @@ export function ProductWorkspace({
           <ProductNotice message={notice} tone={noticeTone} onDismiss={() => setNotice("")} />
         ) : null}
 
-        {canCreate && showCreateForm ? (
-          <ProductForm
-            mode="create"
-            draft={createDraft}
-            onDraftChange={updateCreateDraft}
-            state={createState}
-            pending={createPending}
-            action={createAction}
-            onCancel={closeForm}
-            canUploadImage={canUpdate}
-            canViewProductCost={canViewProductCost}
-          />
-        ) : null}
-
-        {canUpdate && selectedProduct ? (
-          <ProductForm
-            mode="edit"
-            product={selectedProduct}
-            draft={selectedProductDraft}
-            onDraftChange={(patch) => updateEditDraft(selectedProduct.id, patch)}
-            state={updateState}
-            pending={updatePending}
-            action={updateAction}
-            onCancel={closeForm}
-            canUploadImage={canUpdate}
-            canViewProductCost={canViewProductCost}
-          />
-        ) : null}
-
         {products.length ? (
           <ProductTable
             products={products}
@@ -1184,11 +2283,14 @@ export function ProductWorkspace({
             canDelete={canDelete}
             canViewProductCost={canViewProductCost}
             selectedProductId={selectedProductId}
+            quickSaving={quickSaving}
             statusAction={statusAction}
-            statusPending={statusPending}
             deleteAction={deleteAction}
             deletePending={deletePending}
             onEdit={openEditForm}
+            onView={openViewModal}
+            onStatusChange={submitStatusUpdate}
+            onWebsiteToggle={toggleWebsiteVisibility}
           />
         ) : (
           <ProductEmptyState
@@ -1198,6 +2300,57 @@ export function ProductWorkspace({
           />
         )}
       </section>
+
+      {viewedProduct ? (
+        <ProductViewModal
+          product={viewedProduct}
+          canUpdate={canUpdate}
+          canDelete={canDelete}
+          canViewProductCost={canViewProductCost}
+          statusPending={quickSaving.status === viewedProduct.id || statusPending}
+          deletePending={deletePending}
+          onClose={closeViewModal}
+          onEdit={openEditForm}
+          onStatusChange={submitStatusUpdate}
+          onDelete={submitDelete}
+        />
+      ) : null}
+
+      {canCreate && showCreateForm ? (
+        <ProductFormModal title="New product" onClose={() => requestCloseForm(createHasUnsavedChanges)}>
+          <ProductForm
+            mode="create"
+            draft={createDraft}
+            onDraftChange={updateCreateDraft}
+            state={createState}
+            pending={createPending}
+            action={createAction}
+            onCancel={() => requestCloseForm(createHasUnsavedChanges)}
+            canUploadImage={canUpdate}
+            canViewProductCost={canViewProductCost}
+          />
+        </ProductFormModal>
+      ) : null}
+
+      {canUpdate && selectedProduct ? (
+        <ProductFormModal
+          title="Edit product"
+          onClose={() => requestCloseForm(selectedProductHasUnsavedChanges)}
+        >
+          <ProductForm
+            mode="edit"
+            product={selectedProduct}
+            draft={selectedProductDraft}
+            onDraftChange={(patch) => updateEditDraft(selectedProduct.id, patch)}
+            state={updateState}
+            pending={updatePending}
+            action={updateAction}
+            onCancel={() => requestCloseForm(selectedProductHasUnsavedChanges)}
+            canUploadImage={canUpdate}
+            canViewProductCost={canViewProductCost}
+          />
+        </ProductFormModal>
+      ) : null}
     </div>
   );
 }

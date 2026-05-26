@@ -30,6 +30,18 @@ function formatDate(value: Date) {
   }).format(value);
 }
 
+function normalizeProductPageSortOrders(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, rawValue]) => [key, Number(rawValue)])
+      .filter(([, sortOrder]) => Number.isFinite(sortOrder))
+  ) as Record<string, number>;
+}
+
 function productsHref(
   params: Record<string, string | undefined>,
   updates: Record<string, string | undefined> = {}
@@ -102,6 +114,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         isWebsiteVisible: true,
         websiteSortOrder: true,
         websitePages: true,
+        websitePageSortOrders: true,
         updatedAt: true,
         images: {
           orderBy: [
@@ -115,10 +128,30 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               createdAt: "asc"
             }
           ],
-          take: 1,
           select: {
+            id: true,
+            colorVariantId: true,
             secureUrl: true,
-            altText: true
+            altText: true,
+            sortOrder: true,
+            isPrimary: true
+          }
+        },
+        colorVariants: {
+          orderBy: [
+            {
+              sortOrder: "asc"
+            },
+            {
+              createdAt: "asc"
+            }
+          ],
+          select: {
+            id: true,
+            name: true,
+            hex: true,
+            sortOrder: true,
+            isActive: true
           }
         }
       }
@@ -176,7 +209,12 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         hasActiveFilters={hasActiveFilters}
         persistenceUserKey={user.id}
         products={products.map((product) => {
-          const primaryImage = product.images[0] ?? null;
+          const generalImages = product.images.filter((image) => image.colorVariantId === null);
+          const primaryImage =
+            generalImages.find((image) => image.isPrimary) ??
+            generalImages[0] ??
+            product.images[0] ??
+            null;
 
           return {
             id: product.id,
@@ -195,12 +233,32 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             isWebsiteVisible: product.isWebsiteVisible,
             websiteSortOrder: product.websiteSortOrder,
             websitePages: product.websitePages,
+            websitePageSortOrders: normalizeProductPageSortOrders(product.websitePageSortOrders),
             primaryImage: primaryImage
               ? {
+                  id: primaryImage.id,
                   secureUrl: primaryImage.secureUrl,
-                  altText: primaryImage.altText
+                  altText: primaryImage.altText,
+                  colorVariantId: primaryImage.colorVariantId,
+                  sortOrder: primaryImage.sortOrder,
+                  isPrimary: primaryImage.isPrimary
                 }
               : null,
+            images: product.images.map((image) => ({
+              id: image.id,
+              colorVariantId: image.colorVariantId,
+              secureUrl: image.secureUrl,
+              altText: image.altText,
+              sortOrder: image.sortOrder,
+              isPrimary: image.isPrimary
+            })),
+            colorVariants: product.colorVariants.map((variant) => ({
+              id: variant.id,
+              name: variant.name,
+              hex: variant.hex,
+              sortOrder: variant.sortOrder,
+              isActive: variant.isActive
+            })),
             updatedAt: formatDate(product.updatedAt)
           };
         })}

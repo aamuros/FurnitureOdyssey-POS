@@ -9,7 +9,8 @@ const requiredFields: Record<UploadCategory, Array<keyof UploadPathInput>> = {
   "customer-attachment": ["customerId"],
   "payment-proof": ["paymentId"],
   "delivery-proof": ["deliveryId"],
-  "generated-document": ["orderId", "documentType"]
+  "generated-document": ["orderId", "documentType"],
+  "catalogue-static-image": ["pageContentId", "cataloguePage", "catalogueSection", "catalogueFieldKey"]
 };
 
 function stableFileId(input: UploadPathInput) {
@@ -54,6 +55,10 @@ export function buildUploadFolder(input: UploadPathInput) {
     .replace("{paymentId}", input.paymentId ? safeFilename(input.paymentId) : "")
     .replace("{deliveryId}", input.deliveryId ? safeFilename(input.deliveryId) : "")
     .replace("{documentType}", input.documentType ? safeFilename(input.documentType.toLowerCase()) : "")
+    .replace("{pageContentId}", input.pageContentId ? safeFilename(input.pageContentId) : "")
+    .replace("{cataloguePage}", input.cataloguePage ? safeFilename(input.cataloguePage) : "")
+    .replace("{catalogueSection}", input.catalogueSection ? safeFilename(input.catalogueSection) : "")
+    .replace("{catalogueFieldKey}", input.catalogueFieldKey ? safeFilename(input.catalogueFieldKey) : "")
     .replace("{documentNumberOrFileId}", documentNumberOrFileId)
     .replace("{fileId}", fileId);
 }

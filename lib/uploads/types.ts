@@ -7,7 +7,8 @@ export type UploadCategory =
   | "customer-attachment"
   | "payment-proof"
   | "delivery-proof"
-  | "generated-document";
+  | "generated-document"
+  | "catalogue-static-image";
 
 export type UploadStorageProvider = "cloudinary";
 
@@ -62,6 +63,10 @@ export type UploadPathInput = {
   deliveryId?: string;
   documentType?: string;
   documentNumber?: string | null;
+  pageContentId?: string;
+  cataloguePage?: string;
+  catalogueSection?: string;
+  catalogueFieldKey?: string;
   fileId?: string;
   originalFilename?: string;
   now?: Date;

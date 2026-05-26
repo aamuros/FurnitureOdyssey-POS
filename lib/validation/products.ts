@@ -34,6 +34,10 @@ const productCategory = z.preprocess((value) => {
 }, z.enum(["Chair", "Table", "Others"]));
 
 const websitePage = z.enum(["home", "chairs", "tables", "collections"]);
+const websitePageSortOrders = z
+  .record(websitePage, optionalInt)
+  .default({})
+  .transform((value) => Object.fromEntries(Object.entries(value).filter(([, sortOrder]) => Number.isFinite(sortOrder))));
 
 export const productImageSchema = z.object({
   id: optionalText,
@@ -58,6 +62,7 @@ const productFields = {
   isWebsiteVisible: z.boolean().default(false),
   websiteSortOrder: optionalInt,
   websitePages: z.array(websitePage).default([]),
+  websitePageSortOrders,
   images: z.array(productImageSchema).default([])
 };
 
