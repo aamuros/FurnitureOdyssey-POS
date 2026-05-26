@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Package,
   PackageCheck,
+  PanelsTopLeft,
   ReceiptText,
   Settings,
   Truck,
@@ -41,6 +42,12 @@ export const dashboardNavItems: DashboardNavItem[] = [
     href: "/products",
     module: "PRODUCTS",
     icon: Package
+  },
+  {
+    title: "Catalogue",
+    href: "/catalogue",
+    module: "SETTINGS",
+    icon: PanelsTopLeft
   },
   {
     title: "Quotations",

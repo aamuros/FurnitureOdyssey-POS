@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertCircle,
   Ban,
@@ -40,6 +40,9 @@ type ProductRow = {
   referenceCost: number | null;
   currency: string;
   status: "ACTIVE" | "INACTIVE";
+  isWebsiteVisible: boolean;
+  websiteSortOrder: number;
+  websitePages: string[];
   primaryImage: {
     secureUrl: string;
     altText: string | null;
@@ -54,7 +57,6 @@ type ProductWorkspaceProps = {
   canDelete: boolean;
   canViewProductCost: boolean;
   hasActiveFilters: boolean;
-  categories: string[];
   persistenceUserKey?: string | null;
 };
 
@@ -72,7 +74,6 @@ type ProductFormProps = {
   pending: boolean;
   action: (formData: FormData) => void;
   onCancel: () => void;
-  categories: string[];
   canUploadImage: boolean;
   canViewProductCost: boolean;
 };
@@ -84,6 +85,9 @@ type ProductFormDraft = {
   referencePrice: string;
   referenceCost: string;
   status: ProductRow["status"];
+  isWebsiteVisible: boolean;
+  websiteSortOrder: string;
+  websitePages: string[];
   description: string;
   specifications: string;
 };
@@ -96,17 +100,14 @@ type ProductWorkspaceDraft = {
 };
 
 const fieldClassName = "flex min-h-[78px] flex-col gap-2 text-sm font-medium";
-const essentialCategories = [
-  "Sofa",
-  "Chair",
-  "Dining",
-  "Bed",
-  "Table",
-  "Storage",
-  "Office",
-  "Outdoor",
-  "Decor"
-];
+const productCategoryOptions = ["Chair", "Table", "Others"] as const;
+const websitePageOptions = [
+  { label: "Home", value: "home" },
+  { label: "Chairs", value: "chairs" },
+  { label: "Tables", value: "tables" },
+  { label: "Collections", value: "collections" }
+] as const;
+type WebsitePageValue = (typeof websitePageOptions)[number]["value"];
 
 const initialState = {
   ok: false,
@@ -116,32 +117,48 @@ const initialState = {
 const blankProductDraft: ProductFormDraft = {
   name: "",
   code: "",
-  category: "",
+  category: "Others",
   referencePrice: "",
   referenceCost: "",
   status: "ACTIVE",
+  isWebsiteVisible: false,
+  websiteSortOrder: "0",
+  websitePages: [],
   description: "",
   specifications: ""
 };
 
-function uniqueCategories(categories: string[], currentCategory?: string | null) {
-  return Array.from(
-    new Set(
-      [...essentialCategories, ...categories, currentCategory ?? ""]
-        .map((category) => category.trim())
-        .filter(Boolean)
-    )
-  );
+function normalizeProductCategory(category?: string | null) {
+  const normalized = String(category ?? "").trim().toLowerCase();
+
+  if (normalized === "chair" || normalized === "chairs" || normalized === "stool" || normalized === "stools") {
+    return "Chair";
+  }
+
+  if (normalized === "table" || normalized === "tables") {
+    return "Table";
+  }
+
+  return "Others";
+}
+
+function normalizeWebsitePages(pages?: string[] | null) {
+  const allowedPages = new Set<string>(websitePageOptions.map((page) => page.value));
+
+  return Array.from(new Set((pages ?? []).filter((page) => allowedPages.has(page))));
 }
 
 function productToDraft(product: ProductRow): ProductFormDraft {
   return {
     name: product.name,
     code: product.code ?? "",
-    category: product.category ?? "",
+    category: normalizeProductCategory(product.category),
     referencePrice: product.referencePrice === null ? "" : String(product.referencePrice),
     referenceCost: product.referenceCost === null ? "" : String(product.referenceCost),
     status: product.status,
+    isWebsiteVisible: product.isWebsiteVisible,
+    websiteSortOrder: String(product.websiteSortOrder),
+    websitePages: normalizeWebsitePages(product.websitePages),
     description: product.description ?? "",
     specifications: product.specifications ?? ""
   };
@@ -171,12 +188,37 @@ function ProductForm({
   pending,
   action,
   onCancel,
-  categories,
   canUploadImage,
   canViewProductCost
 }: ProductFormProps) {
   const isEdit = mode === "edit";
-  const categoryOptions = uniqueCategories(categories, product?.category);
+  const imageInputId = useId();
+  const [selectedFileName, setSelectedFileName] = useState("");
+  const selectedWebsitePages = normalizeWebsitePages(draft.websitePages);
+
+  useEffect(() => {
+    setSelectedFileName("");
+  }, [product?.id, mode]);
+
+  function toggleWebsitePage(page: WebsitePageValue) {
+    if (!draft.isWebsiteVisible) {
+      return;
+    }
+
+    const selectedPages = new Set(selectedWebsitePages);
+
+    if (selectedPages.has(page)) {
+      selectedPages.delete(page);
+    } else {
+      selectedPages.add(page);
+    }
+
+    onDraftChange({
+      websitePages: websitePageOptions
+        .map((option) => option.value)
+        .filter((value) => selectedPages.has(value))
+    });
+  }
 
   return (
     <section className="border-y border-border bg-muted/20">
@@ -223,11 +265,10 @@ function ProductForm({
               Category
               <Select
                 name="category"
-                value={draft.category}
+                value={normalizeProductCategory(draft.category)}
                 onChange={(event) => onDraftChange({ category: event.target.value })}
               >
-                <option value="">Choose category</option>
-                {categoryOptions.map((category) => (
+                {productCategoryOptions.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -282,6 +323,106 @@ function ProductForm({
             </label>
           </div>
 
+          <div className="rounded-lg border border-border bg-panel/70 p-4">
+            <p className="text-sm font-semibold">Catalogue visibility</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Controls whether and where this product appears on the public catalogue website.
+            </p>
+            <input
+              type="hidden"
+              name="websitePagesMode"
+              value={draft.isWebsiteVisible ? "enabled" : "locked"}
+            />
+            {!draft.isWebsiteVisible
+              ? selectedWebsitePages.map((page) => (
+                  <input key={page} type="hidden" name="websitePages" value={page} />
+                ))
+              : null}
+            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_minmax(260px,1fr)_180px] lg:items-start">
+              <fieldset className="flex flex-col gap-2 text-sm font-medium">
+                <legend>Website visible</legend>
+                <div className="inline-flex w-fit overflow-hidden rounded-lg border border-border bg-panel p-1">
+                  {[
+                    { label: "Yes", value: true },
+                    { label: "No", value: false }
+                  ].map((option) => (
+                    <label
+                      key={option.label}
+                      className={
+                        draft.isWebsiteVisible === option.value
+                          ? "cursor-pointer rounded-md bg-soft-accent px-3 py-2 text-sm font-semibold text-foreground"
+                          : "cursor-pointer rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="isWebsiteVisible"
+                        value={option.value ? "on" : "off"}
+                        checked={draft.isWebsiteVisible === option.value}
+                        onChange={() => onDraftChange({ isWebsiteVisible: option.value })}
+                        className="sr-only"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="flex min-w-0 flex-col gap-2 text-sm font-medium">
+                <legend>Web pages visibility</legend>
+                <p className="text-xs font-normal leading-5 text-muted-foreground">
+                  Choose where this product can appear on the public catalogue.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {websitePageOptions.map((page) => {
+                    const isSelected = selectedWebsitePages.includes(page.value);
+                    const isDisabled = !draft.isWebsiteVisible;
+
+                    return (
+                      <label
+                        key={page.value}
+                        className={
+                          isDisabled
+                            ? "inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-lg border border-border bg-muted/45 px-3 text-sm font-semibold text-muted-foreground opacity-70"
+                            : isSelected
+                              ? "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                              : "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-border bg-soft-accent/70 px-3 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+                        }
+                        aria-disabled={isDisabled}
+                      >
+                        <input
+                          type="checkbox"
+                          name="websitePages"
+                          value={page.value}
+                          checked={isSelected}
+                          disabled={isDisabled}
+                          onChange={() => toggleWebsitePage(page.value)}
+                          className="sr-only"
+                        />
+                        {page.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label className="flex flex-col gap-2 text-sm font-medium">
+                Website sort order
+                <Input
+                  name="websiteSortOrder"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={draft.websiteSortOrder}
+                  onChange={(event) => onDraftChange({ websiteSortOrder: event.target.value })}
+                />
+                <span className="block text-xs font-normal leading-5 text-muted-foreground">
+                  Lower values appear earlier.
+                </span>
+              </label>
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm font-medium">
               Description
@@ -303,25 +444,46 @@ function ProductForm({
             </label>
           </div>
 
-          {!isEdit && canUploadImage ? (
+          {canUploadImage ? (
             <div className="rounded-lg border border-border bg-panel/70 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/55">
+              <div className="grid gap-4 sm:grid-cols-[96px_1fr] sm:items-center">
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/55">
+                  {isEdit && product?.primaryImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={product.primaryImage.secureUrl}
+                      alt={product.primaryImage.altText ?? product.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
                     <ImagePlus className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Product photo</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Optional. Add one main photo for the catalog thumbnail.
-                    </p>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Product photo</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Optional. Add one main photo for the catalog thumbnail.
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <label
+                      htmlFor={imageInputId}
+                      className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition duration-150 hover:bg-soft-accent focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30"
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      {isEdit ? "Change photo" : "Choose product photo"}
+                    </label>
+                    <span className="min-w-0 truncate text-sm text-muted-foreground">
+                      {selectedFileName || "No file selected"}
+                    </span>
                   </div>
                 </div>
-                <Input
+                <input
+                  id={imageInputId}
                   name="imageFile"
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  className="max-w-sm bg-background"
+                  className="sr-only"
+                  onChange={(event) => setSelectedFileName(event.target.files?.[0]?.name ?? "")}
                 />
               </div>
             </div>
@@ -660,14 +822,15 @@ function ProductTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="studio-table w-full min-w-[880px] table-fixed text-left text-sm">
+      <table className="studio-table w-full min-w-[1000px] table-fixed text-left text-sm">
         <colgroup>
           <col className="w-[76px]" />
-          <col className={canViewProductCost ? "w-[26%]" : "w-[30%]"} />
+          <col className={canViewProductCost ? "w-[24%]" : "w-[28%]"} />
           <col className="w-[14%]" />
           <col className="w-[124px]" />
           {canViewProductCost ? <col className="w-[124px]" /> : null}
           <col className="w-[104px]" />
+          <col className="w-[120px]" />
           <col className="w-[112px]" />
           {canUpdate || canDelete ? <col className="w-[88px]" /> : null}
         </colgroup>
@@ -679,6 +842,7 @@ function ProductTable({
             <th className="px-4 py-3 text-right font-medium">Unit price</th>
             {canViewProductCost ? <th className="px-4 py-3 text-right font-medium">Product cost</th> : null}
             <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Website</th>
             <th className="px-4 py-3 font-medium">Updated</th>
             {canUpdate || canDelete ? <th className="px-4 py-3 text-right font-medium">Action</th> : null}
           </tr>
@@ -717,6 +881,14 @@ function ProductTable({
                 <td className="px-4 py-4 align-middle">
                   <StatusPill tone={statusTone(product.status)}>{product.status}</StatusPill>
                 </td>
+                <td className="px-4 py-4 align-middle">
+                  <div className="space-y-1">
+                    <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
+                      {product.isWebsiteVisible ? "Visible" : "Hidden"}
+                    </StatusPill>
+                    <p className="text-xs text-muted-foreground">Sort {product.websiteSortOrder}</p>
+                  </div>
+                </td>
                 <td className="px-4 py-4 align-middle text-muted-foreground">{product.updatedAt}</td>
                 {canUpdate || canDelete ? (
                   <td className="whitespace-nowrap px-4 py-4 text-right align-middle">
@@ -748,7 +920,6 @@ export function ProductWorkspace({
   canDelete,
   canViewProductCost,
   hasActiveFilters,
-  categories,
   persistenceUserKey
 }: ProductWorkspaceProps) {
   const initialWorkspaceDraft: ProductWorkspaceDraft = {
@@ -761,7 +932,7 @@ export function ProductWorkspace({
     usePersistentPageState<ProductWorkspaceDraft>({
       scope: "products",
       userKey: persistenceUserKey,
-      version: 1,
+      version: 3,
       initialState: initialWorkspaceDraft
     });
   const hasAppliedWorkspaceDraft = useRef(false);
@@ -943,9 +1114,15 @@ export function ProductWorkspace({
     }));
   }
 
-  const createDraft = workspaceDraft.createDraft ?? blankProductDraft;
+  const createDraft = {
+    ...blankProductDraft,
+    ...(workspaceDraft.createDraft ?? {})
+  };
   const selectedProductDraft = selectedProduct
-    ? workspaceDraft.editDrafts[selectedProduct.id] ?? productToDraft(selectedProduct)
+    ? {
+        ...productToDraft(selectedProduct),
+        ...(workspaceDraft.editDrafts[selectedProduct.id] ?? {})
+      }
     : blankProductDraft;
 
   return (
@@ -980,7 +1157,6 @@ export function ProductWorkspace({
             pending={createPending}
             action={createAction}
             onCancel={closeForm}
-            categories={categories}
             canUploadImage={canUpdate}
             canViewProductCost={canViewProductCost}
           />
@@ -996,8 +1172,7 @@ export function ProductWorkspace({
             pending={updatePending}
             action={updateAction}
             onCancel={closeForm}
-            categories={categories}
-            canUploadImage={false}
+            canUploadImage={canUpdate}
             canViewProductCost={canViewProductCost}
           />
         ) : null}

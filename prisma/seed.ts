@@ -190,6 +190,330 @@ async function seedAdminUser() {
 }
 
 // ---------------------------------------------------------------------------
+// Seed: Catalogue page content
+// ---------------------------------------------------------------------------
+
+const pageContentSeed = [
+  {
+    id: "home-hero-eyebrow",
+    page: "home",
+    section: "hero",
+    fieldKey: "eyebrow",
+    fieldValue: "A New Way to Sit",
+  },
+  {
+    id: "home-hero-title",
+    page: "home",
+    section: "hero",
+    fieldKey: "title",
+    fieldValue: "Sculpting",
+  },
+  {
+    id: "home-hero-italic",
+    page: "home",
+    section: "hero",
+    fieldKey: "italic",
+    fieldValue: "Silence",
+  },
+  {
+    id: "home-hero-description",
+    page: "home",
+    section: "hero",
+    fieldKey: "description",
+    fieldValue:
+      "Discover the harmony between form and living craft. Every piece is designed to bring a sense of quiet permanence to your contemporary sanctuary.",
+  },
+  {
+    id: "home-hero-btn1",
+    page: "home",
+    section: "hero",
+    fieldKey: "btn1_label",
+    fieldValue: "Explore the Collection",
+  },
+  {
+    id: "home-hero-btn2",
+    page: "home",
+    section: "hero",
+    fieldKey: "btn2_label",
+    fieldValue: "Our Story",
+  },
+  {
+    id: "home-hero-image1",
+    page: "home",
+    section: "hero",
+    fieldKey: "image1",
+    fieldValue: "/images/wooden-cabinet.png",
+  },
+  {
+    id: "home-hero-image2",
+    page: "home",
+    section: "hero",
+    fieldKey: "image2",
+    fieldValue: "/images/chair-sage.png",
+  },
+  {
+    id: "home-curators-eyebrow",
+    page: "home",
+    section: "curators_pick",
+    fieldKey: "eyebrow",
+    fieldValue: "a daily focus on modern, distinctive classics, handcrafted furniture and more.",
+  },
+  {
+    id: "home-curators-title",
+    page: "home",
+    section: "curators_pick",
+    fieldKey: "title",
+    fieldValue: "The Digital Curator's Pick",
+  },
+  {
+    id: "home-materials-title",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "title",
+    fieldValue: "Honest Materials.",
+  },
+  {
+    id: "home-materials-italic",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "italic",
+    fieldValue: "Eternal Design.",
+  },
+  {
+    id: "home-materials-description",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "description",
+    fieldValue:
+      "We believe furniture should tell a story worth repeating. In a world of disposable convenience, our \"Honest Material\" movement — where the wood grain is embraced and the visible construction provides testament to the artisan's touch.",
+  },
+  {
+    id: "home-materials-description2",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "description2",
+    fieldValue:
+      "Every piece at Furniture Odyssey is crafted to ensure the finest for us, preserving all of nature's warmth for your home's next chapter.",
+  },
+  {
+    id: "home-materials-btn",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "btn_label",
+    fieldValue: "Browse the Craftsmanship →",
+  },
+  {
+    id: "home-materials-image",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "image",
+    fieldValue: "/images/craftsman.png",
+  },
+  {
+    id: "home-materials-quote",
+    page: "home",
+    section: "honest_materials",
+    fieldKey: "quote",
+    fieldValue: "Every grain tells a story of patient hands.",
+  },
+  {
+    id: "home-story-eyebrow",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "eyebrow",
+    fieldValue: "Featured Story",
+  },
+  {
+    id: "home-story-title",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "title",
+    fieldValue: "From Workshop",
+  },
+  {
+    id: "home-story-italic",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "italic",
+    fieldValue: "to Sanctuary",
+  },
+  {
+    id: "home-story-description",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "description",
+    fieldValue:
+      "Follow the journey of a single slab of oak as it transforms from raw timber into a dining table designed to last for generations.",
+  },
+  {
+    id: "home-story-btn",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "btn_label",
+    fieldValue: "Read the Story →",
+  },
+  {
+    id: "home-story-image",
+    page: "home",
+    section: "featured_story",
+    fieldKey: "image",
+    fieldValue: "/images/modern-sideboard.png",
+  },
+  {
+    id: "chairs-hero-eyebrow",
+    page: "chairs",
+    section: "hero",
+    fieldKey: "eyebrow",
+    fieldValue: "The Seat You Deserves",
+  },
+  {
+    id: "chairs-hero-title",
+    page: "chairs",
+    section: "hero",
+    fieldKey: "title",
+    fieldValue: "Sculpted",
+  },
+  {
+    id: "chairs-hero-italic",
+    page: "chairs",
+    section: "hero",
+    fieldKey: "italic",
+    fieldValue: "Comfort.",
+  },
+  {
+    id: "chairs-hero-description",
+    page: "chairs",
+    section: "hero",
+    fieldKey: "description",
+    fieldValue:
+      "Discover sculpted silhouettes, classic designs and tactile fabrics — from artisanal studios to your sanctuary. In a chair, every piece is a sanctuary of its own.",
+  },
+  {
+    id: "tables-hero-eyebrow",
+    page: "tables",
+    section: "hero",
+    fieldKey: "eyebrow",
+    fieldValue: "The Custom Collection",
+  },
+  {
+    id: "tables-hero-title",
+    page: "tables",
+    section: "hero",
+    fieldKey: "title",
+    fieldValue: "Gathering",
+  },
+  {
+    id: "tables-hero-italic",
+    page: "tables",
+    section: "hero",
+    fieldKey: "italic",
+    fieldValue: "Redefined.",
+  },
+  {
+    id: "tables-hero-description",
+    page: "tables",
+    section: "hero",
+    fieldKey: "description",
+    fieldValue:
+      "Crafted from solid oak and steel married, our tables are built to be the heart of your home. Turn every deliberation to your sanctuary.",
+  },
+  {
+    id: "tables-hero-btn",
+    page: "tables",
+    section: "hero",
+    fieldKey: "btn_label",
+    fieldValue: "Start Gathering",
+  },
+  {
+    id: "tables-hero-image",
+    page: "tables",
+    section: "hero",
+    fieldKey: "image",
+    fieldValue: "/images/wood-grain.png",
+  },
+  {
+    id: "tables-hero-quote",
+    page: "tables",
+    section: "hero",
+    fieldKey: "quote",
+    fieldValue: "Every chair follows a table worth sitting around.",
+  },
+  {
+    id: "tables-catalog-title",
+    page: "tables",
+    section: "catalog",
+    fieldKey: "title",
+    fieldValue: "Curated Catalog",
+  },
+  {
+    id: "collections-hero-title",
+    page: "collections",
+    section: "hero",
+    fieldKey: "title",
+    fieldValue: "Curating Your",
+  },
+  {
+    id: "collections-hero-italic",
+    page: "collections",
+    section: "hero",
+    fieldKey: "italic",
+    fieldValue: "Sanctuary",
+  },
+  {
+    id: "collections-hero-description",
+    page: "collections",
+    section: "hero",
+    fieldKey: "description",
+    fieldValue:
+      "Explore our latest ensemble of curated finished pieces, designed to bring quiet elegance and enduring warmth. A luxury curation of your home.",
+  },
+  {
+    id: "collections-hero-btn",
+    page: "collections",
+    section: "hero",
+    fieldKey: "btn_label",
+    fieldValue: "View Catalog",
+  },
+];
+
+async function seedPageContent() {
+  const result = await prisma.pageContent.createMany({
+    data: pageContentSeed,
+    skipDuplicates: true,
+  });
+
+  console.log(`Seeded ${result.count} catalogue page content records.`);
+}
+
+// ---------------------------------------------------------------------------
+// Seed: Catalogue tags
+// ---------------------------------------------------------------------------
+
+const tagSeed = [
+  { id: "tag-new-arrivals", name: "New Arrivals" },
+  { id: "tag-dining", name: "Dining" },
+  { id: "tag-lounge", name: "Lounge" },
+  { id: "tag-accent", name: "Accent" },
+  { id: "tag-coffee", name: "Coffee" },
+  { id: "tag-storage", name: "Storage" },
+  { id: "tag-modular", name: "Modular" },
+  { id: "tag-decor", name: "Decor" },
+  { id: "tag-art", name: "Art" },
+  { id: "tag-classic", name: "Classic" },
+  { id: "tag-modern", name: "Modern" },
+  { id: "tag-handcrafted", name: "Handcrafted" },
+];
+
+async function seedTags() {
+  const result = await prisma.tag.createMany({
+    data: tagSeed,
+    skipDuplicates: true,
+  });
+
+  console.log(`Seeded ${result.count} catalogue tags.`);
+}
+
+// ---------------------------------------------------------------------------
 // Seed: Products with hardcoded Cloudinary image data
 // ---------------------------------------------------------------------------
 
@@ -453,6 +777,8 @@ async function seedProducts(adminId: string | null) {
 
 async function main() {
   const admin = await seedAdminUser();
+  await seedPageContent();
+  await seedTags();
   await seedProducts(admin?.id ?? null);
 }
 

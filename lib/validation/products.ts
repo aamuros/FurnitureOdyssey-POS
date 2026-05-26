@@ -19,6 +19,22 @@ const optionalInt = z.preprocess(
   z.coerce.number().int().min(0).default(0)
 );
 
+const productCategory = z.preprocess((value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+
+  if (normalized === "chair" || normalized === "chairs" || normalized === "stool" || normalized === "stools") {
+    return "Chair";
+  }
+
+  if (normalized === "table" || normalized === "tables") {
+    return "Table";
+  }
+
+  return "Others";
+}, z.enum(["Chair", "Table", "Others"]));
+
+const websitePage = z.enum(["home", "chairs", "tables", "collections"]);
+
 export const productImageSchema = z.object({
   id: optionalText,
   cloudinaryPublicId: z.string().trim().min(1, "Image public ID is required."),
@@ -31,7 +47,7 @@ export const productImageSchema = z.object({
 const productFields = {
   code: optionalText,
   name: z.string().trim().min(1, "Product name is required."),
-  category: optionalText,
+  category: productCategory,
   description: optionalText,
   specifications: optionalText,
   referencePrice: optionalMoney,
@@ -41,6 +57,7 @@ const productFields = {
   internalNotes: optionalText,
   isWebsiteVisible: z.boolean().default(false),
   websiteSortOrder: optionalInt,
+  websitePages: z.array(websitePage).default([]),
   images: z.array(productImageSchema).default([])
 };
 

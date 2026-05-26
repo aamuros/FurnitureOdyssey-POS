@@ -20,17 +20,7 @@ type ProductsPageProps = {
 };
 
 const pageSize = 25;
-const defaultProductCategories = [
-  "Sofa",
-  "Chair",
-  "Dining",
-  "Bed",
-  "Table",
-  "Storage",
-  "Office",
-  "Outdoor",
-  "Decor"
-];
+const productCategoryOptions = ["Chair", "Table", "Others"];
 
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -88,7 +78,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       : undefined
   };
 
-  const [products, productCount, categories] = await Promise.all([
+  const [products, productCount] = await Promise.all([
     timeQuery("products:list", prisma.product.findMany({
       where: productWhere,
       orderBy: [
@@ -109,6 +99,9 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         referenceCost: canViewProductCost,
         currency: true,
         status: true,
+        isWebsiteVisible: true,
+        websiteSortOrder: true,
+        websitePages: true,
         updatedAt: true,
         images: {
           orderBy: [
@@ -132,20 +125,6 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     })),
     timeQuery("products:count", prisma.product.count({
       where: productWhere
-    })),
-    timeQuery("products:categories", prisma.product.findMany({
-      where: {
-        category: {
-          not: null
-        }
-      },
-      distinct: ["category"],
-      orderBy: {
-        category: "asc"
-      },
-      select: {
-        category: true
-      }
     }))
   ]);
   const totalPages = Math.max(Math.ceil(productCount / pageSize), 1);
@@ -154,12 +133,6 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     status: params.status,
     category: params.category
   };
-  const categoryOptions = Array.from(
-    new Set([
-      ...defaultProductCategories,
-      ...categories.flatMap((item) => (item.category ? [item.category] : []))
-    ])
-  );
 
   return (
     <>
@@ -180,7 +153,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         </Select>
         <Select name="category" defaultValue={params.category ?? ""}>
           <option value="">All categories</option>
-          {categoryOptions.map((item) => (
+          {productCategoryOptions.map((item) => (
             <option key={item} value={item}>
               {item}
             </option>
@@ -201,7 +174,6 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         canDelete={hasPermission(user, "PRODUCTS", "DELETE")}
         canViewProductCost={canViewProductCost}
         hasActiveFilters={hasActiveFilters}
-        categories={categoryOptions}
         persistenceUserKey={user.id}
         products={products.map((product) => {
           const primaryImage = product.images[0] ?? null;
@@ -220,6 +192,9 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                 : null,
             currency: product.currency,
             status: product.status,
+            isWebsiteVisible: product.isWebsiteVisible,
+            websiteSortOrder: product.websiteSortOrder,
+            websitePages: product.websitePages,
             primaryImage: primaryImage
               ? {
                   secureUrl: primaryImage.secureUrl,

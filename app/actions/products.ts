@@ -26,6 +26,13 @@ function parseImages(value: FormDataEntryValue | null) {
   }
 }
 
+function parseWebsitePages(formData: FormData) {
+  return formData
+    .getAll("websitePages")
+    .map((value) => String(value))
+    .filter(Boolean);
+}
+
 function imageCreateData(images: ProductImageInput[]) {
   return images.map((image, index) => ({
     cloudinaryPublicId: image.cloudinaryPublicId,
@@ -67,6 +74,10 @@ function productValidationMessage(error: { issues: { message: string; path: (str
     return "Choose a valid product status.";
   }
 
+  if (field === "category") {
+    return "Choose Chair, Table, or Others.";
+  }
+
   if (issue?.message && !issue.message.toLowerCase().includes("expected")) {
     return issue.message;
   }
@@ -93,6 +104,7 @@ export async function createProductAction(
     internalNotes: formData.get("internalNotes"),
     isWebsiteVisible: formData.get("isWebsiteVisible") === "on",
     websiteSortOrder: formData.get("websiteSortOrder"),
+    websitePages: formData.has("websitePagesMode") ? parseWebsitePages(formData) : [],
     images: parseImages(formData.get("images"))
   });
 
@@ -118,6 +130,7 @@ export async function createProductAction(
           status: parsed.data.status as ProductStatus,
           isWebsiteVisible: parsed.data.isWebsiteVisible,
           websiteSortOrder: parsed.data.websiteSortOrder,
+          websitePages: parsed.data.websitePages,
           internalNotes: parsed.data.internalNotes,
           createdById: actor.id,
           updatedById: actor.id,
@@ -200,6 +213,7 @@ export async function createProductAction(
         revalidatePath("/products");
         revalidatePath("/quotations");
         revalidatePath("/orders");
+        revalidatePath("/catalogue");
 
         return {
           ok: true,
@@ -213,6 +227,7 @@ export async function createProductAction(
     revalidatePath("/products");
     revalidatePath("/quotations");
     revalidatePath("/orders");
+    revalidatePath("/catalogue");
 
     return {
       ok: true,
@@ -232,6 +247,7 @@ export async function updateProductAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("PRODUCTS", "UPDATE");
   const productId = String(formData.get("productId") ?? "");
+  const imageFile = formData.get("imageFile");
 
   if (!productId) {
     return {
@@ -251,6 +267,7 @@ export async function updateProductAction(
       currency: true,
       isWebsiteVisible: true,
       websiteSortOrder: true,
+      websitePages: true,
       internalNotes: true
     }
   });
@@ -282,6 +299,7 @@ export async function updateProductAction(
     websiteSortOrder: formData.has("websiteSortOrder")
       ? formData.get("websiteSortOrder")
       : existing.websiteSortOrder,
+    websitePages: formData.has("websitePagesMode") ? parseWebsitePages(formData) : existing.websitePages,
     images: undefined
   });
 
@@ -325,6 +343,10 @@ export async function updateProductAction(
         data.websiteSortOrder = parsed.data.websiteSortOrder;
       }
 
+      if (formData.has("websitePagesMode")) {
+        data.websitePages = parsed.data.websitePages;
+      }
+
       if (formData.has("internalNotes")) {
         data.internalNotes = parsed.data.internalNotes;
       }
@@ -353,9 +375,85 @@ export async function updateProductAction(
       return updated;
     });
 
+    if (imageFile instanceof File && imageFile.size > 0) {
+      try {
+        const uploaded = await uploadFileToCloudinary({
+          category: "product-image",
+          file: imageFile,
+          path: {
+            productId: product.id
+          }
+        });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.productImage.updateMany({
+            where: {
+              productId: product.id
+            },
+            data: {
+              isPrimary: false
+            }
+          });
+
+          const image = await tx.productImage.create({
+            data: {
+              productId: product.id,
+              cloudinaryPublicId: uploaded.cloudinaryPublicId,
+              secureUrl: uploaded.secureUrl,
+              resourceType: uploaded.resourceType,
+              format: uploaded.format,
+              width: uploaded.width,
+              height: uploaded.height,
+              bytes: uploaded.bytes,
+              altText: product.name,
+              sortOrder: 0,
+              isPrimary: true
+            }
+          });
+
+          await tx.product.update({
+            where: {
+              id: product.id
+            },
+            data: {
+              updatedById: actor.id
+            }
+          });
+
+          await tx.activityLog.create({
+            data: {
+              action: "PRODUCT_UPDATED",
+              actorId: actor.id,
+              summary: `Uploaded image for product ${product.name}.`,
+              metadata: {
+                productId: product.id,
+                productImageId: image.id,
+                cloudinaryPublicId: uploaded.cloudinaryPublicId,
+                originalFilename: uploaded.originalFilename,
+                isPrimary: true
+              }
+            }
+          });
+        });
+      } catch (error) {
+        revalidatePath("/products");
+        revalidatePath("/quotations");
+        revalidatePath("/orders");
+        revalidatePath("/catalogue");
+
+        return {
+          ok: true,
+          message: `Product updated: ${product.name}. Image upload was skipped: ${
+            error instanceof Error ? error.message : "Unable to upload product image."
+          }`
+        };
+      }
+    }
+
     revalidatePath("/products");
     revalidatePath("/quotations");
     revalidatePath("/orders");
+    revalidatePath("/catalogue");
 
     return {
       ok: true,
@@ -444,6 +542,7 @@ export async function deleteProductAction(
   revalidatePath("/products");
   revalidatePath("/quotations");
   revalidatePath("/orders");
+  revalidatePath("/catalogue");
 
   return {
     ok: true,
@@ -530,6 +629,7 @@ export async function updateProductStatusAction(
   revalidatePath("/products");
   revalidatePath("/quotations");
   revalidatePath("/orders");
+  revalidatePath("/catalogue");
 
   return {
     ok: true,
@@ -648,6 +748,7 @@ export async function uploadProductImageAction(formData: FormData): Promise<Acti
     revalidatePath("/products");
     revalidatePath("/quotations");
     revalidatePath("/orders");
+    revalidatePath("/catalogue");
 
     return {
       ok: true,
