@@ -6,13 +6,17 @@ import {
 } from "@/lib/google-calendar/client";
 import { getGoogleCalendarOwnerEmail } from "@/lib/google-calendar/config";
 
-const defaultEventDurationMs = 60 * 60 * 1000;
+const defaultEventDurationMs = 30 * 60 * 1000;
 
 const deliveryEventSelect = {
   id: true,
   deliveryNumber: true,
   status: true,
   scheduledDate: true,
+  scheduledStartAt: true,
+  scheduledEndAt: true,
+  scheduledStartTime: true,
+  scheduledEndTime: true,
   scheduledTimeWindow: true,
   deliveryAddressSnapshot: true,
   recipientName: true,
@@ -78,10 +82,14 @@ export type GoogleCalendarEventPayload = {
   location?: string;
   description: string;
   start: {
-    dateTime: string;
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
   };
   end: {
-    dateTime: string;
+    date?: string;
+    dateTime?: string;
+    timeZone?: string;
   };
 };
 
@@ -105,6 +113,16 @@ type GoogleCalendarEventResponse = {
 type ResolvedTarget = {
   targetType: CalendarTargetType;
   userId: string;
+};
+
+type DeliveryCalendarTargetSource = {
+  assignedStaffId: string | null;
+  createdById: string | null;
+  order: {
+    quotation: {
+      createdById: string | null;
+    } | null;
+  };
 };
 
 function valueFromJsonSnapshot(snapshot: Prisma.JsonValue | null | undefined, keys: string[]) {
@@ -148,8 +166,69 @@ function customerContact(delivery: DeliveryCalendarPayloadInput) {
   );
 }
 
-function formatDateTime(value: Date) {
-  return value.toISOString();
+function datePart(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDaysToDatePart(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function exactDateTime(date: string, time: string) {
+  return `${date}T${time}:00+08:00`;
+}
+
+function manilaDateTime(value: Date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(value).map((part) => [part.type, part.value]));
+
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`;
+}
+
+function addDefaultDuration(dateTime: string) {
+  return manilaDateTime(new Date(new Date(dateTime).getTime() + defaultEventDurationMs));
+}
+
+function calendarEventTiming(delivery: DeliveryCalendarPayloadInput) {
+  const deliveryDate = datePart(delivery.scheduledDate!);
+
+  if (!delivery.scheduledStartAt && !delivery.scheduledStartTime) {
+    return {
+      start: { date: deliveryDate },
+      end: { date: addDaysToDatePart(deliveryDate, 1) },
+      descriptionDate: deliveryDate
+    };
+  }
+
+  const startDateTime = delivery.scheduledStartAt
+    ? manilaDateTime(delivery.scheduledStartAt)
+    : exactDateTime(deliveryDate, delivery.scheduledStartTime!);
+  const endDateTime = delivery.scheduledEndAt
+    ? manilaDateTime(delivery.scheduledEndAt)
+    : addDefaultDuration(startDateTime);
+
+  return {
+    start: {
+      dateTime: startDateTime,
+      timeZone: "Asia/Manila"
+    },
+    end: {
+      dateTime: endDateTime,
+      timeZone: "Asia/Manila"
+    },
+    descriptionDate: deliveryDate
+  };
 }
 
 function itemSummary(delivery: DeliveryCalendarPayloadInput) {
@@ -179,14 +258,13 @@ export function buildDeliveryCalendarEventPayload(delivery: DeliveryCalendarPayl
     addressFromSnapshot(delivery.deliveryAddressSnapshot) ??
     addressFromSnapshot(delivery.order.deliveryAddressSnapshot) ??
     undefined;
-  const startDate = delivery.scheduledDate;
-  const endDate = new Date(startDate.getTime() + defaultEventDurationMs);
+  const timing = calendarEventTiming(delivery);
   const assignedStaff = delivery.assignedStaff
     ? delivery.assignedStaff.displayName ?? delivery.assignedStaff.email
     : null;
   const quotationNumber = delivery.order.quotation?.quotationNumber ?? null;
   const description = [
-    line("Delivery date", formatDateTime(startDate)),
+    line("Delivery date", timing.descriptionDate),
     line("Delivery time", delivery.scheduledTimeWindow),
     line("Delivery address", location),
     line("Customer", customerName),
@@ -201,15 +279,11 @@ export function buildDeliveryCalendarEventPayload(delivery: DeliveryCalendarPayl
   ].filter(Boolean);
 
   return {
-    summary: `Delivery: ${reference} - ${customerName}`,
+    summary: `Delivery: ${reference} - ${customerName} [${delivery.status}]`,
     location,
     description: description.join("\n"),
-    start: {
-      dateTime: startDate.toISOString()
-    },
-    end: {
-      dateTime: endDate.toISOString()
-    }
+    start: timing.start,
+    end: timing.end
   };
 }
 
@@ -287,12 +361,17 @@ async function resolveOwnerUserId(): Promise<{ userId: string | null; skipReason
   if (!ownerEmail) {
     return {
       userId: null,
-      skipReason: "GOOGLE_CALENDAR_OWNER_EMAIL is not configured."
+      skipReason: "GOOGLE_CALENDAR_OWNER_EMAIL or FIRST_ADMIN_EMAIL is not configured."
     };
   }
 
-  const ownerUser = await prisma.userProfile.findUnique({
-    where: { email: ownerEmail },
+  const ownerUser = await prisma.userProfile.findFirst({
+    where: {
+      email: {
+        equals: ownerEmail,
+        mode: "insensitive"
+      }
+    },
     select: { id: true }
   });
 
@@ -306,26 +385,52 @@ async function resolveOwnerUserId(): Promise<{ userId: string | null; skipReason
   return { userId: ownerUser.id, skipReason: null };
 }
 
-function resolveStaffCreatorUserId(delivery: DeliveryCalendarPayloadInput): string | null {
+function resolveStaffCreatorUserId(delivery: DeliveryCalendarTargetSource): string | null {
   return delivery.order.quotation?.createdById ?? delivery.createdById ?? null;
+}
+
+export function resolveDeliveryCalendarTargetDescriptors(
+  delivery: DeliveryCalendarTargetSource,
+  ownerUserId: string | null
+): ResolvedTarget[] {
+  const targets: ResolvedTarget[] = [];
+  const seenUserIds = new Set<string>();
+
+  if (ownerUserId) {
+    targets.push({ targetType: "OWNER", userId: ownerUserId });
+    seenUserIds.add(ownerUserId);
+  }
+
+  if (delivery.assignedStaffId) {
+    if (!seenUserIds.has(delivery.assignedStaffId)) {
+      targets.push({ targetType: "ASSIGNED_STAFF", userId: delivery.assignedStaffId });
+    }
+
+    return targets;
+  }
+
+  const staffUserId = resolveStaffCreatorUserId(delivery);
+
+  if (staffUserId && !seenUserIds.has(staffUserId)) {
+    targets.push({ targetType: "STAFF_CREATOR", userId: staffUserId });
+  }
+
+  return targets;
 }
 
 async function resolveCalendarTargets(delivery: DeliveryCalendarPayloadInput): Promise<{
   targets: ResolvedTarget[];
   skipped: CalendarTargetResult[];
 }> {
-  const targets: ResolvedTarget[] = [];
   const skipped: CalendarTargetResult[] = [];
 
   const staffUserId = resolveStaffCreatorUserId(delivery);
   const ownerResult = await resolveOwnerUserId();
 
   const ownerUserId = ownerResult.userId;
-  const staffAndOwnerAreSame = staffUserId && ownerUserId && staffUserId === ownerUserId;
+  const targets = resolveDeliveryCalendarTargetDescriptors(delivery, ownerUserId);
 
-  if (ownerUserId) {
-    targets.push({ targetType: "OWNER", userId: ownerUserId });
-  } else {
+  if (!ownerUserId) {
     skipped.push({
       targetType: "OWNER",
       userId: "",
@@ -336,9 +441,7 @@ async function resolveCalendarTargets(delivery: DeliveryCalendarPayloadInput): P
     });
   }
 
-  if (staffUserId && !staffAndOwnerAreSame) {
-    targets.push({ targetType: "STAFF_CREATOR", userId: staffUserId });
-  } else if (!staffUserId) {
+  if (!delivery.assignedStaffId && !staffUserId) {
     skipped.push({
       targetType: "STAFF_CREATOR",
       userId: "",
@@ -440,9 +543,27 @@ async function syncTargetEvent({
     const canUpdate =
       action === "update" &&
       existingEvent?.googleCalendarEventId &&
-      existingEvent.syncStatus === "SYNCED";
+      existingEvent.syncStatus === "SYNCED" &&
+      existingEvent.googleCalendarId === client.calendarId;
 
     const googleAction = canUpdate ? "update" : "create";
+    if (
+      googleAction === "create" &&
+      existingEvent?.googleCalendarEventId &&
+      existingEvent.googleCalendarId &&
+      existingEvent.googleCalendarId !== client.calendarId
+    ) {
+      try {
+        await deleteGoogleEvent({
+          calendarId: existingEvent.googleCalendarId,
+          eventId: existingEvent.googleCalendarEventId,
+          accessToken: client.accessToken
+        });
+      } catch {
+        // Best-effort cleanup when a user reconnects to a different calendar.
+      }
+    }
+
     const eventId = await writeGoogleEvent({
       action: googleAction,
       calendarId: client.calendarId,
@@ -455,6 +576,7 @@ async function syncTargetEvent({
       deliveryId: delivery.id,
       userId: target.userId,
       targetType: target.targetType,
+      connectionId: client.connectionId,
       calendarId: client.calendarId,
       eventId,
       syncStatus: "SYNCED"
@@ -593,6 +715,8 @@ export async function deleteDeliveryCalendarEvent(
   const results: CalendarTargetResult[] = [];
 
   for (const event of events) {
+    let syncError: string | null = null;
+
     if (
       event.googleCalendarEventId &&
       event.googleCalendarId &&
@@ -607,9 +731,11 @@ export async function deleteDeliveryCalendarEvent(
             eventId: event.googleCalendarEventId,
             accessToken: client.accessToken
           });
-        } catch {
-          // Best-effort deletion; record is marked DELETED regardless
+        } catch (error) {
+          syncError = error instanceof Error ? error.message : "Google Calendar event deletion failed.";
         }
+      } else {
+        syncError = client.message;
       }
     }
 
@@ -617,7 +743,7 @@ export async function deleteDeliveryCalendarEvent(
       where: { id: event.id },
       data: {
         syncStatus: "DELETED",
-        syncError: null,
+        syncError,
         syncedAt: new Date()
       }
     });
@@ -627,7 +753,8 @@ export async function deleteDeliveryCalendarEvent(
       userId: event.userId,
       syncStatus: "DELETED",
       eventId: null,
-      calendarId: event.googleCalendarId
+      calendarId: event.googleCalendarId,
+      error: syncError ?? undefined
     });
   }
 

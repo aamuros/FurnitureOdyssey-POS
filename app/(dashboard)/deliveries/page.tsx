@@ -236,6 +236,10 @@ function targetTypeLabel(targetType: string) {
     return "Owner";
   }
 
+  if (targetType === "ASSIGNED_STAFF") {
+    return "Assigned staff";
+  }
+
   return "Staff creator";
 }
 

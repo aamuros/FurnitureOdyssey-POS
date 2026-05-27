@@ -10,6 +10,7 @@ export type GoogleCalendarClientResult =
   | {
       ok: true;
       userId: string;
+      connectionId: string;
       calendarId: string;
       accessToken: string;
     }
@@ -100,6 +101,7 @@ export async function getGoogleCalendarClientForUser(userId: string): Promise<Go
       return {
         ok: true,
         userId,
+        connectionId: connection.id,
         calendarId: connection.calendarId,
         accessToken: decryptSecret(connection.accessToken)
       };
@@ -128,6 +130,7 @@ export async function getGoogleCalendarClientForUser(userId: string): Promise<Go
     return {
       ok: true,
       userId,
+      connectionId: connection.id,
       calendarId: connection.calendarId,
       accessToken
     };

@@ -30,6 +30,20 @@ function formatQuantity(value: unknown) {
   }).format(quantity);
 }
 
+function itemDescription(item: {
+  description: string | null;
+  specifications: string | null;
+  snapshotVariantName: string | null;
+}) {
+  return [
+    item.snapshotVariantName ? `Variant: ${item.snapshotVariantName}` : null,
+    item.description,
+    item.specifications
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function formatDate(value: Date) {
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
@@ -159,8 +173,8 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
         Back to quotations
       </Link>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-        <section className="space-y-6">
+      <div className="grid min-w-0 max-w-full gap-6 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+        <section className="min-w-0 space-y-6">
           <section className="studio-card">
             <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -193,16 +207,16 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <p className="studio-kicker">Items</p>
               <h2 className="text-sm font-semibold">Quoted items</h2>
             </div>
-            <div className="overflow-x-auto">
-              <table className="studio-table w-full min-w-[980px] text-left text-sm">
+            <div className="max-w-full overflow-x-auto">
+              <table className="studio-table w-full min-w-[760px] table-fixed text-left text-sm">
                 <thead className="border-b border-border text-xs uppercase text-muted-foreground">
                   <tr>
                     {quotation.needsAssembly ? (
                       <th className="px-5 py-3 font-medium">Assemble</th>
                     ) : null}
-                    <th className="px-5 py-3 font-medium">Item</th>
-                    <th className="px-5 py-3 font-medium">Product code</th>
-                    <th className="px-5 py-3 font-medium">Description / specs</th>
+                    <th className="w-[22%] px-5 py-3 font-medium">Item</th>
+                    <th className="w-[14%] px-5 py-3 font-medium">Product code</th>
+                    <th className="w-[28%] px-5 py-3 font-medium">Description / specs</th>
                     <th className="px-5 py-3 font-medium">Qty</th>
                     <th className="px-5 py-3 font-medium">Unit price</th>
                     <th className="px-5 py-3 font-medium">Discount</th>
@@ -217,13 +231,16 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
                           {item.requiresAssembly ? "Yes" : "No"}
                         </td>
                       ) : null}
-                      <td className="px-5 py-3 font-medium">{item.itemName}</td>
+                      <td className="px-5 py-3 font-medium">
+                        <span className="block max-w-full whitespace-normal break-words">{item.itemName}</span>
+                      </td>
                       <td className="px-5 py-3 text-muted-foreground">
                         {item.snapshotProductCode ?? "Custom"}
                       </td>
-                      <td className="max-w-[320px] px-5 py-3 text-muted-foreground">
-                        {[item.description, item.specifications].filter(Boolean).join(" / ") ||
-                          "No description"}
+                      <td className="px-5 py-3 text-muted-foreground">
+                        <span className="block max-w-full whitespace-pre-wrap break-words">
+                          {itemDescription(item) || "No description"}
+                        </span>
                       </td>
                       <td className="px-5 py-3">{formatQuantity(item.quantity)}</td>
                       <td className="px-5 py-3">{formatMoney(item.unitPrice)}</td>
@@ -270,7 +287,7 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
           </section>
         </section>
 
-        <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+        <aside className="min-w-0 space-y-6 xl:sticky xl:top-6 xl:self-start">
           <section className="studio-card">
             <div className="studio-card-header">
               <p className="studio-kicker">Actions</p>

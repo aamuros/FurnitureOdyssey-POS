@@ -6,16 +6,18 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
+  Trash2,
+  Eye,
+  EyeOff,
   Pencil,
   Plus,
   Save,
-  Send,
   ShieldCheck,
   Unplug,
   Users,
   X
 } from "lucide-react";
-import { inviteUserAction, updateUserAction } from "@/app/actions/users";
+import { createUserAction, deleteUserAction, updateUserAction } from "@/app/actions/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -53,6 +55,7 @@ type ManagedUser = {
     lastSyncStatus: string | null;
     lastSyncError: string | null;
   } | null;
+  isProtectedMainAdmin: boolean;
 };
 
 type UserManagementProps = {
@@ -71,13 +74,14 @@ type ActionState = {
 };
 
 type UserFormProps = {
-  mode: "invite" | "edit";
+  mode: "create" | "edit";
   user?: ManagedUser;
   currentUserId: string;
   permissions: PermissionValue[];
   state: ActionState;
   pending: boolean;
   action: (formData: FormData) => void;
+  deleteAction?: (formData: FormData) => void;
   onPermissionsChange: (permissions: PermissionValue[]) => void;
   onCancel: () => void;
 };
@@ -250,11 +254,13 @@ function UserForm({
   state,
   pending,
   action,
+  deleteAction,
   onPermissionsChange,
   onCancel
 }: UserFormProps) {
   const isEdit = mode === "edit";
   const [role, setRole] = useState<ManagedUser["role"]>(user?.role ?? "STAFF");
+  const [showPassword, setShowPassword] = useState(false);
   const isCurrentUser = Boolean(user && user.id === currentUserId);
   const calendarConnection = user?.calendarConnection ?? null;
   const calendarConnected = Boolean(calendarConnection?.connected);
@@ -265,15 +271,15 @@ function UserForm({
       <div className="px-5 pb-3 pt-5">
         <p className="studio-kicker">{isEdit ? "Staff Profile" : "Team Access"}</p>
         <h2 className="text-base font-semibold">
-          {isEdit ? `Edit user access: ${user?.displayName ?? "User"}` : "Invite user"}
+          {isEdit ? `Edit user access: ${user?.displayName ?? "User"}` : "Create user"}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {isEdit
             ? "Update role, activation status, and Staff module access for this account."
-            : "An email invitation will be sent. The account remains pending until the user accepts and is activated."}
+            : "Create a login account for a team member. Share the temporary password securely."}
         </p>
       </div>
-      <form key={user?.id ?? "invite"} action={action}>
+      <form key={user?.id ?? "create"} action={action}>
         {isEdit && user ? <input type="hidden" name="userId" value={user.id} /> : null}
         <input type="hidden" name="permissions" value={JSON.stringify(permissions)} />
 
@@ -295,6 +301,44 @@ function UserForm({
               </label>
             )}
           </div>
+
+          {!isEdit ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className={fieldClassName}>
+                Temporary password
+                <div className="flex gap-2">
+                  <Input
+                    name="password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-10 px-3"
+                    onClick={() => setShowPassword((current) => !current)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </label>
+              <label className={fieldClassName}>
+                Confirm temporary password
+                <Input
+                  name="confirmPassword"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder="Repeat temporary password"
+                />
+              </label>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className={fieldClassName}>
@@ -415,17 +459,41 @@ function UserForm({
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border bg-panel/70 px-5 py-4">
           <Button disabled={pending}>
-            {isEdit ? <Save className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-            {isEdit ? "Save changes" : "Send invite"}
+            {isEdit ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {isEdit ? "Save changes" : "Create user"}
           </Button>
           <Button type="button" variant="ghost" onClick={onCancel}>
             <X className="h-4 w-4" />
             Cancel
           </Button>
+          {isEdit && user && deleteAction ? (
+            <Button
+              type="submit"
+              form={`delete-user-${user.id}`}
+              variant="ghost"
+              disabled={user.isProtectedMainAdmin}
+              className="ml-auto text-danger hover:bg-danger/10"
+              onClick={(event) => {
+                if (!window.confirm(`Delete login access for ${user.email}? This marks the profile inactive.`)) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete user
+            </Button>
+          ) : null}
         </div>
       </form>
       {isEdit && user ? (
-        <form id={disconnectFormId} action="/api/google-calendar/disconnect" method="post" />
+        <>
+          <form id={disconnectFormId} action="/api/google-calendar/disconnect" method="post" />
+          {deleteAction ? (
+            <form id={`delete-user-${user.id}`} action={deleteAction}>
+              <input type="hidden" name="userId" value={user.id} />
+            </form>
+          ) : null}
+        </>
       ) : null}
     </section>
   );
@@ -471,10 +539,10 @@ function UserNotice({
 
 function UserEmptyState({
   hasActiveFilters,
-  onInvite
+  onCreate
 }: {
   hasActiveFilters: boolean;
-  onInvite: () => void;
+  onCreate: () => void;
 }) {
   return (
     <div className="studio-empty m-5 flex flex-col items-start gap-3 px-5 py-6 text-sm">
@@ -484,7 +552,7 @@ function UserEmptyState({
           {hasActiveFilters ? "No users match your filters." : "No users yet."}
         </p>
         {!hasActiveFilters ? (
-          <p className="mt-1 text-muted-foreground">Invite Admin and Staff accounts for internal access.</p>
+          <p className="mt-1 text-muted-foreground">Create Admin and Staff login accounts for internal access.</p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-3">
@@ -493,9 +561,9 @@ function UserEmptyState({
             Reset filters
           </Link>
         ) : null}
-        <Button type="button" variant="secondary" onClick={onInvite}>
+        <Button type="button" variant="secondary" onClick={onCreate}>
           <Plus className="h-4 w-4" />
-          Invite user
+          Create user
         </Button>
       </div>
     </div>
@@ -505,23 +573,25 @@ function UserEmptyState({
 function UserTable({
   users,
   selectedUserId,
-  onEdit
+  onEdit,
+  deleteAction
 }: {
   users: ManagedUser[];
   selectedUserId: string;
   onEdit: (user: ManagedUser) => void;
+  deleteAction: (formData: FormData) => void;
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="studio-table w-full min-w-[860px] table-fixed text-left text-sm">
+      <table className="studio-table w-full min-w-[980px] table-fixed text-left text-sm">
         <colgroup>
-          <col className="w-[24%]" />
-          <col className="w-[110px]" />
+          <col className="w-[28%]" />
+          <col className="w-[96px]" />
+          <col className="w-[108px]" />
+          <col className="w-[15%]" />
+          <col className="w-[22%]" />
           <col className="w-[120px]" />
-          <col className="w-[18%]" />
-          <col className="w-[20%]" />
-          <col className="w-[132px]" />
-          <col className="w-[92px]" />
+          <col className="w-[150px]" />
         </colgroup>
         <thead className="border-b border-border text-xs uppercase text-muted-foreground">
           <tr>
@@ -530,8 +600,8 @@ function UserTable({
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Access</th>
             <th className="px-4 py-3 font-medium">Calendar</th>
-            <th className="px-4 py-3 font-medium">Updated / Invited</th>
-            <th className="px-4 py-3 text-right font-medium">Action</th>
+            <th className="px-4 py-3 font-medium">Updated / Created</th>
+            <th className="px-4 py-3 text-right font-medium">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -539,7 +609,10 @@ function UserTable({
             <tr key={user.id} className={selectedUserId === user.id ? "bg-soft-accent/35" : undefined}>
               <td className="px-4 py-4 align-middle">
                 <p className="font-semibold text-foreground">{user.displayName}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{user.email}</p>
+                <p className="mt-1 break-words text-xs text-muted-foreground">{user.email}</p>
+                {user.isProtectedMainAdmin ? (
+                  <p className="mt-1 text-xs font-medium text-primary">Main admin</p>
+                ) : null}
               </td>
               <td className="px-4 py-4 align-middle">
                 <StatusPill tone={roleTone(user.role)}>{user.role}</StatusPill>
@@ -557,17 +630,36 @@ function UserTable({
                         ? "Revoked / Disconnected"
                         : "Not connected"}
                   </StatusPill>
-                  <p className="truncate text-xs text-muted-foreground">{calendarStatusLabel(user)}</p>
+                  <p className="break-words text-xs text-muted-foreground">{calendarStatusLabel(user)}</p>
                 </div>
               </td>
-              <td className="px-4 py-4 align-middle text-muted-foreground">
+              <td className="px-4 py-4 align-middle text-xs text-muted-foreground">
                 {user.updatedAt !== "Not set" ? user.updatedAt : user.invitedAt}
               </td>
-              <td className="whitespace-nowrap px-4 py-4 text-right align-middle">
-                <Button type="button" variant="secondary" className="min-h-9 px-3" onClick={() => onEdit(user)}>
-                  <Pencil className="h-4 w-4" />
-                  Edit
-                </Button>
+              <td className="px-4 py-4 text-right align-middle">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button type="button" variant="secondary" className="min-h-9 px-3" onClick={() => onEdit(user)}>
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </Button>
+                  <form action={deleteAction}>
+                    <input type="hidden" name="userId" value={user.id} />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      className="min-h-9 px-3 text-danger hover:bg-danger/10"
+                      disabled={user.isProtectedMainAdmin}
+                      onClick={(event) => {
+                        if (!window.confirm(`Delete login access for ${user.email}? This marks the profile inactive.`)) {
+                          event.preventDefault();
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </form>
+                </div>
               </td>
             </tr>
           ))}
@@ -583,13 +675,14 @@ export function UserManagement({
   currentUserId,
   initialNotice
 }: UserManagementProps) {
-  const [inviteState, inviteAction, invitePending] = useActionState(inviteUserAction, initialState);
+  const [createState, createAction, createPending] = useActionState(createUserAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateUserAction, initialState);
+  const [deleteState, deleteAction] = useActionState(deleteUserAction, initialState);
   const defaultPermissions = useMemo(() => buildDefaultPermissions(), []);
-  const [invitePermissions, setInvitePermissions] = useState<PermissionValue[]>(defaultPermissions);
+  const [createPermissions, setCreatePermissions] = useState<PermissionValue[]>(defaultPermissions);
   const [editPermissions, setEditPermissions] = useState<PermissionValue[]>(defaultPermissions);
   const [selectedUserId, setSelectedUserId] = useState("");
-  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [notice, setNotice] = useState(initialNotice?.message ?? "");
   const [noticeTone, setNoticeTone] = useState<"success" | "danger">(initialNotice?.tone ?? "success");
   const selectedUser = useMemo(
@@ -602,17 +695,17 @@ export function UserManagement({
   }, [users]);
 
   useEffect(() => {
-    if (inviteState.message) {
-      setNotice(inviteState.message);
-      setNoticeTone(inviteState.ok ? "success" : "danger");
+    if (createState.message) {
+      setNotice(createState.message);
+      setNoticeTone(createState.ok ? "success" : "danger");
 
-      if (inviteState.ok) {
-        setShowInviteForm(false);
+      if (createState.ok) {
+        setShowCreateForm(false);
         setSelectedUserId("");
-        setInvitePermissions(defaultPermissions);
+        setCreatePermissions(defaultPermissions);
       }
     }
-  }, [defaultPermissions, inviteState.message, inviteState.ok]);
+  }, [defaultPermissions, createState.message, createState.ok]);
 
   useEffect(() => {
     if (updateState.message) {
@@ -621,27 +714,39 @@ export function UserManagement({
 
       if (updateState.ok) {
         setSelectedUserId("");
-        setShowInviteForm(false);
+        setShowCreateForm(false);
       }
     }
   }, [updateState.message, updateState.ok]);
 
-  function openInviteForm() {
+  useEffect(() => {
+    if (deleteState.message) {
+      setNotice(deleteState.message);
+      setNoticeTone(deleteState.ok ? "success" : "danger");
+
+      if (deleteState.ok) {
+        setSelectedUserId("");
+        setShowCreateForm(false);
+      }
+    }
+  }, [deleteState.message, deleteState.ok]);
+
+  function openCreateForm() {
     setNotice("");
     setSelectedUserId("");
-    setInvitePermissions(defaultPermissions);
-    setShowInviteForm(true);
+    setCreatePermissions(defaultPermissions);
+    setShowCreateForm(true);
   }
 
   function openEditForm(user: ManagedUser) {
     setNotice("");
-    setShowInviteForm(false);
+    setShowCreateForm(false);
     setSelectedUserId(user.id);
     setEditPermissions(mergePermissions(defaultPermissions, user.permissions));
   }
 
   function closeForm() {
-    setShowInviteForm(false);
+    setShowCreateForm(false);
     setSelectedUserId("");
   }
 
@@ -653,12 +758,12 @@ export function UserManagement({
             <p className="studio-kicker">Team Access</p>
             <h2 className="text-sm font-semibold">User list</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Invite team members, activate accounts, and manage Staff permissions from one list.
+              Create team login accounts, activate accounts, and manage Staff permissions from one list.
             </p>
           </div>
-          <Button type="button" variant="secondary" onClick={openInviteForm}>
+          <Button type="button" variant="secondary" onClick={openCreateForm}>
             <Plus className="h-4 w-4" />
-            Invite user
+            Create user
           </Button>
         </div>
 
@@ -666,15 +771,15 @@ export function UserManagement({
           <UserNotice message={notice} tone={noticeTone} onDismiss={() => setNotice("")} />
         ) : null}
 
-        {showInviteForm ? (
+        {showCreateForm ? (
           <UserForm
-            mode="invite"
+            mode="create"
             currentUserId={currentUserId}
-            permissions={invitePermissions}
-            state={inviteState}
-            pending={invitePending}
-            action={inviteAction}
-            onPermissionsChange={setInvitePermissions}
+            permissions={createPermissions}
+            state={createState}
+            pending={createPending}
+            action={createAction}
+            onPermissionsChange={setCreatePermissions}
             onCancel={closeForm}
           />
         ) : null}
@@ -689,15 +794,21 @@ export function UserManagement({
             state={updateState}
             pending={updatePending}
             action={updateAction}
+            deleteAction={deleteAction}
             onPermissionsChange={setEditPermissions}
             onCancel={closeForm}
           />
         ) : null}
 
         {users.length ? (
-          <UserTable users={users} selectedUserId={selectedUserId} onEdit={openEditForm} />
+          <UserTable
+            users={users}
+            selectedUserId={selectedUserId}
+            onEdit={openEditForm}
+            deleteAction={deleteAction}
+          />
         ) : (
-          <UserEmptyState hasActiveFilters={hasActiveFilters} onInvite={openInviteForm} />
+          <UserEmptyState hasActiveFilters={hasActiveFilters} onCreate={openCreateForm} />
         )}
       </section>
     </div>

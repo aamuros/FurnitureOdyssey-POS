@@ -665,7 +665,24 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const [staff, orderCount, orders] = await Promise.all([
     timeQuery("orders:staff-options", prisma.userProfile.findMany({
       where: {
-        status: "ACTIVE"
+        status: "ACTIVE",
+        role: {
+          in: ["ADMIN", "STAFF"]
+        },
+        OR: [
+          { role: "ADMIN" },
+          {
+            permissions: {
+              some: {
+                module: "DELIVERIES",
+                action: {
+                  in: ["VIEW", "CREATE", "UPDATE"]
+                },
+                allowed: true
+              }
+            }
+          }
+        ]
       },
       orderBy: {
         displayName: "asc"
@@ -1067,6 +1084,10 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canExportDocuments={canExportDocuments}
         initialSelectedOrderId={selectedOrderId}
         persistenceUserKey={user.id}
+        staffOptions={staff.map((member) => ({
+          id: member.id,
+          displayName: member.displayName
+        }))}
         orders={orders.map((order) => {
           const payments = (
             canViewPayments && "payments" in order ? order.payments : []

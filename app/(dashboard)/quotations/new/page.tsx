@@ -39,6 +39,9 @@ export default async function NewQuotationPage() {
       },
       include: {
         images: {
+          where: {
+            colorVariantId: null
+          },
           orderBy: [
             {
               isPrimary: "desc"
@@ -48,6 +51,27 @@ export default async function NewQuotationPage() {
             }
           ],
           take: 1
+        },
+        colorVariants: {
+          where: {
+            isActive: true
+          },
+          orderBy: {
+            sortOrder: "asc"
+          },
+          include: {
+            images: {
+              orderBy: [
+                {
+                  isPrimary: "desc"
+                },
+                {
+                  sortOrder: "asc"
+                }
+              ],
+              take: 1
+            }
+          }
         }
       }
     })
@@ -102,7 +126,29 @@ export default async function NewQuotationPage() {
                   bytes: primaryImage.bytes,
                   altText: primaryImage.altText
                 }
-              : null
+              : null,
+            colorVariants: product.colorVariants.map((variant) => {
+              const variantImage = variant.images[0] ?? null;
+
+              return {
+                id: variant.id,
+                name: variant.name,
+                hex: variant.hex,
+                image: variantImage
+                  ? {
+                      id: variantImage.id,
+                      cloudinaryPublicId: variantImage.cloudinaryPublicId,
+                      secureUrl: variantImage.secureUrl,
+                      resourceType: variantImage.resourceType,
+                      format: variantImage.format,
+                      width: variantImage.width,
+                      height: variantImage.height,
+                      bytes: variantImage.bytes,
+                      altText: variantImage.altText
+                    }
+                  : null
+              };
+            })
           };
         })}
       />

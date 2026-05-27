@@ -314,7 +314,13 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
     items: quotation.items.map((item) => ({
       code: item.snapshotProductCode,
       name: item.itemName,
-      description: item.description ?? item.specifications,
+      description: [
+        item.snapshotVariantName ? `Variant: ${item.snapshotVariantName}` : null,
+        item.description,
+        item.specifications
+      ]
+        .filter(Boolean)
+        .join("\n"),
       quantity: formatQuantity(Number(item.quantity)),
       unitPrice: formatMoney(Number(item.unitPrice), quotation.currency),
       discount: formatMoney(Number(item.discountAmount), quotation.currency),

@@ -33,5 +33,5 @@ export function getGoogleCalendarConfig(): GoogleCalendarConfig {
 }
 
 export function getGoogleCalendarOwnerEmail(): string | null {
-  return process.env.GOOGLE_CALENDAR_OWNER_EMAIL?.trim() || null;
+  return process.env.GOOGLE_CALENDAR_OWNER_EMAIL?.trim() || process.env.FIRST_ADMIN_EMAIL?.trim() || null;
 }

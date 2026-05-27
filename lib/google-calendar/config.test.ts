@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getGoogleCalendarConfig } from "@/lib/google-calendar/config";
+import { getGoogleCalendarConfig, getGoogleCalendarOwnerEmail } from "@/lib/google-calendar/config";
 
 const originalEnv = { ...process.env };
 
@@ -40,4 +40,15 @@ test("rejects invalid Google Calendar redirect URI", () => {
     () => getGoogleCalendarConfig(),
     /GOOGLE_CALENDAR_REDIRECT_URI must be a valid URL/
   );
+});
+
+test("reads Google Calendar owner email with first admin fallback", () => {
+  delete process.env.GOOGLE_CALENDAR_OWNER_EMAIL;
+  process.env.FIRST_ADMIN_EMAIL = "admin@example.com";
+
+  assert.equal(getGoogleCalendarOwnerEmail(), "admin@example.com");
+
+  process.env.GOOGLE_CALENDAR_OWNER_EMAIL = "owner@example.com";
+
+  assert.equal(getGoogleCalendarOwnerEmail(), "owner@example.com");
 });

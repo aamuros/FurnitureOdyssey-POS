@@ -94,6 +94,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
       take: pageSize,
       select: {
         id: true,
+        authUserId: true,
         email: true,
         displayName: true,
         role: true,
@@ -122,6 +123,8 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
     })
   ]);
   const totalPages = Math.max(Math.ceil(userCount / pageSize), 1);
+  const firstAdminEmail = process.env.FIRST_ADMIN_EMAIL?.trim().toLowerCase();
+  const firstAdminAuthUserId = process.env.FIRST_ADMIN_AUTH_USER_ID?.trim();
   const pageParams = {
     q: params.q,
     role: params.role,
@@ -193,7 +196,11 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
                 lastSyncStatus: null,
                 lastSyncError: null
               }
-            : null
+            : null,
+          isProtectedMainAdmin: Boolean(
+            (firstAdminEmail && user.email.toLowerCase() === firstAdminEmail) ||
+              (firstAdminAuthUserId && user.authUserId === firstAdminAuthUserId)
+          )
         }))}
       />
       {totalPages > 1 ? (

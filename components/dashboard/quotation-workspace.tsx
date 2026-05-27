@@ -48,6 +48,25 @@ type CustomerOption = {
   primaryContact: string | null;
 };
 
+type ProductImageOption = {
+  id: string;
+  cloudinaryPublicId: string;
+  secureUrl: string;
+  resourceType: string;
+  format: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  altText: string | null;
+};
+
+type ProductColorVariantOption = {
+  id: string;
+  name: string;
+  hex: string | null;
+  image: ProductImageOption | null;
+};
+
 type ProductOption = {
   id: string;
   code: string | null;
@@ -57,17 +76,8 @@ type ProductOption = {
   specifications: string | null;
   referencePrice: number | null;
   referenceCost: number | null;
-  primaryImage: {
-    id: string;
-    cloudinaryPublicId: string;
-    secureUrl: string;
-    resourceType: string;
-    format: string | null;
-    width: number | null;
-    height: number | null;
-    bytes: number | null;
-    altText: string | null;
-  } | null;
+  primaryImage: ProductImageOption | null;
+  colorVariants: ProductColorVariantOption[];
 };
 
 type QuotationRow = {
@@ -170,6 +180,9 @@ type ItemDraft = {
   itemType: "CATALOG_PRODUCT" | "CUSTOM_ITEM";
   sortOrder: number;
   snapshotProductCode?: string;
+  selectedVariantId?: string;
+  selectedVariantName?: string;
+  selectedVariantHex?: string;
   itemName: string;
   description: string;
   specifications: string;
@@ -472,6 +485,9 @@ function toActionItems(items: ItemDraft[], needsAssembly: boolean) {
     customerNotes: item.customerNotes || undefined,
     internalNotes: item.internalNotes || undefined,
     snapshotProductCode: item.snapshotProductCode || undefined,
+    snapshotVariantId: item.selectedVariantId || undefined,
+    snapshotVariantName: item.selectedVariantName || undefined,
+    snapshotVariantHex: item.selectedVariantHex || undefined,
     images: item.images
       .filter((image) => image.cloudinaryPublicId && image.secureUrl)
       .map((image, imageIndex) => ({
@@ -495,10 +511,12 @@ function quotationStatusBadgeClass(status: string) {
   );
 }
 
-function productImageStyle(product: ProductOption) {
-  return product.primaryImage?.secureUrl
+function productImageStyle(product: ProductOption, variant?: ProductColorVariantOption | null) {
+  const image = variant?.image ?? product.primaryImage;
+
+  return image?.secureUrl
     ? {
-        backgroundImage: `url("${product.primaryImage.secureUrl}")`
+        backgroundImage: `url("${image.secureUrl}")`
       }
     : undefined;
 }
@@ -517,24 +535,25 @@ function normalizeProductMoney(value: number | null | undefined) {
   return Number.isFinite(amount) ? Math.max(amount, 0) : null;
 }
 
-function normalizeProductOption(product: ProductOption): ProductOption {
-  const primaryImage =
-    product.primaryImage?.id &&
-    product.primaryImage.cloudinaryPublicId &&
-    product.primaryImage.secureUrl &&
-    product.primaryImage.resourceType
+function normalizeProductImage(image: ProductImageOption | null | undefined): ProductImageOption | null {
+  return image?.id && image.cloudinaryPublicId && image.secureUrl && image.resourceType
       ? {
-          id: product.primaryImage.id,
-          cloudinaryPublicId: product.primaryImage.cloudinaryPublicId,
-          secureUrl: product.primaryImage.secureUrl,
-          resourceType: product.primaryImage.resourceType,
-          format: normalizeProductText(product.primaryImage.format),
-          width: product.primaryImage.width ?? null,
-          height: product.primaryImage.height ?? null,
-          bytes: product.primaryImage.bytes ?? null,
-          altText: normalizeProductText(product.primaryImage.altText)
+          id: image.id,
+          cloudinaryPublicId: image.cloudinaryPublicId,
+          secureUrl: image.secureUrl,
+          resourceType: image.resourceType,
+          format: normalizeProductText(image.format),
+          width: image.width ?? null,
+          height: image.height ?? null,
+          bytes: image.bytes ?? null,
+          altText: normalizeProductText(image.altText)
         }
       : null;
+
+}
+
+function normalizeProductOption(product: ProductOption): ProductOption {
+  const primaryImage = normalizeProductImage(product.primaryImage);
 
   return {
     id: product.id,
@@ -545,37 +564,74 @@ function normalizeProductOption(product: ProductOption): ProductOption {
     specifications: normalizeProductText(product.specifications),
     referencePrice: normalizeProductMoney(product.referencePrice),
     referenceCost: normalizeProductMoney(product.referenceCost),
-    primaryImage
+    primaryImage,
+    colorVariants: (product.colorVariants ?? [])
+      .map((variant) => ({
+        id: variant.id,
+        name: normalizeProductText(variant.name) ?? "Unnamed variant",
+        hex: normalizeProductText(variant.hex),
+        image: normalizeProductImage(variant.image)
+      }))
+      .filter((variant) => Boolean(variant.id && variant.name))
   };
 }
 
-function createCatalogItem(product: ProductOption, sortOrder: number, requiresAssembly = false): ItemDraft {
-  const primaryImage = product.primaryImage
+function productImageToDraft(image: ProductImageOption | null, altText: string): ItemImageDraft[] {
+  return image
     ? [
         {
-          sourceProductImageId: product.primaryImage.id,
-          cloudinaryPublicId: product.primaryImage.cloudinaryPublicId,
-          secureUrl: product.primaryImage.secureUrl,
-          resourceType: product.primaryImage.resourceType,
-          format: product.primaryImage.format ?? undefined,
-          width: product.primaryImage.width ?? undefined,
-          height: product.primaryImage.height ?? undefined,
-          bytes: product.primaryImage.bytes ?? undefined,
-          altText: product.primaryImage.altText ?? product.name,
+          sourceProductImageId: image.id,
+          cloudinaryPublicId: image.cloudinaryPublicId,
+          secureUrl: image.secureUrl,
+          resourceType: image.resourceType,
+          format: image.format ?? undefined,
+          width: image.width ?? undefined,
+          height: image.height ?? undefined,
+          bytes: image.bytes ?? undefined,
+          altText: image.altText ?? altText,
           sortOrder: 0,
           isPrimary: true
         }
       ]
     : [];
+}
+
+function variantSpecifications(specifications: string | null, variant?: ProductColorVariantOption | null) {
+  return [specifications, variant ? `Variant: ${variant.name}` : null].filter(Boolean).join("\n");
+}
+
+function variantLabel(item: Pick<ItemDraft, "selectedVariantName" | "specifications">) {
+  if (item.selectedVariantName) {
+    return item.selectedVariantName;
+  }
+
+  const variantLine = item.specifications
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.toLowerCase().startsWith("variant:"));
+
+  return variantLine ? variantLine.replace(/^variant:\s*/i, "") : null;
+}
+
+function createCatalogItem(
+  product: ProductOption,
+  sortOrder: number,
+  requiresAssembly = false,
+  variant?: ProductColorVariantOption | null
+): ItemDraft {
+  const selectedImage = variant?.image ?? product.primaryImage;
 
   return {
     productId: product.id,
     itemType: "CATALOG_PRODUCT",
     sortOrder,
     snapshotProductCode: product.code ?? undefined,
+    selectedVariantId: variant?.id,
+    selectedVariantName: variant?.name,
+    selectedVariantHex: variant?.hex ?? undefined,
     itemName: product.name,
     description: product.description ?? "",
-    specifications: product.specifications ?? "",
+    specifications: variantSpecifications(product.specifications, variant),
     quantity: 1,
     unitPrice: product.referencePrice ?? 0,
     unitCostSnapshot: product.referenceCost ?? 0,
@@ -583,7 +639,7 @@ function createCatalogItem(product: ProductOption, sortOrder: number, requiresAs
     discountValue: 0,
     customerNotes: "",
     internalNotes: "",
-    images: primaryImage
+    images: productImageToDraft(selectedImage, variant ? `${product.name} - ${variant.name}` : product.name)
   };
 }
 
@@ -1100,15 +1156,20 @@ function ProductPicker({
   onAdd: (product: ProductOption) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [selectedVariantByProductId, setSelectedVariantByProductId] = useState<Record<string, string>>({});
   const productGridRef = useRef<HTMLDivElement | null>(null);
   const normalizedProducts = useMemo(
     () => products.map((product) => normalizeProductOption(product)),
     [products]
   );
   const filteredProducts = normalizedProducts.filter((product) =>
-    toSearchText(product.name, product.code, product.category, product.description).includes(
-      query.toLowerCase()
-    )
+    toSearchText(
+      product.name,
+      product.code,
+      product.category,
+      product.description,
+      ...product.colorVariants.map((variant) => variant.name)
+    ).includes(query.toLowerCase())
   );
 
   useEffect(() => {
@@ -1148,6 +1209,7 @@ function ProductPicker({
 
   function addProductWithoutScrollJump(
     product: ProductOption,
+    selectedVariant?: ProductColorVariantOption | null,
     event?: ReactMouseEvent<HTMLButtonElement>
   ) {
     event?.preventDefault();
@@ -1157,7 +1219,7 @@ function ProductPicker({
     const scrollLeft = grid?.scrollLeft ?? 0;
     const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    onAdd(product);
+    onAdd({ ...product, colorVariants: selectedVariant ? [selectedVariant] : [] });
     restoreProductGridScroll(scrollTop, scrollLeft, activeElement);
     window.requestAnimationFrame(() => {
       restoreProductGridScroll(scrollTop, scrollLeft, activeElement);
@@ -1168,23 +1230,58 @@ function ProductPicker({
   }
 
   function ProductCard({ product }: { product: ProductOption }) {
+    const selectedVariantId = selectedVariantByProductId[product.id] ?? product.colorVariants[0]?.id ?? "";
+    const selectedVariant = product.colorVariants.find((variant) => variant.id === selectedVariantId) ?? null;
+
     return (
       <article className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
         <div
           className="flex h-48 shrink-0 items-center justify-center border-b border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground sm:h-56 lg:h-60"
-          style={productImageStyle(product)}
+          style={productImageStyle(product, selectedVariant)}
         >
-          {!product.primaryImage ? <ImagePlus className="h-8 w-8" /> : null}
+          {!(selectedVariant?.image ?? product.primaryImage) ? <ImagePlus className="h-8 w-8" /> : null}
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-sm font-semibold">{product.name}</p>
+            <p className="line-clamp-2 break-words text-sm font-semibold">{product.name}</p>
             <p className="mt-1 truncate text-xs text-muted-foreground">
               {product.code ? `Code: ${product.code}` : "No product code"}
             </p>
             <p className="truncate text-xs text-muted-foreground">
               {product.category ? product.category : "No category"}
             </p>
+            {product.colorVariants.length ? (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Color variant</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.colorVariants.map((variant) => (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        setSelectedVariantByProductId((current) => ({
+                          ...current,
+                          [product.id]: variant.id
+                        }))
+                      }
+                      className={cn(
+                        "inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border px-2 text-xs font-medium",
+                        selectedVariantId === variant.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-panel text-muted-foreground"
+                      )}
+                    >
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-full border border-border"
+                        style={variant.hex ? { backgroundColor: variant.hex } : undefined}
+                      />
+                      <span className="min-w-0 break-words text-left">{variant.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
             <span className="min-w-0 truncate text-sm font-semibold">
@@ -1194,7 +1291,7 @@ function ProductPicker({
               type="button"
               variant="secondary"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => addProductWithoutScrollJump(product, event)}
+              onClick={(event) => addProductWithoutScrollJump(product, selectedVariant, event)}
               className="min-h-9 shrink-0 px-3"
             >
               <Plus className="h-4 w-4" />
@@ -1238,7 +1335,7 @@ function ProductPicker({
       </div>
       <div
         ref={productGridRef}
-        className="grid min-h-0 flex-1 gap-4 overflow-y-auto overscroll-contain p-5 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden overscroll-contain p-5 sm:grid-cols-2 xl:grid-cols-3"
       >
         {filteredProducts.map((product) => (
           <ProductCard key={product.id} product={product} />
@@ -1292,7 +1389,7 @@ function QuotationItemTable({
 
   return (
     <div className="space-y-3">
-      <div className="hidden rounded-lg border border-border bg-panel lg:block">
+      <div className="hidden min-w-[920px] rounded-lg border border-border bg-panel lg:block">
         <div
           className={cn(
             "grid gap-2 border-b border-border bg-soft-accent/35 px-3 py-2 text-[11px] font-semibold uppercase leading-4 text-muted-foreground [&>*]:min-w-0",
@@ -1343,6 +1440,11 @@ function QuotationItemTable({
                       .filter(Boolean)
                       .join(" - ")}
                   </p>
+                  {variantLabel(item) ? (
+                    <p className="mt-1 whitespace-normal break-words text-xs font-medium text-accent">
+                      Variant: {variantLabel(item)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <QuantityInput
@@ -1401,6 +1503,11 @@ function QuotationItemTable({
                   <p className="text-xs text-muted-foreground">
                     {item.snapshotProductCode ?? (item.itemType === "CATALOG_PRODUCT" ? "Catalog" : "Custom")}
                   </p>
+                  {variantLabel(item) ? (
+                    <p className="mt-1 whitespace-normal break-words text-xs font-medium text-accent">
+                      Variant: {variantLabel(item)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <div className="flex shrink-0 items-center">
@@ -1957,6 +2064,7 @@ export function QuotationBuilder({
   }
 
   function addProduct(product: ProductOption) {
+    const selectedVariant = product.colorVariants[0] ?? null;
     setItems((current) => {
       const existingIndex = current.findIndex((item) => {
         if (item.itemType !== "CATALOG_PRODUCT") {
@@ -1964,10 +2072,15 @@ export function QuotationBuilder({
         }
 
         if (item.productId && product.id) {
-          return item.productId === product.id;
+          return item.productId === product.id && (item.selectedVariantId ?? "") === (selectedVariant?.id ?? "");
         }
 
-        return Boolean(item.snapshotProductCode && product.code && item.snapshotProductCode === product.code);
+        return Boolean(
+          item.snapshotProductCode &&
+            product.code &&
+            item.snapshotProductCode === product.code &&
+            (item.selectedVariantId ?? "") === (selectedVariant?.id ?? "")
+        );
       });
 
       if (existingIndex >= 0) {
@@ -1978,7 +2091,7 @@ export function QuotationBuilder({
         );
       }
 
-      return [...current, createCatalogItem(product, current.length, needsAssembly)];
+      return [...current, createCatalogItem(product, current.length, needsAssembly, selectedVariant)];
     });
   }
 
@@ -2056,7 +2169,7 @@ export function QuotationBuilder({
           </Link>
         ) : null}
       </div>
-      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="mt-6 grid min-w-0 max-w-full gap-6 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-5">
           <CustomerSelector
             customers={customers}
@@ -2113,7 +2226,7 @@ export function QuotationBuilder({
                 </Button>
               </div>
             </div>
-            <div className="p-5">
+            <div className="min-w-0 max-w-full overflow-x-auto p-5">
               {items.length ? (
                 <QuotationItemTable
                   items={items}
@@ -2234,7 +2347,7 @@ export function QuotationBuilder({
           </form>
         </div>
 
-        <aside className="xl:sticky xl:top-24 xl:self-start">
+        <aside className="min-w-0 xl:sticky xl:top-24 xl:self-start">
           <section className="studio-card">
             <div className="studio-card-header">
               <p className="studio-kicker">Summary</p>
@@ -2265,6 +2378,11 @@ export function QuotationBuilder({
                         {item.description ? (
                           <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
                             {item.description}
+                          </p>
+                        ) : null}
+                        {variantLabel(item) ? (
+                          <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-accent">
+                            Variant: {variantLabel(item)}
                           </p>
                         ) : null}
                       </div>

@@ -15,6 +15,13 @@ const optionalTextMax = (max: number, message: string) =>
     .transform((value) => (value.length ? value : undefined))
     .optional();
 
+const optionalTime = z
+  .string()
+  .trim()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a valid time.")
+  .optional()
+  .or(z.literal("").transform(() => undefined));
+
 const formBoolean = z.preprocess(
   (value) => value === true || value === "true" || value === "on" || value === "1" || value === "yes",
   z.boolean()
@@ -157,24 +164,27 @@ export const deliveryItemSchema = z
     }
   });
 
-export const createDeliverySchema = z.object({
-  orderId: z.string().uuid("Choose an order."),
-  assignedStaffId: z.string().uuid("Choose an assigned staff member.").optional(),
-  scheduledDate: z.coerce.date({
-    invalid_type_error: "Choose a scheduled date.",
-    required_error: "Choose a scheduled date."
-  }),
-  scheduledTimeWindow: optionalText,
-  deliveryProviderType: z.enum(["IN_HOUSE", "CUSTOMER_PICKUP", "THIRD_PARTY", "OTHER"]).optional(),
-  deliveryProviderName: optionalText,
-  deliveryProviderReference: optionalText,
-  recipientName: optionalText,
-  recipientPhone: optionalText,
-  deliveryAddress: optionalText,
-  deliveryNotes: optionalText,
-  internalNotes: optionalText,
-  items: z.array(deliveryItemSchema).min(1, "Add at least one delivery item.")
-});
+export const createDeliverySchema = z
+  .object({
+    orderId: z.string().uuid("Choose an order."),
+    assignedStaffId: z.string().uuid("Choose an assigned staff member.").optional(),
+    scheduledDate: z.coerce.date({
+      invalid_type_error: "Choose a scheduled date.",
+      required_error: "Choose a scheduled date."
+    }),
+    scheduledStartTime: optionalTime,
+    scheduledEndTime: optionalTime.transform(() => undefined),
+    scheduledTimeWindow: optionalText,
+    deliveryProviderType: z.enum(["IN_HOUSE", "CUSTOMER_PICKUP", "THIRD_PARTY", "OTHER"]).optional(),
+    deliveryProviderName: optionalText,
+    deliveryProviderReference: optionalText,
+    recipientName: optionalText,
+    recipientPhone: optionalText,
+    deliveryAddress: optionalText,
+    deliveryNotes: optionalText,
+    internalNotes: optionalText,
+    items: z.array(deliveryItemSchema).min(1, "Add at least one delivery item.")
+  });
 
 export const completeOrderSchema = z.object({
   orderId: z.string().uuid("Choose an order.")

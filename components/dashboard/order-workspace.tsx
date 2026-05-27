@@ -62,6 +62,11 @@ type ProductOption = {
   referenceCost: number | null;
 };
 
+type StaffOption = {
+  id: string;
+  displayName: string;
+};
+
 type ApprovedQuotationOption = {
   id: string;
   quotationNumber: string | null;
@@ -193,6 +198,7 @@ type OrderWorkspaceProps = {
   canExportDocuments: boolean;
   initialSelectedOrderId?: string | null;
   orders: OrderRow[];
+  staffOptions: StaffOption[];
   persistenceUserKey?: string | null;
 };
 
@@ -266,6 +272,7 @@ type OrderListProps = Pick<
   | "canExportDocuments"
   | "initialSelectedOrderId"
   | "orders"
+  | "staffOptions"
   | "persistenceUserKey"
 >;
 
@@ -771,8 +778,6 @@ type DeliveryItemDraft = {
   quantityPlanned: number;
 };
 
-const quickTimeWindows = ["Morning", "Afternoon", "Evening"] as const;
-
 function createDeliveryItemDrafts(order: OrderRow): DeliveryItemDraft[] {
   return remainingItemLines(order).map((item) => ({
     orderItemId: item.id,
@@ -785,16 +790,23 @@ function clampDeliveryQuantity(value: number, remainingQuantity: number) {
   return roundIntegerQuantity(Math.min(Math.max(value, 0), remainingQuantity));
 }
 
-function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () => void }) {
+function DeliveryForm({
+  order,
+  staffOptions,
+  onSuccess
+}: {
+  order: OrderRow;
+  staffOptions: StaffOption[];
+  onSuccess?: () => void;
+}) {
   const [state, action, pending] = useActionState(createDeliveryAction, initialState);
   const handledSuccessRef = useRef(false);
   const [scheduledDate, setScheduledDate] = useState("");
-  const [timeWindowMode, setTimeWindowMode] = useState<"Morning" | "Afternoon" | "Evening" | "Custom" | "">("");
-  const [customTimeWindow, setCustomTimeWindow] = useState("");
+  const [scheduledStartTime, setScheduledStartTime] = useState("");
   const [itemDrafts, setItemDrafts] = useState<DeliveryItemDraft[]>(() => createDeliveryItemDrafts(order));
   const remainingItems = useMemo(() => remainingItemLines(order), [order]);
   const itemById = useMemo(() => new Map(remainingItems.map((item) => [item.id, item])), [remainingItems]);
-  const scheduledTimeWindow = timeWindowMode === "Custom" ? customTimeWindow : timeWindowMode;
+  const scheduledTimeWindow = scheduledStartTime;
   const selectedDrafts = itemDrafts.filter((item) => item.selected);
   const allRemainingItemsSelected =
     itemDrafts.length > 0 && itemDrafts.every((item) => item.selected);
@@ -824,17 +836,17 @@ function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () =>
   const validationMessage = !scheduledDate
     ? "Choose a scheduled date."
     : selectedDrafts.length === 0
-      ? "Select at least one item."
-      : deliveryItems.length === 0
-        ? "Enter a quantity greater than zero."
-        : hasQuantityOverage
-          ? "Reduce quantities to each item's remaining amount."
-          : "";
+        ? "Select at least one item."
+        : deliveryItems.length === 0
+          ? "Enter a quantity greater than zero."
+          : hasQuantityOverage
+            ? "Reduce quantities to each item's remaining amount."
+            : "";
   const summaryMessage =
     scheduledDate && deliveryItems.length > 0
       ? [
           formatDateChipLabel(scheduledDate),
-          scheduledTimeWindow || "Any time",
+          scheduledTimeWindow || "All day",
           `${deliveryItems.length} ${deliveryItems.length === 1 ? "item" : "items"}`,
           `${selectedQuantityTotal} total qty`
         ].join(" · ")
@@ -866,8 +878,7 @@ function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () =>
 
     handledSuccessRef.current = true;
     setScheduledDate("");
-    setTimeWindowMode("");
-    setCustomTimeWindow("");
+    setScheduledStartTime("");
     setItemDrafts(createDeliveryItemDrafts(order));
     onSuccess?.();
   }, [onSuccess, order, state.ok]);
@@ -923,7 +934,7 @@ function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () =>
       <section className="space-y-3 rounded-md border border-border bg-panel p-4">
         <div>
           <h4 className="text-[15px] font-semibold">When</h4>
-          <p className="mt-1 text-[13px] text-muted-foreground">Set the delivery date and expected time window.</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Set the delivery date and when the delivery process starts.</p>
         </div>
         <label className="block space-y-2 text-[14px] font-medium text-foreground">
           Scheduled date
@@ -950,39 +961,38 @@ function DeliveryForm({ order, onSuccess }: { order: OrderRow; onSuccess?: () =>
             </Button>
           ))}
         </div>
-        <div className="space-y-2">
-          <p className="text-[14px] font-medium text-foreground">Time window</p>
-          <div className="flex flex-wrap gap-2">
-            {quickTimeWindows.map((window) => (
-              <Button
-                key={window}
-                type="button"
-                variant={timeWindowMode === window ? "primary" : "secondary"}
-                className="min-h-8 rounded-md px-3 text-xs"
-                onClick={() => setTimeWindowMode(window)}
-              >
-                {window}
-              </Button>
-            ))}
-            <Button
-              type="button"
-              variant={timeWindowMode === "Custom" ? "primary" : "secondary"}
-              className="min-h-8 rounded-md px-3 text-xs"
-              onClick={() => setTimeWindowMode("Custom")}
-            >
-              Custom
-            </Button>
-          </div>
-          {timeWindowMode === "Custom" ? (
+        <div className="max-w-xs">
+          <label className="block space-y-2 text-[14px] font-medium text-foreground">
+            Delivery start time
             <Input
-              value={customTimeWindow}
-              onChange={(event) => setCustomTimeWindow(event.target.value)}
-              placeholder="Example: 1 PM - 4 PM"
-              aria-label="Custom time window"
-              className="text-[15px]"
+              name="scheduledStartTime"
+              type="time"
+              value={scheduledStartTime}
+              onChange={(event) => setScheduledStartTime(event.target.value)}
+              aria-label="Delivery start time"
+              className="h-11 text-[16px]"
             />
-          ) : null}
+          </label>
+          <p className="mt-2 text-xs text-muted-foreground">Calendar events end automatically 30 minutes after this time.</p>
         </div>
+      </section>
+
+      <section className="space-y-3 rounded-md border border-border bg-panel p-4">
+        <div>
+          <h4 className="text-[15px] font-semibold">Assignment</h4>
+          <p className="mt-1 text-[13px] text-muted-foreground">Assign the delivery process to an active staff user.</p>
+        </div>
+        <label className="block space-y-2 text-[14px] font-medium text-foreground">
+          Assign delivery to
+          <Select name="assignedStaffId" defaultValue="" aria-label="Assign delivery to" className="text-[15px]">
+            <option value="">Unassigned</option>
+            {staffOptions.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.displayName}
+              </option>
+            ))}
+          </Select>
+        </label>
       </section>
 
       <section className="space-y-3 rounded-md border border-border bg-panel p-4">
@@ -3397,6 +3407,7 @@ export function OrderWorkspace({
   canExportDocuments,
   initialSelectedOrderId,
   orders,
+  staffOptions,
   persistenceUserKey
 }: OrderListProps) {
   const initialWorkspaceDraft: OrderWorkspaceDraft = {
@@ -3533,6 +3544,7 @@ export function OrderWorkspace({
           canCreateDeliveries={canCreateDeliveries}
           canUpdateDeliveries={canUpdateDeliveries}
           canExportDocuments={canExportDocuments}
+          staffOptions={staffOptions}
           persistenceUserKey={persistenceUserKey}
           onClose={() => {
             setSelectedOrderId(null);
@@ -3907,6 +3919,7 @@ function OrderDetailPanel({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
+  staffOptions,
   persistenceUserKey,
   onClose,
   onActionChange
@@ -3921,6 +3934,7 @@ function OrderDetailPanel({
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
+  staffOptions: StaffOption[];
   persistenceUserKey?: string | null;
   onClose: () => void;
   onActionChange: (actionKey: ActiveOrderAction, source?: OrderActionSource) => void;
@@ -4034,6 +4048,7 @@ function OrderDetailPanel({
               canViewDeliveries={canViewDeliveries}
               canCreateDeliveries={canCreateDeliveries}
               canUpdateDeliveries={canUpdateDeliveries}
+              staffOptions={staffOptions}
               onActionChange={(action) => onActionChange(action, "next")}
               onDeliverySuccess={handleDeliverySuccess}
             />
@@ -4069,6 +4084,7 @@ function OrderDetailPanel({
                   canViewDeliveries={canViewDeliveries}
                   canCreateDeliveries={canCreateDeliveries}
                   canUpdateDeliveries={canUpdateDeliveries}
+                  staffOptions={staffOptions}
                   activeAction={activeActionSource === "section" ? activeAction : null}
                   onActionChange={(action) => onActionChange(action, "section")}
                   onDeliverySuccess={handleDeliverySuccess}
@@ -4162,6 +4178,7 @@ function OrderNextStepCard({
   canViewDeliveries,
   canCreateDeliveries,
   canUpdateDeliveries,
+  staffOptions,
   onActionChange,
   onDeliverySuccess
 }: {
@@ -4174,6 +4191,7 @@ function OrderNextStepCard({
   canViewDeliveries: boolean;
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
+  staffOptions: StaffOption[];
   onActionChange: (actionKey: ActiveOrderAction) => void;
   onDeliverySuccess: () => void;
 }) {
@@ -4245,6 +4263,7 @@ function OrderNextStepCard({
             canViewDeliveries={canViewDeliveries}
             canCreateDeliveries={canCreateDeliveries}
             canUpdateDeliveries={canUpdateDeliveries}
+            staffOptions={staffOptions}
             onDeliverySuccess={onDeliverySuccess}
           />
         </div>
@@ -4262,6 +4281,7 @@ function OrderInlineActionForm({
   canViewDeliveries,
   canCreateDeliveries,
   canUpdateDeliveries,
+  staffOptions,
   onDeliverySuccess
 }: {
   order: OrderRow;
@@ -4272,6 +4292,7 @@ function OrderInlineActionForm({
   canViewDeliveries: boolean;
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
+  staffOptions: StaffOption[];
   onDeliverySuccess: () => void;
 }) {
   const deliveryProgressId = action.startsWith("deliveryProgress:")
@@ -4299,7 +4320,7 @@ function OrderInlineActionForm({
     }
 
     return order.canScheduleDelivery ? (
-      <DeliveryForm order={order} onSuccess={onDeliverySuccess} />
+      <DeliveryForm order={order} staffOptions={staffOptions} onSuccess={onDeliverySuccess} />
     ) : (
       <DeliveryBlockedPanel order={order} />
     );
@@ -4686,6 +4707,7 @@ function DeliverySection({
   canViewDeliveries,
   canCreateDeliveries,
   canUpdateDeliveries,
+  staffOptions,
   activeAction,
   onActionChange,
   onDeliverySuccess
@@ -4694,6 +4716,7 @@ function DeliverySection({
   canViewDeliveries: boolean;
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
+  staffOptions: StaffOption[];
   activeAction: ActiveOrderAction;
   onActionChange: (actionKey: ActiveOrderAction) => void;
   onDeliverySuccess: () => void;
@@ -4747,7 +4770,7 @@ function DeliverySection({
 
       {isDeliveryFormOpen && canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries) ? (
         <div className="border-t border-border pt-4">
-          <DeliveryForm order={order} onSuccess={onDeliverySuccess} />
+          <DeliveryForm order={order} staffOptions={staffOptions} onSuccess={onDeliverySuccess} />
         </div>
       ) : null}
 

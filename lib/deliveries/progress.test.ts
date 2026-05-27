@@ -47,6 +47,23 @@ test("createDeliverySchema requires a scheduled date", () => {
   assert.equal(parsed.success, false);
 });
 
+test("createDeliverySchema accepts a single exact delivery start time", () => {
+  const parsed = createDeliverySchema.safeParse({
+    orderId: "33333333-3333-4333-8333-333333333333",
+    scheduledDate: "2026-05-19",
+    scheduledStartTime: "15:00",
+    items: [
+      {
+        orderItemId: "44444444-4444-4444-8444-444444444444",
+        quantityPlanned: 1
+      }
+    ]
+  });
+
+  assert.equal(parsed.success, true);
+  assert.equal(parsed.data.scheduledEndTime, undefined);
+});
+
 test("prepareDeliveryProgressUpdate supports scheduled to in transit to partial to delivered", () => {
   const inTransit = prepareDeliveryProgressUpdate({
     currentStatus: "SCHEDULED",

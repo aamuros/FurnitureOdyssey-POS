@@ -43,7 +43,22 @@ const userInputSchema = z.object({
   permissions: z.array(permissionInputSchema).default([])
 });
 
-export const inviteUserSchema = userInputSchema.superRefine(validatePermissionActions);
+export const createUserSchema = userInputSchema
+  .extend({
+    password: z.string().min(8, "Temporary password must be at least 8 characters."),
+    confirmPassword: z.string().min(1, "Confirm the temporary password.")
+  })
+  .superRefine((value, context) => {
+    validatePermissionActions(value, context);
+
+    if (value.password !== value.confirmPassword) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Temporary password and confirmation must match.",
+        path: ["confirmPassword"]
+      });
+    }
+  });
 
 export const updateUserSchema = userInputSchema
   .omit({ email: true })
@@ -53,5 +68,5 @@ export const updateUserSchema = userInputSchema
   })
   .superRefine(validatePermissionActions);
 
-export type InviteUserInput = z.infer<typeof inviteUserSchema>;
+export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;

@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { canViewModule, type UserWithPermissions } from "@/lib/auth/permissions";
+import { canViewModule, isAdmin, type UserWithPermissions } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 
 const closedOrderStatuses = ["COMPLETED", "CANCELLED"] as const;
@@ -107,6 +107,28 @@ function formatDateTime(value: Date) {
   }).format(value);
 }
 
+function jsonString(value: unknown, key: string) {
+  if (value && typeof value === "object" && key in value) {
+    const raw = (value as Record<string, unknown>)[key];
+    return typeof raw === "string" && raw.trim() ? raw : null;
+  }
+
+  return null;
+}
+
+function addressLine(value: unknown) {
+  const parts = [
+    jsonString(value, "recipientName"),
+    jsonString(value, "phone"),
+    jsonString(value, "addressLine"),
+    jsonString(value, "city"),
+    jsonString(value, "province"),
+    jsonString(value, "postalCode")
+  ];
+
+  return parts.filter(Boolean).join(" - ") || null;
+}
+
 function orderLabel(orderNumber: string | null, fallback = "Order") {
   return orderNumber ?? fallback;
 }
@@ -162,6 +184,17 @@ function dueDeliveryWhere(tomorrowStart: Date): Prisma.DeliveryWhereInput {
     status: {
       in: [...activeDeliveryStatuses]
     }
+  };
+}
+
+export function assignedDueDeliveryWhere(
+  tomorrowStart: Date,
+  userId: string,
+  showAllDeliveries: boolean
+): Prisma.DeliveryWhereInput {
+  return {
+    ...dueDeliveryWhere(tomorrowStart),
+    ...(showAllDeliveries ? {} : { assignedStaffId: userId })
   };
 }
 
@@ -328,11 +361,15 @@ function buildAttentionItems({
   dueDeliveries: Array<{
     id: string;
     deliveryNumber: string | null;
+    status: string;
     scheduledDate: Date | null;
+    scheduledTimeWindow: string | null;
+    deliveryAddressSnapshot: unknown;
     order: {
       id: string;
       orderNumber: string | null;
       customerDisplayNameSnapshot: string;
+      deliveryAddressSnapshot: unknown;
     };
   }>;
   fulfillmentOrders: Array<{
@@ -370,14 +407,21 @@ function buildAttentionItems({
   };
 
   dueDeliveries.forEach((delivery) => {
+    const deliveryAddress =
+      addressLine(delivery.deliveryAddressSnapshot) ?? addressLine(delivery.order.deliveryAddressSnapshot);
+    const deliveryTiming = [formatDate(delivery.scheduledDate), delivery.scheduledTimeWindow].filter(Boolean).join(", ");
+    const detailParts = [
+      customerDetail(delivery.order.customerDisplayNameSnapshot, canViewCustomers),
+      deliveryTiming,
+      delivery.status.replaceAll("_", " ").toLowerCase(),
+      deliveryAddress
+    ].filter(Boolean);
+
     addAttentionItem({
       key: `delivery-${delivery.id}`,
       title: `Complete delivery for ${orderLabel(delivery.order.orderNumber)}`,
-      detail: `${formatDate(delivery.scheduledDate)} - ${customerDetail(
-        delivery.order.customerDisplayNameSnapshot,
-        canViewCustomers
-      )}`,
-      href: "/deliveries",
+      detail: detailParts.join(" - "),
+      href: `/orders?orderId=${delivery.order.id}`,
       sourceOrderId: delivery.order.id
     });
   });
@@ -450,6 +494,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
   const { start: todayStart, end: tomorrowStart } = manilaDayRange();
   const now = new Date();
   const quotationAgingDate = daysAgo(now, 3);
+  const adminDashboard = isAdmin(user);
   const permissions: DashboardPermissions = {
     canViewCustomers: canViewModule(user, "CUSTOMERS"),
     canViewQuotations: canViewModule(user, "QUOTATIONS"),
@@ -512,7 +557,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewDeliveries
         ? prisma.delivery.count({
-            where: dueDeliveryWhere(tomorrowStart)
+            where: assignedDueDeliveryWhere(tomorrowStart, user.id, adminDashboard)
           })
         : Promise.resolve(null)
     ),
@@ -640,7 +685,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewDeliveries
         ? prisma.delivery.findMany({
-            where: dueDeliveryWhere(tomorrowStart),
+            where: assignedDueDeliveryWhere(tomorrowStart, user.id, adminDashboard),
             orderBy: [
               {
                 scheduledDate: "asc"
@@ -653,12 +698,16 @@ export async function getDashboardOperations(user: UserWithPermissions) {
             select: {
               id: true,
               deliveryNumber: true,
+              status: true,
               scheduledDate: true,
+              scheduledTimeWindow: true,
+              deliveryAddressSnapshot: true,
               order: {
                 select: {
                   id: true,
                   orderNumber: true,
-                  customerDisplayNameSnapshot: true
+                  customerDisplayNameSnapshot: true,
+                  deliveryAddressSnapshot: true
                 }
               }
             }

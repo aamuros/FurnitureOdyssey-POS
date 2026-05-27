@@ -11,7 +11,7 @@ import type {
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { inviteUserSchema, updateUserSchema } from "@/lib/validation/users";
+import { createUserSchema, updateUserSchema } from "@/lib/validation/users";
 
 type ActionState = {
   ok: boolean;
@@ -54,15 +54,17 @@ function permissionSignature(
     .join("|");
 }
 
-export async function inviteUserAction(
+export async function createUserAction(
   _previousState: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   const actor = await requireAdmin();
-  const parsed = inviteUserSchema.safeParse({
+  const parsed = createUserSchema.safeParse({
     email: formData.get("email"),
     displayName: formData.get("displayName"),
     role: formData.get("role"),
+    password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
     permissions: parsePermissions(formData.get("permissions"))
   });
 
@@ -73,53 +75,95 @@ export async function inviteUserAction(
     };
   }
 
+  const existingProfile = await prisma.userProfile.findUnique({
+    where: {
+      email: parsed.data.email
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (existingProfile) {
+    return {
+      ok: false,
+      message: "A user profile with this email already exists."
+    };
+  }
+
   const supabaseAdmin = createSupabaseAdminClient();
-  const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(parsed.data.email, {
-    data: {
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    email: parsed.data.email,
+    password: parsed.data.password,
+    email_confirm: true,
+    user_metadata: {
       display_name: parsed.data.displayName
     }
   });
 
   if (error || !data.user) {
+    const message = error?.message ?? "Unable to create user login account.";
     return {
       ok: false,
-      message: error?.message ?? "Unable to invite user."
+      message: /already|exists|registered/i.test(message)
+        ? "A login account with this email already exists."
+        : /password/i.test(message)
+          ? "Temporary password is too weak or invalid."
+          : message
     };
   }
 
-  await prisma.$transaction(async (tx) => {
-    const profile = await tx.userProfile.create({
-      data: {
-        authUserId: data.user.id,
-        email: parsed.data.email,
-        displayName: parsed.data.displayName,
-        role: parsed.data.role as UserRole,
-        status: "PENDING",
-        invitedById: actor.id,
-        invitedAt: new Date(),
-        permissions: {
-          createMany: {
-            data: normalizePermissions(parsed.data.permissions)
+  try {
+    await prisma.$transaction(async (tx) => {
+      const profile = await tx.userProfile.create({
+        data: {
+          authUserId: data.user.id,
+          email: parsed.data.email,
+          displayName: parsed.data.displayName,
+          role: parsed.data.role as UserRole,
+          status: "ACTIVE",
+          invitedById: actor.id,
+          invitedAt: new Date(),
+          permissions: {
+            createMany: {
+              data: normalizePermissions(parsed.data.permissions)
+            }
           }
         }
-      }
-    });
+      });
 
-    await tx.activityLog.create({
-      data: {
-        action: "USER_INVITED",
-        actorId: actor.id,
-        targetUserId: profile.id,
-        summary: `Invited ${profile.email} as ${profile.role}.`
-      }
+      await tx.activityLog.create({
+        data: {
+          action: "USER_INVITED",
+          actorId: actor.id,
+          targetUserId: profile.id,
+          summary: `Created login account for ${profile.email} as ${profile.role}.`
+        }
+      });
     });
-  });
+  } catch {
+    await supabaseAdmin.auth.admin.deleteUser(data.user.id).catch(() => undefined);
+    return {
+      ok: false,
+      message: "User profile could not be saved. Please try again."
+    };
+  }
 
   revalidatePath("/users");
   return {
     ok: true,
-    message: "User invitation sent."
+    message: "User login account created."
   };
+}
+
+function isProtectedMainAdmin(user: { email: string; authUserId: string }) {
+  const firstAdminEmail = process.env.FIRST_ADMIN_EMAIL?.trim().toLowerCase();
+  const firstAdminAuthUserId = process.env.FIRST_ADMIN_AUTH_USER_ID?.trim();
+
+  return Boolean(
+    (firstAdminEmail && user.email.toLowerCase() === firstAdminEmail) ||
+      (firstAdminAuthUserId && user.authUserId === firstAdminAuthUserId)
+  );
 }
 
 export async function updateUserAction(
@@ -293,5 +337,126 @@ export async function updateUserAction(
   return {
     ok: true,
     message: "User profile updated."
+  };
+}
+
+export async function deleteUserAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireAdmin();
+  const userId = String(formData.get("userId") ?? "").trim();
+
+  if (!userId) {
+    return {
+      ok: false,
+      message: "Choose a user to delete."
+    };
+  }
+
+  const [activeAdminCount, existing] = await Promise.all([
+    prisma.userProfile.count({
+      where: {
+        role: "ADMIN",
+        status: "ACTIVE"
+      }
+    }),
+    prisma.userProfile.findUnique({
+      where: {
+        id: userId
+      },
+      select: {
+        id: true,
+        authUserId: true,
+        email: true,
+        role: true,
+        status: true
+      }
+    })
+  ]);
+
+  if (!existing) {
+    return {
+      ok: false,
+      message: "User profile was not found."
+    };
+  }
+
+  if (isProtectedMainAdmin(existing)) {
+    return {
+      ok: false,
+      message: "The main Admin account cannot be deleted."
+    };
+  }
+
+  if (existing.id === actor.id && existing.role === "ADMIN" && existing.status === "ACTIVE" && activeAdminCount <= 1) {
+    return {
+      ok: false,
+      message: "At least one active Admin must remain."
+    };
+  }
+
+  if (existing.role === "ADMIN" && existing.status === "ACTIVE" && activeAdminCount <= 1) {
+    return {
+      ok: false,
+      message: "At least one active Admin must remain."
+    };
+  }
+
+  const supabaseAdmin = createSupabaseAdminClient();
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(existing.authUserId);
+
+  if (error && !/not found|does not exist/i.test(error.message)) {
+    return {
+      ok: false,
+      message: "Could not disable the Supabase Auth user."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.userPermission.deleteMany({
+      where: {
+        userId: existing.id
+      }
+    });
+
+    await tx.userCalendarConnection.updateMany({
+      where: {
+        userId: existing.id,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date(),
+        accessToken: null
+      }
+    });
+
+    await tx.userProfile.update({
+      where: {
+        id: existing.id
+      },
+      data: {
+        status: "INACTIVE"
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "USER_DEACTIVATED",
+        actorId: actor.id,
+        targetUserId: existing.id,
+        summary: `Deleted login access for ${existing.email}.`,
+        metadata: {
+          previousStatus: existing.status,
+          nextStatus: "INACTIVE"
+        }
+      }
+    });
+  });
+
+  revalidatePath("/users");
+  return {
+    ok: true,
+    message: "User login access deleted and profile marked inactive."
   };
 }

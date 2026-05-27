@@ -244,6 +244,7 @@ enum CalendarSyncStatus {
 
 enum CalendarTargetType {
   STAFF_CREATOR
+  ASSIGNED_STAFF
   OWNER
 }
 
@@ -616,6 +617,9 @@ model QuotationItem {
   itemType            QuotationItemType
   sortOrder           Int                  @default(0)
   snapshotProductCode String?
+  snapshotVariantId   String?
+  snapshotVariantName String?
+  snapshotVariantHex  String?
   itemName            String
   description         String?
   specifications      String?
@@ -857,6 +861,10 @@ model Delivery {
   deliveryNumber            String?               @unique
   status                    DeliveryStatus        @default(PLANNED)
   scheduledDate             DateTime?
+  scheduledStartAt          DateTime?
+  scheduledEndAt            DateTime?
+  scheduledStartTime        String?
+  scheduledEndTime          String?
   scheduledTimeWindow       String?
   deliveryProviderType      DeliveryProviderType?
   deliveryProviderName      String?

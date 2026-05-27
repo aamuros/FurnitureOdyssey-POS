@@ -88,6 +88,25 @@ type QuotationForOrderConversion = Prisma.QuotationGetPayload<{
 
 class ActionError extends Error {}
 
+const deliveryCalendarEventDurationMs = 30 * 60 * 1000;
+
+function combineScheduledDateAndTime(scheduledDate: Date, scheduledTime?: string) {
+  if (!scheduledTime) {
+    return {
+      scheduledStartAt: null,
+      scheduledEndAt: null
+    };
+  }
+
+  const datePart = scheduledDate.toISOString().slice(0, 10);
+  const scheduledStartAt = new Date(`${datePart}T${scheduledTime}:00+08:00`);
+
+  return {
+    scheduledStartAt,
+    scheduledEndAt: new Date(scheduledStartAt.getTime() + deliveryCalendarEventDurationMs)
+  };
+}
+
 async function syncDeliveryCalendarSafely(
   deliveryId: string,
   syncOperation: (deliveryId: string) => Promise<DeliveryCalendarSyncResult>
@@ -1097,6 +1116,8 @@ export async function createDeliveryAction(
     orderId: formData.get("orderId"),
     assignedStaffId: formData.get("assignedStaffId") || undefined,
     scheduledDate: formData.get("scheduledDate") || undefined,
+    scheduledStartTime: formData.get("scheduledStartTime"),
+    scheduledEndTime: undefined,
     scheduledTimeWindow: formData.get("scheduledTimeWindow"),
     deliveryProviderType: formData.get("deliveryProviderType") || undefined,
     deliveryProviderName: formData.get("deliveryProviderName"),
@@ -1120,6 +1141,27 @@ export async function createDeliveryAction(
 
   try {
     await prisma.$transaction(async (tx) => {
+      if (parsed.data.assignedStaffId) {
+        const assignedStaff = await tx.userProfile.findUnique({
+          where: {
+            id: parsed.data.assignedStaffId
+          },
+          include: {
+            permissions: true
+          }
+        });
+
+        const canHandleDeliveries =
+          assignedStaff?.status === "ACTIVE" &&
+          (hasPermission(assignedStaff, "DELIVERIES", "VIEW") ||
+            hasPermission(assignedStaff, "DELIVERIES", "CREATE") ||
+            hasPermission(assignedStaff, "DELIVERIES", "UPDATE"));
+
+        if (!canHandleDeliveries) {
+          throw new ActionError("Choose an active staff member who can handle deliveries.");
+        }
+      }
+
       const order = await tx.order.findUnique({
         where: {
           id: parsed.data.orderId
@@ -1195,12 +1237,20 @@ export async function createDeliveryAction(
       assertValidStatusTransition("delivery", "PLANNED", initialDeliveryStatus);
 
       const deliveryNumber = await generateDeliveryReceiptNumber(tx);
+      const scheduledExactTimes = combineScheduledDateAndTime(
+        parsed.data.scheduledDate,
+        parsed.data.scheduledStartTime
+      );
       const delivery = await tx.delivery.create({
         data: {
           orderId: order.id,
           deliveryNumber,
           status: initialDeliveryStatus,
           scheduledDate: parsed.data.scheduledDate,
+          scheduledStartAt: scheduledExactTimes.scheduledStartAt,
+          scheduledEndAt: scheduledExactTimes.scheduledEndAt,
+          scheduledStartTime: parsed.data.scheduledStartTime,
+          scheduledEndTime: parsed.data.scheduledStartTime ? undefined : parsed.data.scheduledEndTime,
           scheduledTimeWindow: parsed.data.scheduledTimeWindow,
           deliveryProviderType: parsed.data.deliveryProviderType as DeliveryProviderType | undefined,
           deliveryProviderName: parsed.data.deliveryProviderName,
@@ -1343,7 +1393,9 @@ export async function updateDeliveryProgressAction(
       const nextStatus = progressUpdate.status as DeliveryStatus;
       updatedDeliveryId = delivery.id;
       deliveryCalendarSyncOperation =
-        nextStatus === "CANCELLED" ? deleteDeliveryCalendarEvent : updateDeliveryCalendarEvent;
+        ["CANCELLED", "FAILED", "DELIVERED"].includes(nextStatus)
+          ? deleteDeliveryCalendarEvent
+          : updateDeliveryCalendarEvent;
 
       const deliveredAt =
         nextStatus === "DELIVERED"
