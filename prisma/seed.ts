@@ -704,10 +704,50 @@ const productSeedData: ProductSeedData[] = [
 ];
 
 async function seedProducts(adminId: string | null) {
-  console.log(`\n📦 Seeding ${productSeedData.length} products...\n`);
+  const baseProducts = [
+    {
+      code: "TOLIX-CHAIR",
+      name: "Tolix Chair",
+      category: "Chairs",
+      description:
+        "Industrial-style Tolix metal chair. Stackable, durable, and ideal for restaurants, cafés, and commercial spaces.",
+      specifications: "Material: Steel | Stackable: Yes | Weight capacity: 120kg",
+      referencePrice: 1500,
+      referenceCost: 900,
+      variantCodePrefix: "TOLIX-CHAIR-",
+    },
+    {
+      code: "TOLIX-LSTOOL",
+      name: "Tolix Long Stool",
+      category: "Stools",
+      description:
+        "Industrial-style Tolix metal barstool / long stool. Stackable and suitable for bars, counters, and high tables.",
+      specifications: "Material: Steel | Style: Bar height | Stackable: Yes | Weight capacity: 120kg",
+      referencePrice: 1300,
+      referenceCost: 850,
+      variantCodePrefix: "TOLIX-LSTOOL-",
+    },
+  ];
 
-  for (const data of productSeedData) {
-    // Upsert the product by code so this seed is re-runnable
+  const variantHexByName: Record<string, string> = {
+    Black: "#111827",
+    Red: "#dc2626",
+    Silver: "#c0c0c0",
+    White: "#ffffff",
+    Yellow: "#facc15",
+  };
+
+  const legacyVariantCodes = productSeedData.map((data) => data.code);
+
+  console.log(`\n📦 Seeding ${baseProducts.length} products...\n`);
+
+  await prisma.product.deleteMany({
+    where: {
+      code: { in: legacyVariantCodes },
+    },
+  });
+
+  for (const data of baseProducts) {
     const product = await prisma.product.upsert({
       where: { code: data.code },
       update: {
@@ -736,36 +776,72 @@ async function seedProducts(adminId: string | null) {
 
     console.log(`  ✅ Product: ${data.name} (${product.id})`);
 
-    // Check if this product already has an image with this public_id
-    const existingImage = await prisma.productImage.findFirst({
-      where: {
-        productId: product.id,
-        cloudinaryPublicId: data.image.cloudinaryPublicId,
-      },
-    });
+    const variants = productSeedData.filter((variantData) => variantData.code.startsWith(data.variantCodePrefix));
 
-    if (existingImage) {
-      console.log(`     ↳ Image already linked, skipping.`);
-      continue;
-    }
+    for (const [index, variantData] of variants.entries()) {
+      const variantName = variantData.name.replace(`${data.name} - `, "");
+      const existingVariant = await prisma.productColorVariant.findFirst({
+        where: {
+          productId: product.id,
+          name: variantName,
+        },
+      });
 
-    await prisma.productImage.create({
-      data: {
+      const colorVariant = existingVariant
+        ? await prisma.productColorVariant.update({
+            where: { id: existingVariant.id },
+            data: {
+              name: variantName,
+              hex: variantHexByName[variantName] ?? null,
+              sortOrder: index,
+              isActive: true,
+            },
+          })
+        : await prisma.productColorVariant.create({
+            data: {
+              productId: product.id,
+              name: variantName,
+              hex: variantHexByName[variantName] ?? null,
+              sortOrder: index,
+              isActive: true,
+            },
+          });
+
+      const existingImage = await prisma.productImage.findFirst({
+        where: {
+          productId: product.id,
+          cloudinaryPublicId: variantData.image.cloudinaryPublicId,
+        },
+      });
+
+      const imageData = {
         productId: product.id,
-        cloudinaryPublicId: data.image.cloudinaryPublicId,
-        secureUrl: data.image.secureUrl,
-        resourceType: data.image.resourceType,
-        format: data.image.format,
-        width: data.image.width,
-        height: data.image.height,
-        bytes: data.image.bytes,
-        altText: data.name,
+        colorVariantId: colorVariant.id,
+        cloudinaryPublicId: variantData.image.cloudinaryPublicId,
+        secureUrl: variantData.image.secureUrl,
+        resourceType: variantData.image.resourceType,
+        format: variantData.image.format,
+        width: variantData.image.width,
+        height: variantData.image.height,
+        bytes: variantData.image.bytes,
+        altText: variantData.name,
         sortOrder: 0,
-        isPrimary: true,
-      },
-    });
+        isPrimary: false,
+      };
 
-    console.log(`     ✅ Image linked: ${data.image.cloudinaryPublicId}`);
+      if (existingImage) {
+        await prisma.productImage.update({
+          where: { id: existingImage.id },
+          data: imageData,
+        });
+      } else {
+        await prisma.productImage.create({
+          data: imageData,
+        });
+      }
+
+      console.log(`     ✅ Variant linked: ${variantName}`);
+    }
   }
 
   console.log(`\n📦 Product seeding complete.\n`);
