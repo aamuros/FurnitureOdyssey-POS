@@ -233,6 +233,13 @@ enum DocumentStatus {
   VOIDED
 }
 
+enum CalendarSyncStatus {
+  NOT_SYNCED
+  SYNCED
+  FAILED
+  DISABLED
+}
+
 model UserProfile {
   id                 String           @id @default(uuid()) @db.Uuid
   authUserId         String           @unique @db.Uuid
@@ -269,9 +276,26 @@ model UserProfile {
   updatedDeliveries  Delivery[]       @relation("DeliveryUpdater")
   generatedDocuments OrderDocument[]  @relation("DocumentGenerator")
   updatedSettings    AppSetting[]     @relation("SettingUpdater")
+  calendarConnection UserCalendarConnection?
 
   @@index([role])
   @@index([status])
+}
+
+model UserCalendarConnection {
+  id                 String      @id @default(uuid()) @db.Uuid
+  userId             String      @unique @db.Uuid
+  provider           String      @default("google")
+  googleAccountEmail String
+  calendarId         String      @default("primary")
+  accessToken        String?
+  refreshToken       String
+  tokenExpiry        DateTime?
+  scopes             String[]    @default([])
+  connectedAt        DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  revokedAt          DateTime?
+  user               UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserPermission {
@@ -835,6 +859,12 @@ model Delivery {
   deliveryNotes             String?
   internalNotes             String?
   assignedStaffId           String?               @db.Uuid
+  googleCalendarEventId     String?
+  googleCalendarId          String?
+  calendarSyncedUserId      String?               @db.Uuid
+  calendarSyncedAt          DateTime?
+  calendarSyncStatus        CalendarSyncStatus    @default(NOT_SYNCED)
+  calendarSyncError         String?
   deliveredAt               DateTime?
   cancelledAt               DateTime?
   createdById               String?               @db.Uuid
@@ -853,6 +883,9 @@ model Delivery {
   @@index([scheduledDate])
   @@index([deliveryProviderType])
   @@index([assignedStaffId])
+  @@index([googleCalendarEventId])
+  @@index([calendarSyncedUserId])
+  @@index([calendarSyncStatus])
   @@index([createdAt])
 }
 
