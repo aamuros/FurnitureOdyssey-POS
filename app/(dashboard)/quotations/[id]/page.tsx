@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ImagePlus } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { QuotationDetailActions } from "@/components/dashboard/quotation-workspace";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -13,6 +13,9 @@ type QuotationDetailPageProps = {
     id: string;
   }>;
 };
+
+const quotationDetailItemGridClass =
+  "md:grid-cols-[64px_minmax(110px,150px)_96px_minmax(0,1fr)_44px_88px_80px_96px]";
 
 function formatMoney(value: unknown) {
   return new Intl.NumberFormat("en-PH", {
@@ -42,6 +45,23 @@ function itemDescription(item: {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function quotationItemImage(item: {
+  itemName: string;
+  snapshotVariantName: string | null;
+  images: Array<{
+    secureUrl: string;
+    altText: string | null;
+  }>;
+}) {
+  const image = item.images[0];
+  const altText = image?.altText ?? [item.itemName, item.snapshotVariantName].filter(Boolean).join(" - ");
+
+  return {
+    secureUrl: image?.secureUrl ?? null,
+    altText
+  };
 }
 
 function formatDate(value: Date) {
@@ -134,6 +154,18 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
       items: {
         orderBy: {
           sortOrder: "asc"
+        },
+        include: {
+          images: {
+            orderBy: [
+              {
+                isPrimary: "desc"
+              },
+              {
+                sortOrder: "asc"
+              }
+            ]
+          }
         }
       }
     }
@@ -173,7 +205,7 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
         Back to quotations
       </Link>
 
-      <div className="grid min-w-0 max-w-full gap-6 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+      <div className="grid min-w-0 max-w-full gap-5 overflow-x-hidden xl:grid-cols-[minmax(0,1fr)_minmax(240px,300px)] xl:items-start">
         <section className="min-w-0 space-y-6">
           <section className="studio-card">
             <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
@@ -207,49 +239,88 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <p className="studio-kicker">Items</p>
               <h2 className="text-sm font-semibold">Quoted items</h2>
             </div>
-            <div className="max-w-full overflow-x-auto">
-              <table className="studio-table w-full min-w-[760px] table-fixed text-left text-sm">
-                <thead className="border-b border-border text-xs uppercase text-muted-foreground">
-                  <tr>
-                    {quotation.needsAssembly ? (
-                      <th className="px-5 py-3 font-medium">Assemble</th>
-                    ) : null}
-                    <th className="w-[22%] px-5 py-3 font-medium">Item</th>
-                    <th className="w-[14%] px-5 py-3 font-medium">Product code</th>
-                    <th className="w-[28%] px-5 py-3 font-medium">Description / specs</th>
-                    <th className="px-5 py-3 font-medium">Qty</th>
-                    <th className="px-5 py-3 font-medium">Unit price</th>
-                    <th className="px-5 py-3 font-medium">Discount</th>
-                    <th className="px-5 py-3 font-medium">Line total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {quotation.items.map((item) => (
-                    <tr key={item.id}>
-                      {quotation.needsAssembly ? (
-                        <td className="px-5 py-3 text-muted-foreground">
-                          {item.requiresAssembly ? "Yes" : "No"}
-                        </td>
-                      ) : null}
-                      <td className="px-5 py-3 font-medium">
+            <div className="min-w-0 max-w-full">
+              <div
+                className={`hidden gap-3 border-b border-border px-4 py-3 text-xs font-medium uppercase text-muted-foreground md:grid ${quotationDetailItemGridClass}`}
+              >
+                <span>Image</span>
+                <span>Item</span>
+                <span>Product code</span>
+                <span>Description / specs</span>
+                <span className="text-right">Qty</span>
+                <span className="text-right">Unit price</span>
+                <span className="text-right">Discount</span>
+                <span className="text-right">Line total</span>
+              </div>
+              <div className="divide-y divide-border">
+                {quotation.items.map((item) => {
+                  const image = quotationItemImage(item);
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`grid min-w-0 grid-cols-[56px_minmax(0,1fr)] gap-3 px-4 py-4 text-sm md:items-start ${quotationDetailItemGridClass}`}
+                    >
+                      <div
+                        role={image.secureUrl ? "img" : undefined}
+                        aria-label={image.secureUrl ? image.altText : undefined}
+                        className="flex h-12 w-12 items-center justify-center rounded-md border border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground"
+                        style={image.secureUrl ? { backgroundImage: `url("${image.secureUrl}")` } : undefined}
+                      >
+                        {!image.secureUrl ? <ImagePlus className="h-4 w-4" /> : null}
+                      </div>
+                      <div className="min-w-0 font-medium">
                         <span className="block max-w-full whitespace-normal break-words">{item.itemName}</span>
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
-                        {item.snapshotProductCode ?? "Custom"}
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">
+                        {quotation.needsAssembly ? (
+                          <span className="mt-1 block text-xs font-normal text-muted-foreground md:hidden">
+                            Assemble: {item.requiresAssembly ? "Yes" : "No"}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="col-span-2 min-w-0 text-muted-foreground md:col-span-1">
+                        <span className="mb-1 block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Product code
+                        </span>
+                        <span className="block max-w-full whitespace-normal break-words">
+                          {item.snapshotProductCode ?? "Custom"}
+                        </span>
+                      </div>
+                      <div className="col-span-2 min-w-0 text-muted-foreground md:col-span-1">
+                        <span className="mb-1 block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Description / specs
+                        </span>
                         <span className="block max-w-full whitespace-pre-wrap break-words">
                           {itemDescription(item) || "No description"}
                         </span>
-                      </td>
-                      <td className="px-5 py-3">{formatQuantity(item.quantity)}</td>
-                      <td className="px-5 py-3">{formatMoney(item.unitPrice)}</td>
-                      <td className="px-5 py-3">{formatMoney(item.discountAmount)}</td>
-                      <td className="px-5 py-3 font-medium">{formatMoney(item.lineTotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <span className="block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Qty
+                        </span>
+                        <span className="whitespace-nowrap">{formatQuantity(item.quantity)}</span>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <span className="block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Unit
+                        </span>
+                        <span className="whitespace-nowrap">{formatMoney(item.unitPrice)}</span>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <span className="block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Discount
+                        </span>
+                        <span className="whitespace-nowrap">{formatMoney(item.discountAmount)}</span>
+                      </div>
+                      <div className="text-right font-medium tabular-nums">
+                        <span className="block text-xs font-semibold uppercase text-muted-foreground md:hidden">
+                          Total
+                        </span>
+                        <span className="whitespace-nowrap">{formatMoney(item.lineTotal)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </section>
 
@@ -287,13 +358,13 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
           </section>
         </section>
 
-        <aside className="min-w-0 space-y-6 xl:sticky xl:top-6 xl:self-start">
+        <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
           <section className="studio-card">
             <div className="studio-card-header">
               <p className="studio-kicker">Actions</p>
               <h2 className="text-sm font-semibold">Workflow</h2>
             </div>
-            <div className="p-5">
+            <div className="p-4">
               <QuotationDetailActions
                 quotationId={quotation.id}
                 status={quotation.status}
@@ -311,7 +382,7 @@ export default async function QuotationDetailPage({ params }: QuotationDetailPag
               <p className="studio-kicker">Totals</p>
               <h2 className="text-sm font-semibold">Quotation total</h2>
             </div>
-            <div className="space-y-3 p-5 text-sm">
+            <div className="space-y-3 p-4 text-sm">
               <div className="flex justify-between gap-4">
                 <span className="text-muted-foreground">Subtotal for Items</span>
                 <span className="font-medium">{formatMoney(subtotalForItems)}</span>
