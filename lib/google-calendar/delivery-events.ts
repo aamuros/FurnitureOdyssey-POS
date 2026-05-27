@@ -1,9 +1,10 @@
-import type { CalendarSyncStatus, Prisma } from "@prisma/client";
+import type { CalendarSyncStatus, CalendarTargetType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   getGoogleCalendarClientForUser,
   googleCalendarEventsUrl
 } from "@/lib/google-calendar/client";
+import { getGoogleCalendarOwnerEmail } from "@/lib/google-calendar/config";
 
 const defaultEventDurationMs = 60 * 60 * 1000;
 
@@ -19,6 +20,7 @@ const deliveryEventSelect = {
   deliveryNotes: true,
   internalNotes: true,
   assignedStaffId: true,
+  createdById: true,
   googleCalendarEventId: true,
   googleCalendarId: true,
   calendarSyncedUserId: true,
@@ -27,7 +29,13 @@ const deliveryEventSelect = {
       orderNumber: true,
       customerDisplayNameSnapshot: true,
       primaryContactSnapshot: true,
-      deliveryAddressSnapshot: true
+      deliveryAddressSnapshot: true,
+      quotation: {
+        select: {
+          quotationNumber: true,
+          createdById: true
+        }
+      }
     }
   },
   assignedStaff: {
@@ -48,6 +56,16 @@ const deliveryEventSelect = {
     orderBy: {
       createdAt: "asc"
     }
+  },
+  calendarEvents: {
+    select: {
+      id: true,
+      userId: true,
+      targetType: true,
+      googleCalendarId: true,
+      googleCalendarEventId: true,
+      syncStatus: true
+    }
   }
 } satisfies Prisma.DeliverySelect;
 
@@ -67,22 +85,26 @@ export type GoogleCalendarEventPayload = {
   };
 };
 
-export type DeliveryCalendarSyncResult =
-  | {
-      ok: true;
-      status: CalendarSyncStatus;
-      eventId: string | null;
-      calendarId: string | null;
-    }
-  | {
-      ok: false;
-      status: CalendarSyncStatus;
-      code: "DELIVERY_NOT_FOUND" | "NO_ASSIGNED_USER" | "NOT_CONNECTED" | "GOOGLE_API_ERROR";
-      message: string;
-    };
+export type CalendarTargetResult = {
+  targetType: CalendarTargetType;
+  userId: string;
+  syncStatus: CalendarSyncStatus;
+  eventId: string | null;
+  calendarId: string | null;
+  error?: string;
+};
+
+export type DeliveryCalendarSyncResult = {
+  targets: CalendarTargetResult[];
+};
 
 type GoogleCalendarEventResponse = {
   id?: string;
+};
+
+type ResolvedTarget = {
+  targetType: CalendarTargetType;
+  userId: string;
 };
 
 function valueFromJsonSnapshot(snapshot: Prisma.JsonValue | null | undefined, keys: string[]) {
@@ -162,6 +184,7 @@ export function buildDeliveryCalendarEventPayload(delivery: DeliveryCalendarPayl
   const assignedStaff = delivery.assignedStaff
     ? delivery.assignedStaff.displayName ?? delivery.assignedStaff.email
     : null;
+  const quotationNumber = delivery.order.quotation?.quotationNumber ?? null;
   const description = [
     line("Delivery date", formatDateTime(startDate)),
     line("Delivery time", delivery.scheduledTimeWindow),
@@ -169,6 +192,7 @@ export function buildDeliveryCalendarEventPayload(delivery: DeliveryCalendarPayl
     line("Customer", customerName),
     line("Customer contact", customerContact(delivery)),
     line("Order number", delivery.order.orderNumber),
+    line("Quotation number", quotationNumber),
     line("Delivery reference", delivery.deliveryNumber),
     line("Delivery status", delivery.status),
     line("Assigned staff", assignedStaff),
@@ -187,45 +211,6 @@ export function buildDeliveryCalendarEventPayload(delivery: DeliveryCalendarPayl
       dateTime: endDate.toISOString()
     }
   };
-}
-
-async function updateDeliverySyncState({
-  deliveryId,
-  eventId,
-  calendarId,
-  syncedUserId,
-  status,
-  error
-}: {
-  deliveryId: string;
-  eventId?: string | null;
-  calendarId?: string | null;
-  syncedUserId?: string | null;
-  status: CalendarSyncStatus;
-  error?: string | null;
-}) {
-  await prisma.delivery.update({
-    where: {
-      id: deliveryId
-    },
-    data: {
-      googleCalendarEventId: eventId,
-      googleCalendarId: calendarId,
-      calendarSyncedUserId: syncedUserId,
-      calendarSyncedAt: new Date(),
-      calendarSyncStatus: status,
-      calendarSyncError: error ?? null
-    }
-  });
-}
-
-async function findDelivery(deliveryId: string) {
-  return prisma.delivery.findUnique({
-    where: {
-      id: deliveryId
-    },
-    select: deliveryEventSelect
-  });
 }
 
 function googleApiErrorMessage(action: string, response: Response) {
@@ -287,134 +272,295 @@ async function deleteGoogleEvent({
   }
 }
 
-async function deleteExistingEventForReassignment(delivery: DeliveryCalendarPayloadInput) {
-  if (!delivery.googleCalendarEventId || !delivery.googleCalendarId || !delivery.calendarSyncedUserId) {
-    return null;
-  }
-
-  if (delivery.calendarSyncedUserId === delivery.assignedStaffId) {
-    return null;
-  }
-
-  const oldClient = await getGoogleCalendarClientForUser(delivery.calendarSyncedUserId);
-
-  if (!oldClient.ok) {
-    return oldClient.message;
-  }
-
-  try {
-    await deleteGoogleEvent({
-      calendarId: delivery.googleCalendarId,
-      eventId: delivery.googleCalendarEventId,
-      accessToken: oldClient.accessToken
-    });
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message : "Could not delete old Google Calendar event.";
-  }
+async function findDelivery(deliveryId: string) {
+  return prisma.delivery.findUnique({
+    where: {
+      id: deliveryId
+    },
+    select: deliveryEventSelect
+  });
 }
 
-async function syncDeliveryEvent(deliveryId: string, action: "create" | "update"): Promise<DeliveryCalendarSyncResult> {
-  const delivery = await findDelivery(deliveryId);
+async function resolveOwnerUserId(): Promise<{ userId: string | null; skipReason: string | null }> {
+  const ownerEmail = getGoogleCalendarOwnerEmail();
 
-  if (!delivery) {
+  if (!ownerEmail) {
     return {
-      ok: false,
-      status: "FAILED",
-      code: "DELIVERY_NOT_FOUND",
-      message: "Delivery was not found."
+      userId: null,
+      skipReason: "GOOGLE_CALENDAR_OWNER_EMAIL is not configured."
     };
   }
 
-  if (!delivery.assignedStaffId) {
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: delivery.googleCalendarEventId,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: null,
-      status: "DISABLED",
-      error: "Delivery has no assigned staff for calendar sync."
+  const ownerUser = await prisma.userProfile.findUnique({
+    where: { email: ownerEmail },
+    select: { id: true }
+  });
+
+  if (!ownerUser) {
+    return {
+      userId: null,
+      skipReason: `Owner user with email "${ownerEmail}" was not found.`
+    };
+  }
+
+  return { userId: ownerUser.id, skipReason: null };
+}
+
+function resolveStaffCreatorUserId(delivery: DeliveryCalendarPayloadInput): string | null {
+  return delivery.order.quotation?.createdById ?? delivery.createdById ?? null;
+}
+
+async function resolveCalendarTargets(delivery: DeliveryCalendarPayloadInput): Promise<{
+  targets: ResolvedTarget[];
+  skipped: CalendarTargetResult[];
+}> {
+  const targets: ResolvedTarget[] = [];
+  const skipped: CalendarTargetResult[] = [];
+
+  const staffUserId = resolveStaffCreatorUserId(delivery);
+  const ownerResult = await resolveOwnerUserId();
+
+  const ownerUserId = ownerResult.userId;
+  const staffAndOwnerAreSame = staffUserId && ownerUserId && staffUserId === ownerUserId;
+
+  if (ownerUserId) {
+    targets.push({ targetType: "OWNER", userId: ownerUserId });
+  } else {
+    skipped.push({
+      targetType: "OWNER",
+      userId: "",
+      syncStatus: "SKIPPED",
+      eventId: null,
+      calendarId: null,
+      error: ownerResult.skipReason ?? "Owner not resolved."
     });
-
-    return {
-      ok: false,
-      status: "DISABLED",
-      code: "NO_ASSIGNED_USER",
-      message: "Delivery has no assigned staff for calendar sync."
-    };
   }
 
-  const client = await getGoogleCalendarClientForUser(delivery.assignedStaffId);
+  if (staffUserId && !staffAndOwnerAreSame) {
+    targets.push({ targetType: "STAFF_CREATOR", userId: staffUserId });
+  } else if (!staffUserId) {
+    skipped.push({
+      targetType: "STAFF_CREATOR",
+      userId: "",
+      syncStatus: "SKIPPED",
+      eventId: null,
+      calendarId: null,
+      error: "No quotation creator or delivery creator found."
+    });
+  }
+
+  return { targets, skipped };
+}
+
+async function upsertCalendarEventRecord({
+  deliveryId,
+  userId,
+  targetType,
+  connectionId,
+  calendarId,
+  eventId,
+  syncStatus,
+  syncError
+}: {
+  deliveryId: string;
+  userId: string;
+  targetType: CalendarTargetType;
+  connectionId?: string | null;
+  calendarId?: string | null;
+  eventId?: string | null;
+  syncStatus: CalendarSyncStatus;
+  syncError?: string | null;
+}) {
+  await prisma.deliveryCalendarEvent.upsert({
+    where: {
+      deliveryId_userId_targetType: {
+        deliveryId,
+        userId,
+        targetType
+      }
+    },
+    create: {
+      deliveryId,
+      userId,
+      targetType,
+      googleCalendarConnectionId: connectionId ?? null,
+      googleCalendarId: calendarId ?? null,
+      googleCalendarEventId: eventId ?? null,
+      syncStatus,
+      syncError: syncError ?? null,
+      syncedAt: new Date()
+    },
+    update: {
+      googleCalendarConnectionId: connectionId ?? undefined,
+      googleCalendarId: calendarId ?? null,
+      googleCalendarEventId: eventId ?? null,
+      syncStatus,
+      syncError: syncError ?? null,
+      syncedAt: new Date()
+    }
+  });
+}
+
+async function syncTargetEvent({
+  delivery,
+  target,
+  payload,
+  action
+}: {
+  delivery: DeliveryCalendarPayloadInput;
+  target: ResolvedTarget;
+  payload: GoogleCalendarEventPayload;
+  action: "create" | "update";
+}): Promise<CalendarTargetResult> {
+  const client = await getGoogleCalendarClientForUser(target.userId);
 
   if (!client.ok) {
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: delivery.googleCalendarEventId,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.assignedStaffId,
-      status: "DISABLED",
-      error: client.message
+    await upsertCalendarEventRecord({
+      deliveryId: delivery.id,
+      userId: target.userId,
+      targetType: target.targetType,
+      syncStatus: "SKIPPED",
+      syncError: client.message
     });
 
     return {
-      ok: false,
-      status: "DISABLED",
-      code: "NOT_CONNECTED",
-      message: client.message
+      targetType: target.targetType,
+      userId: target.userId,
+      syncStatus: "SKIPPED",
+      eventId: null,
+      calendarId: null,
+      error: client.message
     };
   }
 
   try {
-    const reassignmentDeleteError = action === "update" ? await deleteExistingEventForReassignment(delivery) : null;
-    if (reassignmentDeleteError) {
-      throw new Error(`Could not delete previous Google Calendar event: ${reassignmentDeleteError}`);
-    }
-    const payload = buildDeliveryCalendarEventPayload(delivery);
-    const canUpdateExistingEvent =
+    const existingEvent = delivery.calendarEvents.find(
+      (event) => event.userId === target.userId && event.targetType === target.targetType
+    );
+    const canUpdate =
       action === "update" &&
-      delivery.googleCalendarEventId &&
-      delivery.calendarSyncedUserId === delivery.assignedStaffId;
-    const googleAction = canUpdateExistingEvent ? "update" : "create";
+      existingEvent?.googleCalendarEventId &&
+      existingEvent.syncStatus === "SYNCED";
+
+    const googleAction = canUpdate ? "update" : "create";
     const eventId = await writeGoogleEvent({
       action: googleAction,
       calendarId: client.calendarId,
       accessToken: client.accessToken,
       payload,
-      eventId: googleAction === "update" ? delivery.googleCalendarEventId ?? undefined : undefined
+      eventId: googleAction === "update" ? existingEvent!.googleCalendarEventId! : undefined
     });
 
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId,
+    await upsertCalendarEventRecord({
+      deliveryId: delivery.id,
+      userId: target.userId,
+      targetType: target.targetType,
       calendarId: client.calendarId,
-      syncedUserId: client.userId,
-      status: "SYNCED"
+      eventId,
+      syncStatus: "SYNCED"
     });
 
     return {
-      ok: true,
-      status: "SYNCED",
+      targetType: target.targetType,
+      userId: target.userId,
+      syncStatus: "SYNCED",
       eventId,
       calendarId: client.calendarId
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Google Calendar event sync failed.";
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: delivery.googleCalendarEventId,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.assignedStaffId,
-      status: "FAILED",
-      error: message
+    await upsertCalendarEventRecord({
+      deliveryId: delivery.id,
+      userId: target.userId,
+      targetType: target.targetType,
+      syncStatus: "FAILED",
+      syncError: message
     });
 
     return {
-      ok: false,
-      status: "FAILED",
-      code: "GOOGLE_API_ERROR",
-      message
+      targetType: target.targetType,
+      userId: target.userId,
+      syncStatus: "FAILED",
+      eventId: null,
+      calendarId: null,
+      error: message
     };
   }
+}
+
+async function cleanupStaleTargets(
+  delivery: DeliveryCalendarPayloadInput,
+  currentTargets: ResolvedTarget[]
+) {
+  const currentKeys = new Set(
+    currentTargets.map((target) => `${target.userId}:${target.targetType}`)
+  );
+
+  const staleEvents = delivery.calendarEvents.filter(
+    (event) =>
+      !currentKeys.has(`${event.userId}:${event.targetType}`) &&
+      event.syncStatus !== "DELETED"
+  );
+
+  for (const staleEvent of staleEvents) {
+    if (staleEvent.googleCalendarEventId && staleEvent.googleCalendarId) {
+      const client = await getGoogleCalendarClientForUser(staleEvent.userId);
+
+      if (client.ok) {
+        try {
+          await deleteGoogleEvent({
+            calendarId: staleEvent.googleCalendarId,
+            eventId: staleEvent.googleCalendarEventId,
+            accessToken: client.accessToken
+          });
+        } catch {
+          // Best-effort deletion of stale events; continue even if it fails
+        }
+      }
+    }
+
+    await prisma.deliveryCalendarEvent.update({
+      where: { id: staleEvent.id },
+      data: {
+        syncStatus: "DELETED",
+        syncError: null,
+        syncedAt: new Date()
+      }
+    });
+  }
+}
+
+async function syncDeliveryEvent(
+  deliveryId: string,
+  action: "create" | "update"
+): Promise<DeliveryCalendarSyncResult> {
+  const delivery = await findDelivery(deliveryId);
+
+  if (!delivery) {
+    return {
+      targets: []
+    };
+  }
+
+  const { targets, skipped } = await resolveCalendarTargets(delivery);
+  const results: CalendarTargetResult[] = [...skipped];
+
+  if (targets.length === 0) {
+    return { targets: results };
+  }
+
+  const payload = buildDeliveryCalendarEventPayload(delivery);
+
+  if (action === "update") {
+    await cleanupStaleTargets(delivery, targets);
+  }
+
+  for (const target of targets) {
+    const result = await syncTargetEvent({ delivery, target, payload, action });
+    results.push(result);
+  }
+
+  return { targets: results };
 }
 
 export function createDeliveryCalendarEvent(deliveryId: string) {
@@ -425,92 +571,65 @@ export function updateDeliveryCalendarEvent(deliveryId: string) {
   return syncDeliveryEvent(deliveryId, "update");
 }
 
-export async function deleteDeliveryCalendarEvent(deliveryId: string): Promise<DeliveryCalendarSyncResult> {
-  const delivery = await findDelivery(deliveryId);
+export async function deleteDeliveryCalendarEvent(
+  deliveryId: string
+): Promise<DeliveryCalendarSyncResult> {
+  const events = await prisma.deliveryCalendarEvent.findMany({
+    where: { deliveryId },
+    select: {
+      id: true,
+      userId: true,
+      targetType: true,
+      googleCalendarId: true,
+      googleCalendarEventId: true,
+      syncStatus: true
+    }
+  });
 
-  if (!delivery) {
-    return {
-      ok: false,
-      status: "FAILED",
-      code: "DELIVERY_NOT_FOUND",
-      message: "Delivery was not found."
-    };
+  if (events.length === 0) {
+    return { targets: [] };
   }
 
-  if (!delivery.googleCalendarEventId || !delivery.googleCalendarId || !delivery.calendarSyncedUserId) {
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: null,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.calendarSyncedUserId,
-      status: "NOT_SYNCED"
+  const results: CalendarTargetResult[] = [];
+
+  for (const event of events) {
+    if (
+      event.googleCalendarEventId &&
+      event.googleCalendarId &&
+      event.syncStatus === "SYNCED"
+    ) {
+      const client = await getGoogleCalendarClientForUser(event.userId);
+
+      if (client.ok) {
+        try {
+          await deleteGoogleEvent({
+            calendarId: event.googleCalendarId,
+            eventId: event.googleCalendarEventId,
+            accessToken: client.accessToken
+          });
+        } catch {
+          // Best-effort deletion; record is marked DELETED regardless
+        }
+      }
+    }
+
+    await prisma.deliveryCalendarEvent.update({
+      where: { id: event.id },
+      data: {
+        syncStatus: "DELETED",
+        syncError: null,
+        syncedAt: new Date()
+      }
     });
 
-    return {
-      ok: true,
-      status: "NOT_SYNCED",
+    results.push({
+      targetType: event.targetType,
+      userId: event.userId,
+      syncStatus: "DELETED",
       eventId: null,
-      calendarId: delivery.googleCalendarId
-    };
+      calendarId: event.googleCalendarId
+    });
   }
 
-  const client = await getGoogleCalendarClientForUser(delivery.calendarSyncedUserId);
-
-  if (!client.ok) {
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: delivery.googleCalendarEventId,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.calendarSyncedUserId,
-      status: "DISABLED",
-      error: client.message
-    });
-
-    return {
-      ok: false,
-      status: "DISABLED",
-      code: "NOT_CONNECTED",
-      message: client.message
-    };
-  }
-
-  try {
-    await deleteGoogleEvent({
-      calendarId: delivery.googleCalendarId,
-      eventId: delivery.googleCalendarEventId,
-      accessToken: client.accessToken
-    });
-
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: null,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.calendarSyncedUserId,
-      status: "NOT_SYNCED"
-    });
-
-    return {
-      ok: true,
-      status: "NOT_SYNCED",
-      eventId: null,
-      calendarId: delivery.googleCalendarId
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Google Calendar event delete failed.";
-    await updateDeliverySyncState({
-      deliveryId,
-      eventId: delivery.googleCalendarEventId,
-      calendarId: delivery.googleCalendarId,
-      syncedUserId: delivery.calendarSyncedUserId,
-      status: "FAILED",
-      error: message
-    });
-
-    return {
-      ok: false,
-      status: "FAILED",
-      code: "GOOGLE_API_ERROR",
-      message
-    };
-  }
+  return { targets: results };
 }

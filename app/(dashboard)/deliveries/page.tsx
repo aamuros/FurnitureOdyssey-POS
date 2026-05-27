@@ -67,10 +67,23 @@ type DeliveryRecord = Prisma.DeliveryGetPayload<{
       select: {
         displayName: true;
         email: true;
-        calendarConnection: {
+      };
+    };
+    calendarEvents: {
+      select: {
+        targetType: true;
+        syncStatus: true;
+        syncError: true;
+        syncedAt: true;
+        user: {
           select: {
-            googleAccountEmail: true;
-            revokedAt: true;
+            displayName: true;
+            email: true;
+            calendarConnection: {
+              select: {
+                googleAccountEmail: true;
+              };
+            };
           };
         };
       };
@@ -90,19 +103,6 @@ function formatDate(value: Date | null) {
   }).format(value);
 }
 
-function formatDateTime(value: Date | null) {
-  if (!value) {
-    return "Not synced";
-  }
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  }).format(value);
-}
 
 function clean(value: string | undefined) {
   const trimmed = value?.trim();
@@ -224,25 +224,42 @@ function calendarSyncTone(status: string) {
     return "danger" as const;
   }
 
-  if (status === "DISABLED") {
+  if (status === "DISABLED" || status === "SKIPPED") {
     return "warning" as const;
   }
 
   return "neutral" as const;
 }
 
-function assignedCalendarStatus(delivery: DeliveryRecord) {
-  if (!delivery.assignedStaff) {
-    return "No assigned staff";
+function targetTypeLabel(targetType: string) {
+  if (targetType === "OWNER") {
+    return "Owner";
   }
 
-  const connection = delivery.assignedStaff.calendarConnection;
+  return "Staff creator";
+}
 
-  if (!connection || connection.revokedAt) {
-    return "Assigned user has not connected Google Calendar.";
+function targetSyncLabel(event: DeliveryRecord["calendarEvents"][number]) {
+  const label = targetTypeLabel(event.targetType);
+  const calendarEmail = event.user.calendarConnection?.googleAccountEmail;
+
+  if (event.syncStatus === "SYNCED" && calendarEmail) {
+    return `${label}: Synced to ${calendarEmail}`;
   }
 
-  return `Assigned calendar: ${connection.googleAccountEmail}`;
+  if (event.syncStatus === "SKIPPED") {
+    return `${label}: Skipped — ${event.syncError ?? "calendar not connected"}`;
+  }
+
+  if (event.syncStatus === "FAILED") {
+    return `${label}: Failed — ${event.syncError ?? "sync error"}`;
+  }
+
+  if (event.syncStatus === "DELETED") {
+    return `${label}: Deleted`;
+  }
+
+  return `${label}: ${event.syncStatus}`;
 }
 
 function searchWhere(query: string | undefined): Prisma.DeliveryWhereInput[] | undefined {
@@ -391,13 +408,34 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
       assignedStaff: {
         select: {
           displayName: true,
-          email: true,
-          calendarConnection: {
+          email: true
+        }
+      },
+      calendarEvents: {
+        where: {
+          syncStatus: {
+            not: "DELETED"
+          }
+        },
+        select: {
+          targetType: true,
+          syncStatus: true,
+          syncError: true,
+          syncedAt: true,
+          user: {
             select: {
-              googleAccountEmail: true,
-              revokedAt: true
+              displayName: true,
+              email: true,
+              calendarConnection: {
+                select: {
+                  googleAccountEmail: true
+                }
+              }
             }
           }
+        },
+        orderBy: {
+          targetType: "asc"
         }
       }
     }
@@ -531,21 +569,21 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
                     </StatusPill>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="space-y-2">
-                      <StatusPill tone={calendarSyncTone(delivery.calendarSyncStatus)}>
-                        {calendarSyncLabel(delivery.calendarSyncStatus)}
-                      </StatusPill>
-                      <div className="text-xs text-muted-foreground">
-                        Last synced: {formatDateTime(delivery.calendarSyncedAt)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {assignedCalendarStatus(delivery)}
-                      </div>
-                      {delivery.calendarSyncStatus === "FAILED" && delivery.calendarSyncError ? (
-                        <div className="max-w-[18rem] text-xs text-danger">
-                          {delivery.calendarSyncError}
-                        </div>
-                      ) : null}
+                    <div className="space-y-1">
+                      {delivery.calendarEvents.length > 0 ? (
+                        delivery.calendarEvents.map((event, eventIndex) => (
+                          <div key={eventIndex}>
+                            <StatusPill tone={calendarSyncTone(event.syncStatus)}>
+                              {targetTypeLabel(event.targetType)}: {calendarSyncLabel(event.syncStatus)}
+                            </StatusPill>
+                            <p className="mt-0.5 max-w-[18rem] text-xs text-muted-foreground">
+                              {targetSyncLabel(event)}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <StatusPill tone="neutral">Not synced</StatusPill>
+                      )}
                       {canUpdateDeliveries && delivery.status !== "CANCELLED" ? (
                         <form action={retryDeliveryCalendarSyncAction}>
                           <input type="hidden" name="deliveryId" value={delivery.id} />

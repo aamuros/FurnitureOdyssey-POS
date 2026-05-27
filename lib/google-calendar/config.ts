@@ -31,3 +31,7 @@ export function getGoogleCalendarConfig(): GoogleCalendarConfig {
     redirectUri
   };
 }
+
+export function getGoogleCalendarOwnerEmail(): string | null {
+  return process.env.GOOGLE_CALENDAR_OWNER_EMAIL?.trim() || null;
+}

@@ -94,20 +94,9 @@ async function syncDeliveryCalendarSafely(
 ) {
   try {
     await syncOperation(deliveryId);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Google Calendar sync failed.";
-    await prisma.delivery
-      .update({
-        where: {
-          id: deliveryId
-        },
-        data: {
-          calendarSyncedAt: new Date(),
-          calendarSyncStatus: "FAILED",
-          calendarSyncError: message
-        }
-      })
-      .catch(() => undefined);
+  } catch {
+    // Calendar sync failures must not block delivery operations.
+    // Per-target errors are recorded in DeliveryCalendarEvent records by the sync service.
   }
 }
 
@@ -1477,17 +1466,19 @@ export async function retryDeliveryCalendarSyncAction(formData: FormData) {
   revalidatePath("/deliveries");
   revalidatePath("/orders");
 
-  if (result.ok) {
+  const synced = result.targets.filter((t) => t.syncStatus === "SYNCED");
+  const failed = result.targets.filter((t) => t.syncStatus === "FAILED");
+
+  if (failed.length > 0) {
+    const messages = failed.map((t) => t.error ?? "Sync failed.").join(" ");
+    finish("error", messages);
+  }
+
+  if (synced.length > 0) {
     finish("success", "Google Calendar sync updated.");
   }
 
-  const errorResult = result;
-  finish(
-    "error",
-    errorResult.code === "NOT_CONNECTED"
-      ? "Assigned user has not connected Google Calendar."
-      : errorResult.message
-  );
+  finish("success", "Calendar sync completed — some targets were skipped.");
 }
 
 export async function completeOrderAction(
