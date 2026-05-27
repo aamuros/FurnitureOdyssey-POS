@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import Link from "next/link";
 import type { DeliveryStatus } from "@prisma/client";
@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   ArrowLeft,
   CalendarClock,
+  ChevronDown,
+  Clock,
   Download,
   MoreHorizontal,
   PackageSearch,
@@ -790,6 +792,221 @@ function clampDeliveryQuantity(value: number, remainingQuantity: number) {
   return roundIntegerQuantity(Math.min(Math.max(value, 0), remainingQuantity));
 }
 
+function parseDeliveryStartTime(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return { normalized: "", display: "", valid: true };
+  }
+
+  const match = trimmed.match(/^(\d{1,2})(?::([0-5]\d))?\s*([AaPp][Mm])?$/);
+
+  if (!match) {
+    return { normalized: "", display: trimmed, valid: false };
+  }
+
+  const meridiem = match[3]?.toUpperCase();
+  let hour = Number(match[1]);
+  const minute = match[2] ?? "00";
+
+  if (meridiem) {
+    if (hour < 1 || hour > 12) {
+      return { normalized: "", display: trimmed, valid: false };
+    }
+
+    hour = hour % 12;
+
+    if (meridiem === "PM") {
+      hour += 12;
+    }
+  } else if (hour > 23) {
+    return { normalized: "", display: trimmed, valid: false };
+  }
+
+  const normalized = `${String(hour).padStart(2, "0")}:${minute}`;
+  const displayHour = hour % 12 || 12;
+  const displayMeridiem = hour >= 12 ? "PM" : "AM";
+
+  return {
+    normalized,
+    display: `${String(displayHour).padStart(2, "0")}:${minute} ${displayMeridiem}`,
+    valid: true
+  };
+}
+
+const HOUR_OPTIONS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const MINUTE_OPTIONS = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+
+function DeliveryTimePicker({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (formatted: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hour, setHour] = useState("09");
+  const [minute, setMinute] = useState("00");
+  const [period, setPeriod] = useState<"AM" | "PM">("AM");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hourListRef = useRef<HTMLDivElement>(null);
+  const minuteListRef = useRef<HTMLDivElement>(null);
+
+  const scrollToSelected = useCallback(() => {
+    requestAnimationFrame(() => {
+      const hourEl = hourListRef.current?.querySelector("[data-selected=\"true\"]") as HTMLElement | null;
+      const minuteEl = minuteListRef.current?.querySelector("[data-selected=\"true\"]") as HTMLElement | null;
+      hourEl?.scrollIntoView({ block: "center" });
+      minuteEl?.scrollIntoView({ block: "center" });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    if (value) {
+      const match = value.match(/^(\d{2}):(\d{2})\s(AM|PM)$/);
+      if (match) {
+        setHour(match[1]);
+        setMinute(match[2]);
+        setPeriod(match[3] as "AM" | "PM");
+      }
+    } else {
+      setHour("09");
+      setMinute("00");
+      setPeriod("AM");
+    }
+
+    scrollToSelected();
+  }, [open, value, scrollToSelected]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  function handleApply() {
+    onChange(`${hour}:${minute} ${period}`);
+    setOpen(false);
+  }
+
+  function handleClear() {
+    onChange("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-border bg-panel px-3 text-left text-[16px] text-foreground outline-none transition",
+          "hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-primary/20",
+          !value && "text-muted-foreground"
+        )}
+        aria-label="Delivery start time"
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-2">
+          <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+          {value || "Select time"}
+        </span>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-full min-w-[260px] rounded-lg border border-border bg-panel shadow-lg">
+          <div className="grid grid-cols-3 gap-0 border-b border-border">
+            <div className="border-r border-border px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Hour</div>
+            <div className="border-r border-border px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Min</div>
+            <div className="px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Period</div>
+          </div>
+          <div className="grid grid-cols-3 gap-0">
+            <div ref={hourListRef} className="scrollbar-thin max-h-[168px] overflow-y-auto border-r border-border">
+              {HOUR_OPTIONS.map((h) => (
+                <button
+                  key={h}
+                  type="button"
+                  data-selected={h === hour}
+                  onClick={() => { setHour(h); scrollToSelected(); }}
+                  className={cn(
+                    "w-full py-2 text-center text-sm font-medium transition-colors",
+                    h === hour
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+            <div ref={minuteListRef} className="scrollbar-thin max-h-[168px] overflow-y-auto border-r border-border">
+              {MINUTE_OPTIONS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  data-selected={m === minute}
+                  onClick={() => { setMinute(m); scrollToSelected(); }}
+                  className={cn(
+                    "w-full py-2 text-center text-sm font-medium transition-colors",
+                    m === minute
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-col">
+              {(["AM", "PM"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPeriod(p)}
+                  className={cn(
+                    "flex-1 text-center text-sm font-semibold transition-colors",
+                    p === period
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 border-t border-border p-2">
+            <button
+              type="button"
+              onClick={handleClear}
+              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted/50"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={handleApply}
+              className="flex-1 rounded-md border border-primary/30 bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DeliveryForm({
   order,
   staffOptions,
@@ -802,11 +1019,13 @@ function DeliveryForm({
   const [state, action, pending] = useActionState(createDeliveryAction, initialState);
   const handledSuccessRef = useRef(false);
   const [scheduledDate, setScheduledDate] = useState("");
-  const [scheduledStartTime, setScheduledStartTime] = useState("");
+  const [scheduledStartTimeInput, setScheduledStartTimeInput] = useState("");
   const [itemDrafts, setItemDrafts] = useState<DeliveryItemDraft[]>(() => createDeliveryItemDrafts(order));
   const remainingItems = useMemo(() => remainingItemLines(order), [order]);
   const itemById = useMemo(() => new Map(remainingItems.map((item) => [item.id, item])), [remainingItems]);
-  const scheduledTimeWindow = scheduledStartTime;
+  const parsedStartTime = parseDeliveryStartTime(scheduledStartTimeInput);
+  const scheduledStartTime = parsedStartTime.valid ? parsedStartTime.normalized : "";
+  const scheduledTimeWindow = parsedStartTime.valid ? parsedStartTime.display : scheduledStartTimeInput.trim();
   const selectedDrafts = itemDrafts.filter((item) => item.selected);
   const allRemainingItemsSelected =
     itemDrafts.length > 0 && itemDrafts.every((item) => item.selected);
@@ -835,6 +1054,8 @@ function DeliveryForm({
   });
   const validationMessage = !scheduledDate
     ? "Choose a scheduled date."
+    : !parsedStartTime.valid
+      ? "Enter delivery start time like 02:30 PM or 14:30."
     : selectedDrafts.length === 0
         ? "Select at least one item."
         : deliveryItems.length === 0
@@ -878,7 +1099,7 @@ function DeliveryForm({
 
     handledSuccessRef.current = true;
     setScheduledDate("");
-    setScheduledStartTime("");
+    setScheduledStartTimeInput("");
     setItemDrafts(createDeliveryItemDrafts(order));
     onSuccess?.();
   }, [onSuccess, order, state.ok]);
@@ -930,6 +1151,7 @@ function DeliveryForm({
       <input type="hidden" name="orderId" value={order.id} />
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
       <input type="hidden" name="scheduledTimeWindow" value={scheduledTimeWindow} />
+      <input type="hidden" name="scheduledStartTime" value={scheduledStartTime} />
 
       <section className="space-y-3 rounded-md border border-border bg-panel p-4">
         <div>
@@ -964,15 +1186,14 @@ function DeliveryForm({
         <div className="max-w-xs">
           <label className="block space-y-2 text-[14px] font-medium text-foreground">
             Delivery start time
-            <Input
-              name="scheduledStartTime"
-              type="time"
-              value={scheduledStartTime}
-              onChange={(event) => setScheduledStartTime(event.target.value)}
-              aria-label="Delivery start time"
-              className="h-11 text-[16px]"
+            <DeliveryTimePicker
+              value={scheduledStartTimeInput}
+              onChange={(formatted) => setScheduledStartTimeInput(formatted)}
             />
           </label>
+          {!parsedStartTime.valid ? (
+            <p className="mt-2 text-xs text-danger">Use a time like 02:30 PM, 2:30 PM, or 14:30.</p>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground">Calendar events end automatically 30 minutes after this time.</p>
         </div>
       </section>
