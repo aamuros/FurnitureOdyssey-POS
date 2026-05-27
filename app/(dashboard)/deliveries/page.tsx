@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
+import { retryDeliveryCalendarSyncAction } from "@/app/actions/orders";
+import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
 
@@ -15,6 +17,8 @@ type DeliveriesPageProps = {
     from?: string;
     to?: string;
     receiptStatus?: string;
+    calendarSync?: string;
+    message?: string;
   }>;
 };
 
@@ -59,6 +63,18 @@ type DeliveryRecord = Prisma.DeliveryGetPayload<{
         id: true;
       };
     };
+    assignedStaff: {
+      select: {
+        displayName: true;
+        email: true;
+        calendarConnection: {
+          select: {
+            googleAccountEmail: true;
+            revokedAt: true;
+          };
+        };
+      };
+    };
   };
 }>;
 
@@ -71,6 +87,20 @@ function formatDate(value: Date | null) {
     month: "short",
     day: "numeric",
     year: "numeric"
+  }).format(value);
+}
+
+function formatDateTime(value: Date | null) {
+  if (!value) {
+    return "Not synced";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   }).format(value);
 }
 
@@ -174,6 +204,47 @@ function statusTone(status: string) {
   return "neutral" as const;
 }
 
+function calendarSyncLabel(status: string) {
+  const labels: Record<string, string> = {
+    SYNCED: "Synced",
+    FAILED: "Failed",
+    NOT_SYNCED: "Not synced",
+    DISABLED: "Disabled"
+  };
+
+  return labels[status] ?? readableStatus(status);
+}
+
+function calendarSyncTone(status: string) {
+  if (status === "SYNCED") {
+    return "success" as const;
+  }
+
+  if (status === "FAILED") {
+    return "danger" as const;
+  }
+
+  if (status === "DISABLED") {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
+
+function assignedCalendarStatus(delivery: DeliveryRecord) {
+  if (!delivery.assignedStaff) {
+    return "No assigned staff";
+  }
+
+  const connection = delivery.assignedStaff.calendarConnection;
+
+  if (!connection || connection.revokedAt) {
+    return "Assigned user has not connected Google Calendar.";
+  }
+
+  return `Assigned calendar: ${connection.googleAccountEmail}`;
+}
+
 function searchWhere(query: string | undefined): Prisma.DeliveryWhereInput[] | undefined {
   if (!query) {
     return undefined;
@@ -254,9 +325,10 @@ function orderSearchHref(orderNumber: string) {
 }
 
 export default async function DeliveriesPage({ searchParams }: DeliveriesPageProps) {
-  await requirePermission("DELIVERIES", "VIEW");
+  const user = await requirePermission("DELIVERIES", "VIEW");
 
   const params = (await searchParams) ?? {};
+  const canUpdateDeliveries = hasPermission(user, "DELIVERIES", "UPDATE");
   const query = clean(params.q);
   const status = enumValue(deliveryStatuses, params.status);
   const from = parseDate(params.from);
@@ -269,6 +341,7 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
     to: params.to,
     receiptStatus: params.receiptStatus
   };
+  const currentPath = deliveriesHref(pageParams);
   const activeFilters = hasActiveFilters(pageParams);
   const moreFiltersOpen = Boolean(params.from || params.to || selectedReceiptStatus);
   const where: Prisma.DeliveryWhereInput = {
@@ -314,6 +387,18 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
         select: {
           id: true
         }
+      },
+      assignedStaff: {
+        select: {
+          displayName: true,
+          email: true,
+          calendarConnection: {
+            select: {
+              googleAccountEmail: true,
+              revokedAt: true
+            }
+          }
+        }
       }
     }
   });
@@ -324,6 +409,18 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
         title="Deliveries"
         description="Track scheduled deliveries, recipients, status, and receipt readiness."
       />
+
+      {params.calendarSync && params.message ? (
+        <div
+          className={`mb-5 rounded-lg border p-3 text-sm ${
+            params.calendarSync === "success"
+              ? "border-success/25 bg-success/10 text-success"
+              : "border-danger/25 bg-danger/10 text-danger"
+          }`}
+        >
+          {params.message}
+        </div>
+      ) : null}
 
       <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px_auto_auto]">
@@ -380,7 +477,7 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
 
       <section className="studio-card">
         <div className="overflow-x-auto">
-          <table className="studio-table w-full min-w-[720px] text-left text-sm">
+          <table className="studio-table w-full min-w-[920px] text-left text-sm">
             <thead className="border-b border-border bg-background text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Delivery</th>
@@ -388,6 +485,7 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
                 <th className="px-4 py-3 font-medium">Customer / Order</th>
                 <th className="px-4 py-3 font-medium">Recipient</th>
                 <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Calendar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -431,6 +529,33 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
                     <StatusPill tone={statusTone(delivery.status)}>
                       {readableStatus(delivery.status)}
                     </StatusPill>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-2">
+                      <StatusPill tone={calendarSyncTone(delivery.calendarSyncStatus)}>
+                        {calendarSyncLabel(delivery.calendarSyncStatus)}
+                      </StatusPill>
+                      <div className="text-xs text-muted-foreground">
+                        Last synced: {formatDateTime(delivery.calendarSyncedAt)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {assignedCalendarStatus(delivery)}
+                      </div>
+                      {delivery.calendarSyncStatus === "FAILED" && delivery.calendarSyncError ? (
+                        <div className="max-w-[18rem] text-xs text-danger">
+                          {delivery.calendarSyncError}
+                        </div>
+                      ) : null}
+                      {canUpdateDeliveries && delivery.status !== "CANCELLED" ? (
+                        <form action={retryDeliveryCalendarSyncAction}>
+                          <input type="hidden" name="deliveryId" value={delivery.id} />
+                          <input type="hidden" name="returnTo" value={currentPath} />
+                          <Button type="submit" variant="ghost" className="min-h-8 px-2 text-xs">
+                            Retry calendar sync
+                          </Button>
+                        </form>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CalendarDays,
   CheckCircle2,
   Pencil,
   Plus,
   Save,
   Send,
   ShieldCheck,
+  Unplug,
   Users,
   X
 } from "lucide-react";
@@ -42,11 +44,25 @@ type ManagedUser = {
   invitedAt: string;
   updatedAt: string;
   permissions: PermissionValue[];
+  calendarConnection: {
+    connected: boolean;
+    googleAccountEmail: string;
+    calendarId: string;
+    connectedAt: string;
+    disconnectedAt: string;
+    lastSyncStatus: string | null;
+    lastSyncError: string | null;
+  } | null;
 };
 
 type UserManagementProps = {
   users: ManagedUser[];
   hasActiveFilters: boolean;
+  currentUserId: string;
+  initialNotice?: {
+    message: string;
+    tone: "success" | "danger";
+  };
 };
 
 type ActionState = {
@@ -57,6 +73,7 @@ type ActionState = {
 type UserFormProps = {
   mode: "invite" | "edit";
   user?: ManagedUser;
+  currentUserId: string;
   permissions: PermissionValue[];
   state: ActionState;
   pending: boolean;
@@ -114,6 +131,26 @@ function accessLabel(user: ManagedUser) {
 
   const enabledCount = user.permissions.filter((permission) => permission.allowed).length;
   return `${enabledCount} enabled permission${enabledCount === 1 ? "" : "s"}`;
+}
+
+function calendarStatusLabel(user: ManagedUser) {
+  if (!user.calendarConnection) {
+    return "Not connected";
+  }
+
+  if (!user.calendarConnection.connected) {
+    return "Revoked / Disconnected";
+  }
+
+  return `Connected: ${user.calendarConnection.googleAccountEmail}`;
+}
+
+function calendarStatusTone(user: ManagedUser) {
+  if (!user.calendarConnection) {
+    return "neutral" as const;
+  }
+
+  return user.calendarConnection.connected ? "success" as const : "warning" as const;
 }
 
 function PermissionEditor({
@@ -208,6 +245,7 @@ function PermissionEditor({
 function UserForm({
   mode,
   user,
+  currentUserId,
   permissions,
   state,
   pending,
@@ -217,6 +255,10 @@ function UserForm({
 }: UserFormProps) {
   const isEdit = mode === "edit";
   const [role, setRole] = useState<ManagedUser["role"]>(user?.role ?? "STAFF");
+  const isCurrentUser = Boolean(user && user.id === currentUserId);
+  const calendarConnection = user?.calendarConnection ?? null;
+  const calendarConnected = Boolean(calendarConnection?.connected);
+  const disconnectFormId = user ? `disconnect-calendar-${user.id}` : undefined;
 
   return (
     <section className="border-y border-border bg-muted/20">
@@ -286,6 +328,86 @@ function UserForm({
 
           <PermissionEditor role={role} permissions={permissions} onChange={onPermissionsChange} />
 
+          {isEdit && user ? (
+            <section className="rounded-lg border border-border bg-panel/70 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Calendar Integration</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {calendarStatusLabel(user)}
+                  </p>
+                </div>
+                <StatusPill tone={calendarStatusTone(user)}>
+                  {calendarConnected ? "Connected" : calendarConnection ? "Revoked / Disconnected" : "Not connected"}
+                </StatusPill>
+              </div>
+
+              <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+                <div className="rounded-md border border-border bg-background/70 p-3">
+                  <dt className="text-xs font-medium uppercase text-muted-foreground">Google email</dt>
+                  <dd className="mt-1 break-words font-medium">
+                    {calendarConnection?.googleAccountEmail ?? "Not connected"}
+                  </dd>
+                </div>
+                <div className="rounded-md border border-border bg-background/70 p-3">
+                  <dt className="text-xs font-medium uppercase text-muted-foreground">Calendar ID</dt>
+                  <dd className="mt-1 break-words font-medium">{calendarConnection?.calendarId ?? "Not set"}</dd>
+                </div>
+                <div className="rounded-md border border-border bg-background/70 p-3">
+                  <dt className="text-xs font-medium uppercase text-muted-foreground">Connected</dt>
+                  <dd className="mt-1 font-medium">{calendarConnection?.connectedAt ?? "Not connected"}</dd>
+                </div>
+                <div className="rounded-md border border-border bg-background/70 p-3">
+                  <dt className="text-xs font-medium uppercase text-muted-foreground">Disconnected</dt>
+                  <dd className="mt-1 font-medium">{calendarConnection?.disconnectedAt ?? "Not set"}</dd>
+                </div>
+              </dl>
+
+              {calendarConnection?.lastSyncError ? (
+                <p className="mt-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+                  {calendarConnection.lastSyncError}
+                </p>
+              ) : null}
+
+              {!isCurrentUser ? (
+                <p className="mt-3 rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning">
+                  Google OAuth connects the currently signed-in account. Staff should connect their own calendar
+                  from their own session/profile.
+                </p>
+              ) : null}
+
+              {isCurrentUser ? (
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <Link
+                    href="/api/google-calendar/connect"
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    Connect Google Calendar
+                  </Link>
+                  <Button
+                    type="submit"
+                    form={disconnectFormId}
+                    variant="ghost"
+                    disabled={!calendarConnected}
+                    onClick={(event) => {
+                      if (!window.confirm("Disconnect your Google Calendar from this account?")) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
+                    <Unplug className="h-4 w-4" />
+                    Disconnect Google Calendar
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This user must sign in and connect their own Google Calendar.
+                </p>
+              )}
+            </section>
+          ) : null}
+
           {state.message && !state.ok ? (
             <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{state.message}</p>
           ) : null}
@@ -302,6 +424,9 @@ function UserForm({
           </Button>
         </div>
       </form>
+      {isEdit && user ? (
+        <form id={disconnectFormId} action="/api/google-calendar/disconnect" method="post" />
+      ) : null}
     </section>
   );
 }
@@ -390,10 +515,11 @@ function UserTable({
     <div className="overflow-x-auto">
       <table className="studio-table w-full min-w-[860px] table-fixed text-left text-sm">
         <colgroup>
-          <col className="w-[30%]" />
+          <col className="w-[24%]" />
           <col className="w-[110px]" />
           <col className="w-[120px]" />
-          <col className="w-[22%]" />
+          <col className="w-[18%]" />
+          <col className="w-[20%]" />
           <col className="w-[132px]" />
           <col className="w-[92px]" />
         </colgroup>
@@ -403,6 +529,7 @@ function UserTable({
             <th className="px-4 py-3 font-medium">Role</th>
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Access</th>
+            <th className="px-4 py-3 font-medium">Calendar</th>
             <th className="px-4 py-3 font-medium">Updated / Invited</th>
             <th className="px-4 py-3 text-right font-medium">Action</th>
           </tr>
@@ -421,6 +548,18 @@ function UserTable({
                 <StatusPill tone={statusTone(user.status)}>{user.status}</StatusPill>
               </td>
               <td className="px-4 py-4 align-middle text-muted-foreground">{accessLabel(user)}</td>
+              <td className="px-4 py-4 align-middle">
+                <div className="space-y-1">
+                  <StatusPill tone={calendarStatusTone(user)}>
+                    {user.calendarConnection?.connected
+                      ? "Connected"
+                      : user.calendarConnection
+                        ? "Revoked / Disconnected"
+                        : "Not connected"}
+                  </StatusPill>
+                  <p className="truncate text-xs text-muted-foreground">{calendarStatusLabel(user)}</p>
+                </div>
+              </td>
               <td className="px-4 py-4 align-middle text-muted-foreground">
                 {user.updatedAt !== "Not set" ? user.updatedAt : user.invitedAt}
               </td>
@@ -438,7 +577,12 @@ function UserTable({
   );
 }
 
-export function UserManagement({ users, hasActiveFilters }: UserManagementProps) {
+export function UserManagement({
+  users,
+  hasActiveFilters,
+  currentUserId,
+  initialNotice
+}: UserManagementProps) {
   const [inviteState, inviteAction, invitePending] = useActionState(inviteUserAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateUserAction, initialState);
   const defaultPermissions = useMemo(() => buildDefaultPermissions(), []);
@@ -446,8 +590,8 @@ export function UserManagement({ users, hasActiveFilters }: UserManagementProps)
   const [editPermissions, setEditPermissions] = useState<PermissionValue[]>(defaultPermissions);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [showInviteForm, setShowInviteForm] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [noticeTone, setNoticeTone] = useState<"success" | "danger">("success");
+  const [notice, setNotice] = useState(initialNotice?.message ?? "");
+  const [noticeTone, setNoticeTone] = useState<"success" | "danger">(initialNotice?.tone ?? "success");
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, users]
@@ -525,6 +669,7 @@ export function UserManagement({ users, hasActiveFilters }: UserManagementProps)
         {showInviteForm ? (
           <UserForm
             mode="invite"
+            currentUserId={currentUserId}
             permissions={invitePermissions}
             state={inviteState}
             pending={invitePending}
@@ -539,6 +684,7 @@ export function UserManagement({ users, hasActiveFilters }: UserManagementProps)
             key={selectedUser.id}
             mode="edit"
             user={selectedUser}
+            currentUserId={currentUserId}
             permissions={editPermissions}
             state={updateState}
             pending={updatePending}

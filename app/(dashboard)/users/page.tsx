@@ -14,6 +14,8 @@ type UsersPageProps = {
     role?: string;
     status?: string;
     page?: string;
+    calendar?: string;
+    message?: string;
   }>;
 };
 
@@ -56,7 +58,7 @@ function usersHref(
 }
 
 export default async function UsersPage({ searchParams }: UsersPageProps) {
-  await requireAdmin();
+  const currentUser = await requireAdmin();
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const role = params.role === "ADMIN" || params.role === "STAFF" ? params.role : undefined;
@@ -103,6 +105,14 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
             module: true,
             action: true,
             allowed: true
+          }
+        },
+        calendarConnection: {
+          select: {
+            googleAccountEmail: true,
+            calendarId: true,
+            connectedAt: true,
+            revokedAt: true
           }
         }
       }
@@ -155,6 +165,15 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
       </form>
       <UserManagement
         hasActiveFilters={hasActiveFilters}
+        currentUserId={currentUser.id}
+        initialNotice={
+          params.calendar && params.message
+            ? {
+                message: params.message,
+                tone: params.calendar === "success" ? "success" : "danger"
+              }
+            : undefined
+        }
         users={users.map((user) => ({
           id: user.id,
           email: user.email,
@@ -163,7 +182,18 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
           status: user.status,
           invitedAt: formatDate(user.invitedAt),
           updatedAt: formatDate(user.updatedAt),
-          permissions: user.permissions
+          permissions: user.permissions,
+          calendarConnection: user.calendarConnection
+            ? {
+                connected: !user.calendarConnection.revokedAt,
+                googleAccountEmail: user.calendarConnection.googleAccountEmail,
+                calendarId: user.calendarConnection.calendarId,
+                connectedAt: formatDate(user.calendarConnection.connectedAt),
+                disconnectedAt: formatDate(user.calendarConnection.revokedAt),
+                lastSyncStatus: null,
+                lastSyncError: null
+              }
+            : null
         }))}
       />
       {totalPages > 1 ? (

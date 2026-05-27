@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import type {
   DeliveryProviderType,
   DeliveryStatus,
@@ -53,6 +54,12 @@ import {
   updatePaymentDueTimingSchema,
   type OrderItemInput
 } from "@/lib/validation/orders";
+import {
+  createDeliveryCalendarEvent,
+  deleteDeliveryCalendarEvent,
+  updateDeliveryCalendarEvent,
+  type DeliveryCalendarSyncResult
+} from "@/lib/google-calendar/delivery-events";
 
 type ActionState = {
   ok: boolean;
@@ -81,6 +88,29 @@ type QuotationForOrderConversion = Prisma.QuotationGetPayload<{
 
 class ActionError extends Error {}
 
+async function syncDeliveryCalendarSafely(
+  deliveryId: string,
+  syncOperation: (deliveryId: string) => Promise<DeliveryCalendarSyncResult>
+) {
+  try {
+    await syncOperation(deliveryId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google Calendar sync failed.";
+    await prisma.delivery
+      .update({
+        where: {
+          id: deliveryId
+        },
+        data: {
+          calendarSyncedAt: new Date(),
+          calendarSyncStatus: "FAILED",
+          calendarSyncError: message
+        }
+      })
+      .catch(() => undefined);
+  }
+}
+
 function parseJsonArray(value: FormDataEntryValue | null) {
   try {
     const parsed = JSON.parse(String(value ?? "[]"));
@@ -96,6 +126,11 @@ function firstIssue(error: { issues: Array<{ message: string }> }, fallback: str
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function safeReturnPath(value: FormDataEntryValue | null, fallback: string) {
+  const path = String(value ?? "").trim();
+  return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
 }
 
 function primaryContactSnapshot(
@@ -1071,6 +1106,7 @@ export async function createDeliveryAction(
   const initialDeliveryStatus: DeliveryStatus = "SCHEDULED";
   const parsed = createDeliverySchema.safeParse({
     orderId: formData.get("orderId"),
+    assignedStaffId: formData.get("assignedStaffId") || undefined,
     scheduledDate: formData.get("scheduledDate") || undefined,
     scheduledTimeWindow: formData.get("scheduledTimeWindow"),
     deliveryProviderType: formData.get("deliveryProviderType") || undefined,
@@ -1090,6 +1126,8 @@ export async function createDeliveryAction(
       message: firstIssue(parsed.error, "Invalid delivery details.")
     };
   }
+
+  let createdDeliveryId: string | null = null;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -1183,6 +1221,7 @@ export async function createDeliveryAction(
           recipientPhone: parsed.data.recipientPhone,
           deliveryNotes: parsed.data.deliveryNotes,
           internalNotes: parsed.data.internalNotes,
+          assignedStaffId: parsed.data.assignedStaffId,
           createdById: actor.id,
           updatedById: actor.id,
           items: {
@@ -1195,6 +1234,7 @@ export async function createDeliveryAction(
           }
         }
       });
+      createdDeliveryId = delivery.id;
 
       await updateOrderDeliverySummaryTx(tx, order.id, actor.id);
 
@@ -1231,6 +1271,10 @@ export async function createDeliveryAction(
     throw error;
   }
 
+  if (createdDeliveryId) {
+    await syncDeliveryCalendarSafely(createdDeliveryId, createDeliveryCalendarEvent);
+  }
+
   revalidatePath("/orders");
   revalidatePath("/deliveries");
 
@@ -1260,6 +1304,9 @@ export async function updateDeliveryProgressAction(
       message: firstIssue(parsed.error, "Invalid delivery progress.")
     };
   }
+
+  let updatedDeliveryId: string | null = null;
+  let deliveryCalendarSyncOperation: ((deliveryId: string) => Promise<DeliveryCalendarSyncResult>) | null = null;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -1305,6 +1352,9 @@ export async function updateDeliveryProgressAction(
         markAllDelivered: parsed.data.markAllDelivered
       });
       const nextStatus = progressUpdate.status as DeliveryStatus;
+      updatedDeliveryId = delivery.id;
+      deliveryCalendarSyncOperation =
+        nextStatus === "CANCELLED" ? deleteDeliveryCalendarEvent : updateDeliveryCalendarEvent;
 
       const deliveredAt =
         nextStatus === "DELIVERED"
@@ -1375,6 +1425,10 @@ export async function updateDeliveryProgressAction(
     throw error;
   }
 
+  if (updatedDeliveryId && deliveryCalendarSyncOperation) {
+    await syncDeliveryCalendarSafely(updatedDeliveryId, deliveryCalendarSyncOperation);
+  }
+
   revalidatePath("/orders");
   revalidatePath("/deliveries");
 
@@ -1382,6 +1436,58 @@ export async function updateDeliveryProgressAction(
     ok: true,
     message: "Delivery progress updated."
   };
+}
+
+export async function retryDeliveryCalendarSyncAction(formData: FormData) {
+  await requirePermission("DELIVERIES", "UPDATE");
+
+  const deliveryId = String(formData.get("deliveryId") ?? "").trim();
+  const returnTo = safeReturnPath(formData.get("returnTo"), "/deliveries");
+  const redirectUrl = new URL(returnTo, "http://localhost");
+
+  function finish(status: "success" | "error", message: string): never {
+    redirectUrl.searchParams.set("calendarSync", status);
+    redirectUrl.searchParams.set("message", message);
+    redirect(`${redirectUrl.pathname}${redirectUrl.search}`);
+  }
+
+  if (!deliveryId) {
+    finish("error", "Choose a delivery to retry calendar sync.");
+  }
+
+  const delivery = await prisma.delivery.findUnique({
+    where: {
+      id: deliveryId
+    },
+    select: {
+      id: true,
+      status: true
+    }
+  });
+
+  if (!delivery) {
+    finish("error", "Delivery was not found.");
+  }
+
+  if (delivery.status === "CANCELLED") {
+    finish("error", "Cancelled deliveries cannot retry Google Calendar sync.");
+  }
+
+  const result = await updateDeliveryCalendarEvent(delivery.id);
+  revalidatePath("/deliveries");
+  revalidatePath("/orders");
+
+  if (result.ok) {
+    finish("success", "Google Calendar sync updated.");
+  }
+
+  const errorResult = result;
+  finish(
+    "error",
+    errorResult.code === "NOT_CONNECTED"
+      ? "Assigned user has not connected Google Calendar."
+      : errorResult.message
+  );
 }
 
 export async function completeOrderAction(

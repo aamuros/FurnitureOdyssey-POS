@@ -159,6 +159,7 @@ export const deliveryItemSchema = z
 
 export const createDeliverySchema = z.object({
   orderId: z.string().uuid("Choose an order."),
+  assignedStaffId: z.string().uuid("Choose an assigned staff member.").optional(),
   scheduledDate: z.coerce.date({
     invalid_type_error: "Choose a scheduled date.",
     required_error: "Choose a scheduled date."
