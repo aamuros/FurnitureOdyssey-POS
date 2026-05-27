@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Ban,
   CheckCircle2,
+  ChevronDown,
   ImagePlus,
   MoreHorizontal,
   PackageOpen,
@@ -101,6 +102,8 @@ type ColorVariantDraft = {
   isActive: boolean;
   remove?: boolean;
 };
+
+type ProductFormSectionKey = "basic" | "catalogue" | "description" | "images" | "variants";
 
 type ProductWorkspaceProps = {
   products: ProductRow[];
@@ -304,6 +307,16 @@ function colorVariantsForProduct(product?: ProductRow): ColorVariantDraft[] {
   );
 }
 
+function defaultProductFormCollapsedSections(product?: ProductRow): Record<ProductFormSectionKey, boolean> {
+  return {
+    basic: false,
+    catalogue: false,
+    description: false,
+    images: false,
+    variants: colorVariantsForProduct(product).length === 0
+  };
+}
+
 function imagesForColorVariants(product?: ProductRow): ImageHolderDraft[] {
   return (
     product?.images
@@ -387,6 +400,8 @@ function ProductForm({
   const activeProductImages = productImages.filter((image) => !image.remove);
   const activeVariantImages = variantImages.filter((image) => !image.remove);
   const activeColorVariants = colorVariants.filter((variant) => !variant.remove);
+  const [collapsedSections, setCollapsedSections] =
+    useState<Record<ProductFormSectionKey, boolean>>(() => defaultProductFormCollapsedSections(product));
   const imageManifest = [
     ...productImages.map((image, index) => ({
       clientId: image.clientId,
@@ -425,6 +440,7 @@ function ProductForm({
     setProductImages(imagesForProduct(product));
     setColorVariants(colorVariantsForProduct(product));
     setVariantImages(imagesForColorVariants(product));
+    setCollapsedSections(defaultProductFormCollapsedSections(product));
   }, [product, mode]);
 
   useEffect(() => {
@@ -744,6 +760,60 @@ function ProductForm({
     );
   }
 
+  function toggleSection(section: ProductFormSectionKey) {
+    setCollapsedSections((current) => ({
+      ...current,
+      [section]: !current[section]
+    }));
+  }
+
+  function renderCollapsibleSection({
+    section,
+    title,
+    helper,
+    action,
+    children
+  }: {
+    section: ProductFormSectionKey;
+    title: string;
+    helper?: string;
+    action?: ReactNode;
+    children: ReactNode;
+  }) {
+    const isCollapsed = collapsedSections[section];
+
+    return (
+      <section className="rounded-lg border border-border bg-panel/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">{title}</p>
+            {helper ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{helper}</p> : null}
+          </div>
+          <div className="flex items-center gap-2">
+            {action}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => toggleSection(section)}
+              className="h-9 w-9 p-0"
+              aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${title}`}
+              aria-expanded={!isCollapsed}
+            >
+              <ChevronDown
+                className={
+                  isCollapsed
+                    ? "h-4 w-4 transition-transform"
+                    : "h-4 w-4 rotate-180 transition-transform"
+                }
+              />
+            </Button>
+          </div>
+        </div>
+        {isCollapsed ? null : <div className="mt-4">{children}</div>}
+      </section>
+    );
+  }
+
   return (
     <section>
       <div className="px-5 pb-3 pt-5">
@@ -757,100 +827,109 @@ function ProductForm({
         <input type="hidden" name="colorVariantManifest" value={JSON.stringify(colorVariantManifest)} />
 
         <div className="space-y-4 px-5 pb-5 pt-2">
-          <div className="grid gap-4 md:grid-cols-[1.1fr_0.7fr]">
-            <label className={fieldClassName}>
-              Name
-              <Input
-                name="name"
-                required
-                value={draft.name}
-                onChange={(event) => onDraftChange({ name: event.target.value })}
-                placeholder="Product name"
-              />
-            </label>
-            <label className={fieldClassName}>
-              Code
-              <Input
-                name="code"
-                value={draft.code}
-                onChange={(event) => onDraftChange({ code: event.target.value })}
-                placeholder="Optional code"
-              />
-              <span className="block text-xs font-normal leading-4 text-muted-foreground">
-                Optional. Use this only when a supplier or internal code helps.
-              </span>
-            </label>
-          </div>
+          {renderCollapsibleSection({
+            section: "basic",
+            title: "Basic details",
+            children: (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-[1.1fr_0.7fr]">
+                  <label className={fieldClassName}>
+                    Name
+                    <Input
+                      name="name"
+                      required
+                      value={draft.name}
+                      onChange={(event) => onDraftChange({ name: event.target.value })}
+                      placeholder="Product name"
+                    />
+                  </label>
+                  <label className={fieldClassName}>
+                    Code
+                    <Input
+                      name="code"
+                      value={draft.code}
+                      onChange={(event) => onDraftChange({ code: event.target.value })}
+                      placeholder="Optional code"
+                    />
+                    <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                      Optional. Use this only when a supplier or internal code helps.
+                    </span>
+                  </label>
+                </div>
 
-          <div className={canViewProductCost ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"}>
-            <label className={fieldClassName}>
-              Category
-              <Select
-                name="category"
-                value={normalizeProductCategory(draft.category)}
-                onChange={(event) => onDraftChange({ category: event.target.value })}
-              >
-                {productCategoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className={fieldClassName}>
-              Unit price
-              <Input
-                name="referencePrice"
-                type="number"
-                min="0"
-                step="0.01"
-                value={draft.referencePrice}
-                onChange={(event) => onDraftChange({ referencePrice: event.target.value })}
-              />
-              <span className="block text-xs font-normal leading-4 text-muted-foreground">
-                Optional. This can still be changed in a quotation.
-              </span>
-            </label>
-            {canViewProductCost ? (
-              <label className={fieldClassName}>
-                Product cost
-                <Input
-                  name="referenceCost"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={draft.referenceCost}
-                  onChange={(event) => onDraftChange({ referenceCost: event.target.value })}
-                />
-                <span className="block text-xs font-normal leading-4 text-muted-foreground">
-                  Used as the default unit cost snapshot.
-                </span>
-              </label>
-            ) : null}
-            <label className={fieldClassName}>
-              Status
-              <Select
-                name="status"
-                value={draft.status}
-                onChange={(event) =>
-                  onDraftChange({ status: event.target.value as ProductFormDraft["status"] })
-                }
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-              </Select>
-              <span className="block text-xs font-normal leading-4 text-muted-foreground">
-                Inactive products are hidden from normal quotation selection.
-              </span>
-            </label>
-          </div>
+                <div className={canViewProductCost ? "grid gap-4 md:grid-cols-4" : "grid gap-4 md:grid-cols-3"}>
+                  <label className={fieldClassName}>
+                    Category
+                    <Select
+                      name="category"
+                      value={normalizeProductCategory(draft.category)}
+                      onChange={(event) => onDraftChange({ category: event.target.value })}
+                    >
+                      {productCategoryOptions.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <label className={fieldClassName}>
+                    Unit price
+                    <Input
+                      name="referencePrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={draft.referencePrice}
+                      onChange={(event) => onDraftChange({ referencePrice: event.target.value })}
+                    />
+                    <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                      Optional. This can still be changed in a quotation.
+                    </span>
+                  </label>
+                  {canViewProductCost ? (
+                    <label className={fieldClassName}>
+                      Product cost
+                      <Input
+                        name="referenceCost"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={draft.referenceCost}
+                        onChange={(event) => onDraftChange({ referenceCost: event.target.value })}
+                      />
+                      <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                        Used as the default unit cost snapshot.
+                      </span>
+                    </label>
+                  ) : null}
+                  <label className={fieldClassName}>
+                    Status
+                    <Select
+                      name="status"
+                      value={draft.status}
+                      onChange={(event) =>
+                        onDraftChange({ status: event.target.value as ProductFormDraft["status"] })
+                      }
+                    >
+                      <option value="ACTIVE">Active</option>
+                      <option value="INACTIVE">Inactive</option>
+                    </Select>
+                    <span className="block text-xs font-normal leading-4 text-muted-foreground">
+                      Inactive products are hidden from normal quotation selection.
+                    </span>
+                  </label>
+                </div>
+              </div>
+            )
+          })}
 
-          <div className="rounded-lg border border-border bg-panel/70 p-4">
-            <p className="text-sm font-semibold">Catalogue visibility</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Controls whether and where this product appears on the public catalogue website.
-            </p>
-            <input
+          {renderCollapsibleSection({
+            section: "catalogue",
+            title: "Catalogue visibility",
+            helper: "Controls whether and where this product appears on the public catalogue website.",
+            children: (
+              <>
+                <input
               type="hidden"
               name="websitePagesMode"
               value={draft.isWebsiteVisible ? "enabled" : "locked"}
@@ -936,7 +1015,7 @@ function ProductForm({
               </fieldset>
             </div>
             <input type="hidden" name="websiteSortOrder" value={draft.websiteSortOrder} />
-            {selectedWebsitePages.length > 0 ? (
+                {selectedWebsitePages.length > 0 ? (
               <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
                 {websitePageOptions
                   .filter((page) => selectedWebsitePageSet.has(page.value))
@@ -956,66 +1035,70 @@ function ProductForm({
                   ))}
               </div>
             ) : null}
-          </div>
+              </>
+            )
+          })}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm font-medium">
-              Description
-              <Textarea
-                name="description"
-                value={draft.description}
-                onChange={(event) => onDraftChange({ description: event.target.value })}
-                className="h-32 resize-y"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-medium">
-              Specifications
-              <Textarea
-                name="specifications"
-                value={draft.specifications}
-                onChange={(event) => onDraftChange({ specifications: event.target.value })}
-                className="h-32 resize-y"
-              />
-            </label>
-          </div>
+          {renderCollapsibleSection({
+            section: "description",
+            title: "Description and specifications",
+            children: (
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  Description
+                  <Textarea
+                    name="description"
+                    value={draft.description}
+                    onChange={(event) => onDraftChange({ description: event.target.value })}
+                    className="h-32 resize-y"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  Specifications
+                  <Textarea
+                    name="specifications"
+                    value={draft.specifications}
+                    onChange={(event) => onDraftChange({ specifications: event.target.value })}
+                    className="h-32 resize-y"
+                  />
+                </label>
+              </div>
+            )
+          })}
 
           {canUploadImage ? (
-            <div className="rounded-lg border border-border bg-panel/70 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold">Product images</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Add general product photos. The primary image is used for the product list and catalogue thumbnail.
-                  </p>
-                </div>
+            renderCollapsibleSection({
+              section: "images",
+              title: "Product images",
+              helper:
+                "Add general product photos. The primary image is used for the product list and catalogue thumbnail.",
+              action: (
                 <Button type="button" variant="secondary" onClick={addProductImageHolder}>
                   <Plus className="h-4 w-4" />
                   Add image holder
                 </Button>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {activeProductImages.map((image) => renderImageHolder(image, "product"))}
-              </div>
-            </div>
+              ),
+              children: (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {activeProductImages.map((image) => renderImageHolder(image, "product"))}
+                </div>
+              )
+            })
           ) : null}
 
           {canUploadImage ? (
-            <div className="rounded-lg border border-border bg-panel/70 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold">Color variations</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Optional colors can have their own image galleries.
-                  </p>
-                </div>
+            renderCollapsibleSection({
+              section: "variants",
+              title: "Color variations",
+              helper: "Optional colors can have their own image galleries.",
+              action: (
                 <Button type="button" variant="secondary" onClick={addColorVariant}>
                   <Plus className="h-4 w-4" />
                   Add color variation
                 </Button>
-              </div>
-
-              {activeColorVariants.length ? (
-                <div className="mt-4 space-y-4">
+              ),
+              children: activeColorVariants.length ? (
+                <div className="space-y-4">
                   {activeColorVariants.map((variant) => {
                     const images = activeVariantImages.filter(
                       (image) => image.colorVariantClientId === variant.clientId
@@ -1099,8 +1182,8 @@ function ProductForm({
                 <p className="mt-4 rounded-md border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
                   No color variations.
                 </p>
-              )}
-            </div>
+              ),
+            })
           ) : null}
 
           {state.message && !state.ok ? (
@@ -1845,25 +1928,25 @@ function ProductViewModal({
         {product.colorVariants.length ? (
           <section className="mt-5 rounded-lg border border-border bg-background/70 p-4">
             <h3 className="text-sm font-semibold">Color variations</h3>
-            <div className="mt-3 space-y-4">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {product.colorVariants.map((variant) => {
                 const images = product.images.filter((image) => image.colorVariantId === variant.id);
 
                 return (
-                  <div key={variant.id} className="rounded-lg border border-border bg-panel/70 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div key={variant.id} className="flex min-w-0 flex-col rounded-lg border border-border bg-panel/70 p-3">
+                    <div className="flex min-w-0 items-center gap-2">
                       <span
-                        className="h-5 w-5 rounded-full border border-border"
+                        className="h-5 w-5 shrink-0 rounded-full border border-border"
                         style={{ backgroundColor: variant.hex ?? "#f3f4f6" }}
                         aria-hidden="true"
                       />
-                      <p className="text-sm font-semibold">{variant.name}</p>
+                      <p className="min-w-0 flex-1 truncate text-sm font-semibold">{variant.name}</p>
                       <StatusPill tone={variant.isActive ? "success" : "neutral"}>
                         {variant.isActive ? "Active" : "Inactive"}
                       </StatusPill>
                     </div>
                     {images.length ? (
-                      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+                      <div className="mt-3 grid grid-cols-4 gap-2">
                         {images.map((image) => (
                           <div
                             key={image.id}
@@ -1873,12 +1956,16 @@ function ProductViewModal({
                             <img
                               src={image.secureUrl}
                               alt={image.altText ?? `${product.name} ${variant.name}`}
-                              className="h-full w-full object-cover"
+                              className="h-full w-full object-contain"
                             />
                           </div>
                         ))}
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-3 flex aspect-[4/1] min-h-14 items-center justify-center rounded-md border border-dashed border-border bg-muted/35">
+                        <ImagePlus className="h-5 w-5 text-muted-foreground/80" />
+                      </div>
+                    )}
                   </div>
                 );
               })}
