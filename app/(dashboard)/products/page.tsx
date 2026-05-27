@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
+import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { ProductWorkspace } from "@/components/dashboard/product-workspace";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
@@ -194,7 +194,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         description="Reusable product references for quotations and orders."
       />
       <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[1.4fr_0.75fr_0.9fr_auto]">
-        <Input
+        <DynamicSearchInput
           name="q"
           defaultValue={params.q ?? ""}
           placeholder="Search name, code, category, or details"

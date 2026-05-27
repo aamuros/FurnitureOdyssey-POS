@@ -1296,8 +1296,8 @@ function ProductPickerCard({
   const image = selectedVariant?.image ?? product.primaryImage;
 
   return (
-    <article className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-panel">
-      <div className="flex h-44 shrink-0 items-center justify-center border-b border-border bg-muted/30 text-muted-foreground">
+    <article className="flex min-w-0 flex-col rounded-lg border border-border bg-panel">
+      <div className="flex h-32 shrink-0 items-center justify-center overflow-hidden rounded-t-lg border-b border-border bg-muted/30 text-muted-foreground">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -1319,37 +1319,39 @@ function ProductPickerCard({
             {product.category ? product.category : "No category"}
           </p>
         </div>
-        {product.colorVariants.length ? (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Color variant</p>
-            <div className="flex flex-wrap gap-2">
-              {product.colorVariants.map((variant) => (
-                <button
-                  key={variant.id}
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSelectVariant(variant.id);
-                  }}
-                  className={cn(
-                    "inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium leading-tight",
-                    selectedVariantId === variant.id
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-panel text-muted-foreground"
-                  )}
-                >
-                  <span
-                    className="h-3 w-3 shrink-0 rounded-full border border-border"
-                    style={variant.hex ? { backgroundColor: variant.hex } : undefined}
-                  />
-                  <span className="min-w-0 break-words text-left">{variant.name}</span>
-                </button>
-              ))}
+        <div className="min-h-[76px]">
+          {product.colorVariants.length ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Color variant</p>
+              <div className="flex flex-wrap gap-2">
+                {product.colorVariants.map((variant) => (
+                  <button
+                    key={variant.id}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectVariant(variant.id);
+                    }}
+                    className={cn(
+                      "inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium leading-tight",
+                      selectedVariantId === variant.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-panel text-muted-foreground"
+                    )}
+                  >
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-full border border-border"
+                      style={variant.hex ? { backgroundColor: variant.hex } : undefined}
+                    />
+                    <span className="min-w-0 break-words text-left">{variant.name}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null}
-        <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
           <span className="min-w-0 truncate text-sm font-semibold">
             {money(product.referencePrice ?? 0)}
           </span>

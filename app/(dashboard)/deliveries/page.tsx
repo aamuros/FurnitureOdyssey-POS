@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeliveryStatus, Prisma } from "@prisma/client";
+import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -466,7 +467,7 @@ export default async function DeliveriesPage({ searchParams }: DeliveriesPagePro
 
       <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_220px_auto_auto]">
-          <Input
+          <DynamicSearchInput
             name="q"
             defaultValue={params.q ?? ""}
             placeholder="Search deliveries, orders, customers, recipients..."

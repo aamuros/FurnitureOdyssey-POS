@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { NewOrderLauncher, OrderWorkspace } from "@/components/dashboard/order-workspace";
+import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -964,7 +965,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       </PageHeader>
       <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_auto]">
-          <Input
+          <DynamicSearchInput
             name="q"
             defaultValue={params.q ?? ""}
             placeholder="Search orders, customers, phone, item..."

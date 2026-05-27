@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { CustomerCreateButton, CustomerWorkspace } from "@/components/dashboard/customer-workspace";
+import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
@@ -193,7 +193,7 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         {canCreateCustomers ? <CustomerCreateButton /> : null}
       </PageHeader>
       <form className="mb-4 grid gap-3 rounded-lg border border-border bg-panel p-3 md:grid-cols-[minmax(260px,1fr)_170px_190px_170px_auto]">
-        <Input
+        <DynamicSearchInput
           name="q"
           defaultValue={params.q ?? ""}
           placeholder="Search customer name, company, phone, Viber, Facebook, or email"

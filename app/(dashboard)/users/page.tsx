@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { UserManagement } from "@/components/dashboard/user-management";
+import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/server";
@@ -138,7 +138,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
         description="Admin-only control for invited accounts, role assignment, activation, and Staff permissions."
       />
       <form className="mb-6 grid gap-3 rounded-lg border border-border bg-panel p-4 md:grid-cols-[minmax(260px,1fr)_170px_170px_auto]">
-        <Input
+        <DynamicSearchInput
           name="q"
           defaultValue={params.q ?? ""}
           placeholder="Search display name or email"
