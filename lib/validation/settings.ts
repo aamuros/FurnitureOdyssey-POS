@@ -65,7 +65,16 @@ export const paymentSettingsSchema = z.object({
   bankDetails: optionalText(1500),
   eWalletDetails: optionalText(1500),
   otherPaymentNotes: optionalText(1500),
-  mopScript: optionalText(2000)
+  mopScript: optionalText(2000),
+  pdfPaymentPolicyTitle: optionalText(160),
+  pdfPaymentPolicyBullets: optionalText(3000),
+  pdfPaymentHighlightNote: optionalText(1000),
+  pdfBankDetailsTitle: optionalText(160),
+  pdfBankDetails: optionalText(3000),
+  pdfPaymentReceiptTermsTitle: optionalText(160),
+  pdfPaymentReceiptTerms: optionalText(2000),
+  pdfDeliveryReceiptTermsTitle: optionalText(160),
+  pdfDeliveryReceiptTerms: optionalText(3000)
 });
 
 export const documentSettingsSchema = z.object({

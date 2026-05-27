@@ -63,6 +63,13 @@ export const createCustomerSchema = z
     }
   });
 
+export const updateCustomerSchema = z.intersection(
+  z.object({
+    customerId: z.string().uuid("Choose a customer.")
+  }),
+  createCustomerSchema
+);
+
 export const createInquirySchema = z.object({
   customerId: z.string().uuid("Choose a customer."),
   source: z.enum([
@@ -100,4 +107,5 @@ export const createInquirySchema = z.object({
 });
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 export type CreateInquiryInput = z.infer<typeof createInquirySchema>;

@@ -24,7 +24,13 @@ import {
 } from "@/lib/settings/get-settings";
 import { defaultPdfLogoSource } from "@/lib/pdf/assets";
 import type { AppSettingsInput } from "@/lib/validation/settings";
-import type { OperationalPdfData, OperationalPdfKind, PdfSummaryRow } from "@/lib/pdf/types";
+import type {
+  OperationalPdfData,
+  OperationalPdfKind,
+  PdfDocumentTermsBlock,
+  PdfPaymentTermsBlock,
+  PdfSummaryRow
+} from "@/lib/pdf/types";
 
 function cleanPdfSetting(value: string | null | undefined) {
   const trimmed = value?.trim();
@@ -34,6 +40,55 @@ function cleanPdfSetting(value: string | null | undefined) {
   }
 
   return trimmed;
+}
+
+export function textLines(value: string | null | undefined): string[] {
+  return (value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function bulletLines(value: string | null | undefined): string[] {
+  return textLines(value).map((line) => line.replace(/^[-•*]\s*/, "").trim()).filter(Boolean);
+}
+
+export function paymentTermsBlockForPdf(settings: AppSettingsInput): PdfPaymentTermsBlock | null {
+  const block = {
+    policyTitle: cleanPdfSetting(settings.payment.pdfPaymentPolicyTitle),
+    policyBullets: bulletLines(settings.payment.pdfPaymentPolicyBullets),
+    highlightNote: cleanPdfSetting(settings.payment.pdfPaymentHighlightNote),
+    bankDetailsTitle: cleanPdfSetting(settings.payment.pdfBankDetailsTitle),
+    bankDetailsLines: textLines(settings.payment.pdfBankDetails)
+  };
+
+  if (
+    !block.policyTitle &&
+    !block.policyBullets.length &&
+    !block.highlightNote &&
+    !block.bankDetailsTitle &&
+    !block.bankDetailsLines.length
+  ) {
+    return null;
+  }
+
+  return block;
+}
+
+export function documentTermsBlockForPdf(
+  title: string | null | undefined,
+  body: string | null | undefined
+): PdfDocumentTermsBlock | null {
+  const block = {
+    title: cleanPdfSetting(title),
+    lines: textLines(body)
+  };
+
+  if (!block.title && !block.lines.length) {
+    return null;
+  }
+
+  return block;
 }
 
 export function companyForPdf(settings: AppSettingsInput) {
@@ -335,7 +390,8 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
     })),
     notes: quotation.customerNotes,
     paymentInstructions: settings.payment.defaultPaymentInstructions,
-    footerNote: footerForKind(settings, "quotation")
+    footerNote: footerForKind(settings, "quotation"),
+    paymentTermsBlock: paymentTermsBlockForPdf(settings)
   };
 }
 
@@ -418,7 +474,8 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
     })),
     notes: order.customerNotes,
     paymentInstructions: settings.payment.defaultPaymentInstructions,
-    footerNote: footerForKind(settings, "invoice")
+    footerNote: footerForKind(settings, "invoice"),
+    paymentTermsBlock: paymentTermsBlockForPdf(settings)
   };
 }
 
@@ -559,7 +616,11 @@ export async function getPaymentReceiptPdfData(paymentId: string): Promise<Opera
     ],
     notes: payment.customerNotes,
     paymentInstructions: settings.payment.defaultPaymentInstructions,
-    footerNote: footerForKind(settings, "payment-receipt")
+    footerNote: footerForKind(settings, "payment-receipt"),
+    documentTermsBlock: documentTermsBlockForPdf(
+      settings.payment.pdfPaymentReceiptTermsTitle,
+      settings.payment.pdfPaymentReceiptTerms
+    )
   };
 }
 
@@ -678,7 +739,11 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
     })),
     notes: delivery.deliveryNotes,
     footerNote: footerForKind(settings, "delivery-receipt"),
-    signatureRequired: true
+    signatureRequired: true,
+    documentTermsBlock: documentTermsBlockForPdf(
+      settings.payment.pdfDeliveryReceiptTermsTitle,
+      settings.payment.pdfDeliveryReceiptTerms
+    )
   };
 }
 
@@ -786,7 +851,8 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
     })),
     notes: order.customerNotes,
     paymentInstructions: settings.payment.defaultPaymentInstructions,
-    footerNote: footerForKind(settings, "final-order-summary")
+    footerNote: footerForKind(settings, "final-order-summary"),
+    paymentTermsBlock: paymentTermsBlockForPdf(settings)
   };
 }
 

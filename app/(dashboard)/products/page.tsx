@@ -90,7 +90,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       : undefined
   };
 
-  const [products, productCount] = await Promise.all([
+  const [products, productCount, tags] = await Promise.all([
     timeQuery("products:list", prisma.product.findMany({
       where: productWhere,
       orderBy: [
@@ -153,11 +153,31 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             sortOrder: true,
             isActive: true
           }
+        },
+        tagAssignments: {
+          include: {
+            tag: true
+          }
         }
       }
     })),
     timeQuery("products:count", prisma.product.count({
       where: productWhere
+    })),
+    timeQuery("products:tags", prisma.tag.findMany({
+      orderBy: {
+        name: "asc"
+      },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        _count: {
+          select: {
+            products: true
+          }
+        }
+      }
     }))
   ]);
   const totalPages = Math.max(Math.ceil(productCount / pageSize), 1);
@@ -208,6 +228,11 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         canViewProductCost={canViewProductCost}
         hasActiveFilters={hasActiveFilters}
         persistenceUserKey={user.id}
+        tags={tags.map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          productCount: tag._count.products
+        }))}
         products={products.map((product) => {
           const generalImages = product.images.filter((image) => image.colorVariantId === null);
           const primaryImage =
@@ -258,6 +283,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
               hex: variant.hex,
               sortOrder: variant.sortOrder,
               isActive: variant.isActive
+            })),
+            tags: product.tagAssignments.map((assignment) => ({
+              id: assignment.tag.id,
+              name: assignment.tag.name
             })),
             updatedAt: formatDate(product.updatedAt)
           };

@@ -32,7 +32,16 @@ export const defaultPaymentSettings: PaymentSettingsInput = paymentSettingsSchem
   bankDetails: companyProfile.bankDetails,
   eWalletDetails: companyProfile.eWalletDetails,
   otherPaymentNotes: companyProfile.otherPaymentNotes,
-  mopScript: companyProfile.mopScript
+  mopScript: companyProfile.mopScript,
+  pdfPaymentPolicyTitle: companyProfile.pdfPaymentPolicyTitle,
+  pdfPaymentPolicyBullets: companyProfile.pdfPaymentPolicyBullets,
+  pdfPaymentHighlightNote: companyProfile.pdfPaymentHighlightNote,
+  pdfBankDetailsTitle: companyProfile.pdfBankDetailsTitle,
+  pdfBankDetails: companyProfile.pdfBankDetails,
+  pdfPaymentReceiptTermsTitle: companyProfile.pdfPaymentReceiptTermsTitle,
+  pdfPaymentReceiptTerms: companyProfile.pdfPaymentReceiptTerms,
+  pdfDeliveryReceiptTermsTitle: companyProfile.pdfDeliveryReceiptTermsTitle,
+  pdfDeliveryReceiptTerms: companyProfile.pdfDeliveryReceiptTerms
 });
 
 export const defaultDocumentSettings: DocumentSettingsInput = documentSettingsSchema.parse({

@@ -22,6 +22,26 @@ function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
 }
 
+const paymentCopySettingsSchema = paymentSettingsSchema.pick({
+  defaultPaymentInstructions: true,
+  bankDetails: true,
+  eWalletDetails: true,
+  otherPaymentNotes: true,
+  mopScript: true
+});
+
+const pdfFileSettingsSchema = paymentSettingsSchema.pick({
+  pdfPaymentPolicyTitle: true,
+  pdfPaymentPolicyBullets: true,
+  pdfPaymentHighlightNote: true,
+  pdfBankDetailsTitle: true,
+  pdfBankDetails: true,
+  pdfPaymentReceiptTermsTitle: true,
+  pdfPaymentReceiptTerms: true,
+  pdfDeliveryReceiptTermsTitle: true,
+  pdfDeliveryReceiptTerms: true
+});
+
 async function logSettingsUpdate(actorId: string, section: string) {
   await prisma.activityLog.create({
     data: {
@@ -82,7 +102,7 @@ export async function updatePaymentSettingsAction(
   formData: FormData
 ): Promise<ActionState> {
   const actor = await requirePermission("SETTINGS", "UPDATE");
-  const parsed = paymentSettingsSchema.safeParse({
+  const parsed = paymentCopySettingsSchema.safeParse({
     defaultPaymentInstructions: text(formData, "defaultPaymentInstructions"),
     bankDetails: text(formData, "bankDetails"),
     eWalletDetails: text(formData, "eWalletDetails"),
@@ -100,7 +120,10 @@ export async function updatePaymentSettingsAction(
   const current = await getAppSettings();
   const next = {
     ...current,
-    payment: parsed.data
+    payment: {
+      ...current.payment,
+      ...parsed.data
+    }
   };
 
   await Promise.all([
@@ -112,6 +135,51 @@ export async function updatePaymentSettingsAction(
   return {
     ok: true,
     message: "Payment and MOP settings saved."
+  };
+}
+
+export async function updatePdfFileSettingsAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("SETTINGS", "UPDATE");
+  const parsed = pdfFileSettingsSchema.safeParse({
+    pdfPaymentPolicyTitle: text(formData, "pdfPaymentPolicyTitle"),
+    pdfPaymentPolicyBullets: text(formData, "pdfPaymentPolicyBullets"),
+    pdfPaymentHighlightNote: text(formData, "pdfPaymentHighlightNote"),
+    pdfBankDetailsTitle: text(formData, "pdfBankDetailsTitle"),
+    pdfBankDetails: text(formData, "pdfBankDetails"),
+    pdfPaymentReceiptTermsTitle: text(formData, "pdfPaymentReceiptTermsTitle"),
+    pdfPaymentReceiptTerms: text(formData, "pdfPaymentReceiptTerms"),
+    pdfDeliveryReceiptTermsTitle: text(formData, "pdfDeliveryReceiptTermsTitle"),
+    pdfDeliveryReceiptTerms: text(formData, "pdfDeliveryReceiptTerms")
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: parsed.error.issues[0]?.message ?? "Invalid PDF file settings."
+    };
+  }
+
+  const current = await getAppSettings();
+  const next = {
+    ...current,
+    payment: {
+      ...current.payment,
+      ...parsed.data
+    }
+  };
+
+  await Promise.all([
+    saveAppSettings(next, actor.id),
+    logSettingsUpdate(actor.id, "PDF file")
+  ]);
+
+  revalidatePath("/settings");
+  return {
+    ok: true,
+    message: "PDF file settings saved."
   };
 }
 

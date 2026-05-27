@@ -511,16 +511,6 @@ function quotationStatusBadgeClass(status: string) {
   );
 }
 
-function productImageStyle(product: ProductOption, variant?: ProductColorVariantOption | null) {
-  const image = variant?.image ?? product.primaryImage;
-
-  return image?.secureUrl
-    ? {
-        backgroundImage: `url("${image.secureUrl}")`
-      }
-    : undefined;
-}
-
 function normalizeProductText(value: string | null | undefined) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized.length ? normalized : null;
@@ -1229,80 +1219,6 @@ function ProductPicker({
     });
   }
 
-  function ProductCard({ product }: { product: ProductOption }) {
-    const selectedVariantId = selectedVariantByProductId[product.id] ?? product.colorVariants[0]?.id ?? "";
-    const selectedVariant = product.colorVariants.find((variant) => variant.id === selectedVariantId) ?? null;
-
-    return (
-      <article className="flex min-h-[380px] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-background">
-        <div
-          className="flex h-48 shrink-0 items-center justify-center border-b border-border bg-soft-accent/40 bg-contain bg-center bg-no-repeat text-muted-foreground sm:h-56 lg:h-60"
-          style={productImageStyle(product, selectedVariant)}
-        >
-          {!(selectedVariant?.image ?? product.primaryImage) ? <ImagePlus className="h-8 w-8" /> : null}
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-          <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 break-words text-sm font-semibold">{product.name}</p>
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {product.code ? `Code: ${product.code}` : "No product code"}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">
-              {product.category ? product.category : "No category"}
-            </p>
-            {product.colorVariants.length ? (
-              <div className="mt-3 space-y-2">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">Color variant</p>
-                <div className="flex flex-wrap gap-2">
-                  {product.colorVariants.map((variant) => (
-                    <button
-                      key={variant.id}
-                      type="button"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() =>
-                        setSelectedVariantByProductId((current) => ({
-                          ...current,
-                          [product.id]: variant.id
-                        }))
-                      }
-                      className={cn(
-                        "inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border px-2 text-xs font-medium",
-                        selectedVariantId === variant.id
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-panel text-muted-foreground"
-                      )}
-                    >
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-full border border-border"
-                        style={variant.hex ? { backgroundColor: variant.hex } : undefined}
-                      />
-                      <span className="min-w-0 break-words text-left">{variant.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
-            <span className="min-w-0 truncate text-sm font-semibold">
-              {money(product.referencePrice ?? 0)}
-            </span>
-            <Button
-              type="button"
-              variant="secondary"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={(event) => addProductWithoutScrollJump(product, selectedVariant, event)}
-              className="min-h-9 shrink-0 px-3"
-            >
-              <Plus className="h-4 w-4" />
-              Add
-            </Button>
-          </div>
-        </div>
-      </article>
-    );
-  }
-
   return (
     <AdminModal
       onBackdropMouseDown={onClose}
@@ -1335,10 +1251,21 @@ function ProductPicker({
       </div>
       <div
         ref={productGridRef}
-        className="grid min-h-0 flex-1 gap-4 overflow-y-auto overflow-x-hidden overscroll-contain p-5 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid min-h-0 flex-1 auto-rows-auto items-start gap-4 overflow-y-auto overflow-x-hidden overscroll-contain p-5 sm:grid-cols-2 xl:grid-cols-3"
       >
         {filteredProducts.map((product) => (
-          <ProductCard key={product.id} product={product} />
+          <ProductPickerCard
+            key={product.id}
+            product={product}
+            selectedVariantId={selectedVariantByProductId[product.id] ?? product.colorVariants[0]?.id ?? ""}
+            onSelectVariant={(variantId) =>
+              setSelectedVariantByProductId((current) => ({
+                ...current,
+                [product.id]: variantId
+              }))
+            }
+            onAdd={addProductWithoutScrollJump}
+          />
         ))}
         {filteredProducts.length === 0 ? (
           <div className="studio-empty px-4 py-8 text-sm md:col-span-2">
@@ -1347,6 +1274,101 @@ function ProductPicker({
         ) : null}
       </div>
     </AdminModal>
+  );
+}
+
+function ProductPickerCard({
+  product,
+  selectedVariantId,
+  onSelectVariant,
+  onAdd
+}: {
+  product: ProductOption;
+  selectedVariantId: string;
+  onSelectVariant: (variantId: string) => void;
+  onAdd: (
+    product: ProductOption,
+    selectedVariant?: ProductColorVariantOption | null,
+    event?: ReactMouseEvent<HTMLButtonElement>
+  ) => void;
+}) {
+  const selectedVariant = product.colorVariants.find((variant) => variant.id === selectedVariantId) ?? null;
+  const image = selectedVariant?.image ?? product.primaryImage;
+
+  return (
+    <article className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-panel">
+      <div className="flex h-44 shrink-0 items-center justify-center border-b border-border bg-muted/30 text-muted-foreground">
+        {image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={image.secureUrl}
+            alt={image.altText ?? product.name}
+            className="h-full w-full object-contain p-3"
+          />
+        ) : (
+          <ImagePlus className="h-6 w-6" />
+        )}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+        <div className="min-w-0">
+          <p className="line-clamp-2 break-words text-sm font-semibold">{product.name}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {product.code ? `Code: ${product.code}` : "No product code"}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {product.category ? product.category : "No category"}
+          </p>
+        </div>
+        {product.colorVariants.length ? (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Color variant</p>
+            <div className="flex flex-wrap gap-2">
+              {product.colorVariants.map((variant) => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectVariant(variant.id);
+                  }}
+                  className={cn(
+                    "inline-flex min-h-8 max-w-full items-center gap-2 rounded-md border px-2 py-1 text-xs font-medium leading-tight",
+                    selectedVariantId === variant.id
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-panel text-muted-foreground"
+                  )}
+                >
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full border border-border"
+                    style={variant.hex ? { backgroundColor: variant.hex } : undefined}
+                  />
+                  <span className="min-w-0 break-words text-left">{variant.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <div className="mt-auto flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
+          <span className="min-w-0 truncate text-sm font-semibold">
+            {money(product.referencePrice ?? 0)}
+          </span>
+          <Button
+            type="button"
+            variant="secondary"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAdd(product, selectedVariant, event);
+            }}
+            className="min-h-9 shrink-0 px-3"
+          >
+            <Plus className="h-4 w-4" />
+            Add
+          </Button>
+        </div>
+      </div>
+    </article>
   );
 }
 

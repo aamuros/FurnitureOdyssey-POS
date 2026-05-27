@@ -10,6 +10,7 @@ import {
   DreamHomePreparedBy
 } from "@/lib/pdf/dream-home-layout";
 import { isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
+import { PdfPaymentTermsBlockView } from "@/lib/pdf/payment-terms-block";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
 const { accent, background, dark, muted, border } = dreamHomeColors;
@@ -231,8 +232,8 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
           </View>
         ) : null}
 
-        <View style={styles.policyAndSignatureBlock} wrap={false}>
-          <DreamHomePolicies />
+        <View style={styles.policyAndSignatureBlock} wrap={!data.paymentTermsBlock ? false : undefined}>
+          {data.paymentTermsBlock ? <PdfPaymentTermsBlockView terms={data.paymentTermsBlock} /> : <DreamHomePolicies />}
           <DreamHomePreparedBy />
         </View>
       </Page>

@@ -5,7 +5,8 @@ import { Building2, Clipboard, CreditCard, FileText, ImageIcon, Save } from "luc
 import {
   updateCompanyProfileSettingsAction,
   updateDocumentSettingsAction,
-  updatePaymentSettingsAction
+  updatePaymentSettingsAction,
+  updatePdfFileSettingsAction
 } from "@/app/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ type SettingsWorkspaceProps = {
   persistenceUserKey?: string | null;
 };
 
-type Section = "company" | "payment" | "documents";
+type Section = "company" | "pdf" | "payment" | "documents";
 type CompanyProfileSettings = AppSettingsInput["companyProfile"];
 type PaymentSettings = AppSettingsInput["payment"];
 type DocumentSettings = AppSettingsInput["documents"];
@@ -48,6 +49,12 @@ const sections: Array<{
     label: "Company Profile",
     description: "Business identity and PDF header details.",
     icon: Building2
+  },
+  {
+    id: "pdf",
+    label: "PDF Files",
+    description: "PDF terms, receipt notes, and generated document copy.",
+    icon: FileText
   },
   {
     id: "payment",
@@ -304,6 +311,82 @@ function PaymentPreview({
   );
 }
 
+function previewLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function previewBulletLines(value: string) {
+  return previewLines(value).map((line) => line.replace(/^[-•*]\s*/, "").trim()).filter(Boolean);
+}
+
+function PdfGeneralTermsPreview({ payment }: { payment: PaymentSettings }) {
+  const policyBullets = previewBulletLines(payment.pdfPaymentPolicyBullets);
+  const bankLines = previewLines(payment.pdfBankDetails);
+
+  return (
+    <SettingsSubpanel
+      title="PDF payment terms preview"
+      description="Shown in quotation, invoice, and final order summary PDFs."
+      className="h-fit"
+    >
+      <div className="rounded-md border border-border bg-muted/35 p-3 text-sm">
+        <p className="font-semibold">{payment.pdfPaymentPolicyTitle || "Payment policy title"}</p>
+        <div className="mt-2 space-y-1">
+          {policyBullets.length ? (
+            policyBullets.map((line) => (
+              <p key={line} className="flex gap-2 leading-5">
+                <span>-</span>
+                <span>{line}</span>
+              </p>
+            ))
+          ) : (
+            <p className="text-muted-foreground">No payment policy bullets.</p>
+          )}
+        </div>
+        {payment.pdfPaymentHighlightNote ? (
+          <p className="mt-3 font-bold text-danger">{payment.pdfPaymentHighlightNote}</p>
+        ) : null}
+        <p className="mt-3 font-semibold uppercase">{payment.pdfBankDetailsTitle || "Bank details"}</p>
+        <div className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">
+          {bankLines.length ? bankLines.join("\n") : "No PDF bank details."}
+        </div>
+      </div>
+    </SettingsSubpanel>
+  );
+}
+
+function PdfReceiptDeliveryTermsPreview({ payment }: { payment: PaymentSettings }) {
+  const receiptLines = previewLines(payment.pdfPaymentReceiptTerms);
+  const deliveryLines = previewLines(payment.pdfDeliveryReceiptTerms);
+
+  return (
+    <SettingsSubpanel
+      title="Receipt and delivery preview"
+      description="Shown in payment receipt and delivery receipt PDFs."
+      className="h-fit"
+    >
+      <div className="grid gap-4 text-sm">
+        <div className="rounded-md border border-border bg-panel p-3">
+          <p className="font-semibold">{payment.pdfPaymentReceiptTermsTitle || "Payment receipt terms title"}</p>
+          <div className="mt-2 space-y-1 text-muted-foreground">
+            {receiptLines.length ? receiptLines.map((line) => <p key={line}>{line}</p>) : <p>No receipt terms.</p>}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-panel p-3">
+          <p className="font-semibold">{payment.pdfDeliveryReceiptTermsTitle || "Delivery receipt terms title"}</p>
+          <div className="mt-2 space-y-1 text-muted-foreground">
+            {deliveryLines.length ? deliveryLines.map((line) => <p key={line}>{line}</p>) : <p>No delivery terms.</p>}
+          </div>
+        </div>
+      </div>
+    </SettingsSubpanel>
+  );
+}
+
 function DocumentPrefixPreview({ documents }: { documents: DocumentSettings }) {
   return (
     <SettingsSubpanel title="Label preview" description="Examples use the current prefix values.">
@@ -344,7 +427,7 @@ export function SettingsWorkspace({
     usePersistentPageState<SettingsWorkspaceDraft>({
       scope: "settings",
       userKey: persistenceUserKey,
-      version: 1,
+      version: 3,
       initialState: initialSettingsDraft
     });
   const hasAppliedSettingsDraft = useRef(false);
@@ -361,6 +444,10 @@ export function SettingsWorkspace({
     updatePaymentSettingsAction,
     initialState
   );
+  const [pdfState, pdfAction, pdfPending] = useActionState(
+    updatePdfFileSettingsAction,
+    initialState
+  );
   const [documentState, documentAction, documentPending] = useActionState(
     updateDocumentSettingsAction,
     initialState
@@ -373,7 +460,7 @@ export function SettingsWorkspace({
 
     hasAppliedSettingsDraft.current = true;
     setActiveSection(
-      ["company", "payment", "documents"].includes(persistedSettings.activeSection)
+      ["company", "pdf", "payment", "documents"].includes(persistedSettings.activeSection)
         ? persistedSettings.activeSection
         : "company"
     );
@@ -412,7 +499,7 @@ export function SettingsWorkspace({
   ]);
 
   useEffect(() => {
-    if (!companyState.ok && !paymentState.ok && !documentState.ok) {
+    if (!companyState.ok && !pdfState.ok && !paymentState.ok && !documentState.ok) {
       return;
     }
 
@@ -429,6 +516,7 @@ export function SettingsWorkspace({
     documentDraft,
     documentState.ok,
     paymentDraft,
+    pdfState.ok,
     paymentState.ok,
     settingsPersistence
   ]);
@@ -580,6 +668,120 @@ export function SettingsWorkspace({
         </section>
       ) : null}
 
+      {activeSection === "pdf" ? (
+        <section className="studio-card">
+          <div className="studio-card-header">
+            <p className="studio-kicker">PDF Files</p>
+            <h2 className="text-sm font-semibold">PDF Files</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Configure copy shown in generated PDF documents.
+            </p>
+          </div>
+          {!canUpdate ? <SettingsNotice /> : null}
+          <form action={pdfAction}>
+            <div className="grid gap-5 p-5">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <fieldset disabled={!canUpdate || pdfPending} className="grid gap-5">
+                  <SettingsSubpanel title="PDF payment terms">
+                    <Field label="Payment policy title">
+                      <Input
+                        name="pdfPaymentPolicyTitle"
+                        value={paymentDraft.pdfPaymentPolicyTitle}
+                        onChange={(event) => updatePaymentField("pdfPaymentPolicyTitle", event.target.value)}
+                      />
+                    </Field>
+                    <Field
+                      label="Payment policy bullet points"
+                      helper="One bullet per line. These appear in quotation, invoice, and final order summary PDFs."
+                    >
+                      <Textarea
+                        name="pdfPaymentPolicyBullets"
+                        value={paymentDraft.pdfPaymentPolicyBullets}
+                        onChange={(event) => updatePaymentField("pdfPaymentPolicyBullets", event.target.value)}
+                        className="h-32 resize-y"
+                      />
+                    </Field>
+                    <Field label="Red highlight notice" helper="Important PDF notice shown in red.">
+                      <Textarea
+                        name="pdfPaymentHighlightNote"
+                        value={paymentDraft.pdfPaymentHighlightNote}
+                        onChange={(event) => updatePaymentField("pdfPaymentHighlightNote", event.target.value)}
+                        className="h-24 resize-y"
+                      />
+                    </Field>
+                    <Field label="Bank details title">
+                      <Input
+                        name="pdfBankDetailsTitle"
+                        value={paymentDraft.pdfBankDetailsTitle}
+                        onChange={(event) => updatePaymentField("pdfBankDetailsTitle", event.target.value)}
+                      />
+                    </Field>
+                    <Field
+                      label="PDF bank details"
+                      helper="Shown in quotation, invoice, and final order summary PDFs."
+                    >
+                      <Textarea
+                        name="pdfBankDetails"
+                        value={paymentDraft.pdfBankDetails}
+                        onChange={(event) => updatePaymentField("pdfBankDetails", event.target.value)}
+                        className="h-32 resize-y"
+                      />
+                    </Field>
+                  </SettingsSubpanel>
+                </fieldset>
+
+                <PdfGeneralTermsPreview payment={paymentDraft} />
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <fieldset disabled={!canUpdate || pdfPending} className="grid gap-5">
+                  <SettingsSubpanel title="Receipt and delivery PDF terms">
+                    <Field label="Payment receipt terms title">
+                      <Input
+                        name="pdfPaymentReceiptTermsTitle"
+                        value={paymentDraft.pdfPaymentReceiptTermsTitle}
+                        onChange={(event) => updatePaymentField("pdfPaymentReceiptTermsTitle", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Payment receipt terms" helper="One line per receipt note. Used in payment receipt PDFs.">
+                      <Textarea
+                        name="pdfPaymentReceiptTerms"
+                        value={paymentDraft.pdfPaymentReceiptTerms}
+                        onChange={(event) => updatePaymentField("pdfPaymentReceiptTerms", event.target.value)}
+                        className="h-28 resize-y"
+                      />
+                    </Field>
+                    <Field label="Delivery receipt terms title">
+                      <Input
+                        name="pdfDeliveryReceiptTermsTitle"
+                        value={paymentDraft.pdfDeliveryReceiptTermsTitle}
+                        onChange={(event) => updatePaymentField("pdfDeliveryReceiptTermsTitle", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Delivery receipt terms" helper="One line per delivery term. Used in delivery receipt PDFs.">
+                      <Textarea
+                        name="pdfDeliveryReceiptTerms"
+                        value={paymentDraft.pdfDeliveryReceiptTerms}
+                        onChange={(event) => updatePaymentField("pdfDeliveryReceiptTerms", event.target.value)}
+                        className="h-32 resize-y"
+                      />
+                    </Field>
+                  </SettingsSubpanel>
+                </fieldset>
+
+                <PdfReceiptDeliveryTermsPreview payment={paymentDraft} />
+              </div>
+            </div>
+            <SettingsFormFooter
+              state={pdfState}
+              pending={pdfPending}
+              disabled={!canUpdate}
+              buttonLabel="Save PDF file settings"
+            />
+          </form>
+        </section>
+      ) : null}
+
       {activeSection === "payment" ? (
         <section className="studio-card">
           <div className="studio-card-header">
@@ -641,6 +843,7 @@ export function SettingsWorkspace({
                     />
                   </Field>
                 </SettingsSubpanel>
+
               </fieldset>
 
               <PaymentPreview script={paymentDraft.mopScript} copyMessage={copyMessage} onCopy={copyMopScript} />

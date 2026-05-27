@@ -20,8 +20,11 @@ import {
   X
 } from "lucide-react";
 import {
+  createTagAction,
   createProductAction,
+  deleteTagAction,
   deleteProductAction,
+  updateTagAction,
   updateProductAction,
   updateProductStatusAction,
   updateProductWebsiteVisibilityAction
@@ -59,7 +62,19 @@ type ProductRow = {
   } | null;
   images: ProductImageRow[];
   colorVariants: ProductColorVariantRow[];
+  tags: ProductTagRow[];
   updatedAt: string;
+};
+
+type TagRow = {
+  id: string;
+  name: string;
+  productCount?: number;
+};
+
+type ProductTagRow = {
+  id: string;
+  name: string;
 };
 
 type ProductImageRow = {
@@ -107,6 +122,7 @@ type ProductFormSectionKey = "basic" | "catalogue" | "description" | "images" | 
 
 type ProductWorkspaceProps = {
   products: ProductRow[];
+  tags: TagRow[];
   canCreate: boolean;
   canUpdate: boolean;
   canDelete: boolean;
@@ -118,6 +134,8 @@ type ProductWorkspaceProps = {
 type ActionState = {
   ok: boolean;
   message: string;
+  tagId?: string;
+  tagName?: string;
 };
 
 type ProductFormProps = {
@@ -131,6 +149,10 @@ type ProductFormProps = {
   onCancel: () => void;
   canUploadImage: boolean;
   canViewProductCost: boolean;
+  tags: TagRow[];
+  canCreateTag: boolean;
+  canUpdateTag: boolean;
+  canDeleteTag: boolean;
 };
 
 type ProductFormDraft = {
@@ -144,6 +166,7 @@ type ProductFormDraft = {
   websiteSortOrder: string;
   websitePages: string[];
   websitePageSortOrders: Record<string, string>;
+  tagIds: string[];
   description: string;
   specifications: string;
 };
@@ -168,7 +191,7 @@ const websitePageOptions = [
 ] as const;
 type WebsitePageValue = (typeof websitePageOptions)[number]["value"];
 
-const initialState = {
+const initialState: ActionState = {
   ok: false,
   message: ""
 };
@@ -184,6 +207,7 @@ const blankProductDraft: ProductFormDraft = {
   websiteSortOrder: "0",
   websitePages: [],
   websitePageSortOrders: {},
+  tagIds: [],
   description: "",
   specifications: ""
 };
@@ -219,6 +243,17 @@ function normalizeWebsitePageSortOrders(sortOrders?: Record<string, number | str
   ) as Record<WebsitePageValue, string>;
 }
 
+function normalizeTagIds(tagIds?: string[] | null, tags?: TagRow[]) {
+  const uniqueTagIds = Array.from(new Set((tagIds ?? []).filter(Boolean)));
+
+  if (!tags) {
+    return uniqueTagIds;
+  }
+
+  const selected = new Set(uniqueTagIds);
+  return tags.map((tag) => tag.id).filter((tagId) => selected.has(tagId));
+}
+
 function productToDraft(product: ProductRow): ProductFormDraft {
   return {
     name: product.name,
@@ -231,6 +266,7 @@ function productToDraft(product: ProductRow): ProductFormDraft {
     websiteSortOrder: String(product.websiteSortOrder),
     websitePages: normalizeWebsitePages(product.websitePages),
     websitePageSortOrders: normalizeWebsitePageSortOrders(product.websitePageSortOrders),
+    tagIds: normalizeTagIds(product.tags.map((tag) => tag.id)),
     description: product.description ?? "",
     specifications: product.specifications ?? ""
   };
@@ -252,6 +288,7 @@ function normalizedProductDraftForDirtyCheck(draft: ProductFormDraft) {
     websitePageSortOrders: Object.fromEntries(
       websitePages.map((page) => [page, draft.websitePageSortOrders[page] ?? "0"])
     ),
+    tagIds: normalizeTagIds(draft.tagIds),
     description: draft.description,
     specifications: draft.specifications
   };
@@ -377,6 +414,334 @@ function formatMoney(value: number | null, currency: string) {
   }).format(value);
 }
 
+function ProductTagManager({
+  tags,
+  selectedTagIds,
+  onSelectedTagIdsChange,
+  canCreateTag,
+  canUpdateTag,
+  canDeleteTag
+}: {
+  tags: TagRow[];
+  selectedTagIds: string[];
+  onSelectedTagIdsChange: (tagIds: string[]) => void;
+  canCreateTag: boolean;
+  canUpdateTag: boolean;
+  canDeleteTag: boolean;
+}) {
+  const router = useRouter();
+  const [newTagName, setNewTagName] = useState("");
+  const [isManagingTags, setIsManagingTags] = useState(false);
+  const [tagNameDrafts, setTagNameDrafts] = useState<Record<string, string>>({});
+  const [tagIdsMarkedForDelete, setTagIdsMarkedForDelete] = useState<string[]>([]);
+  const [tagManageError, setTagManageError] = useState("");
+  const [tagManageNotice, setTagManageNotice] = useState("");
+  const [originalSelectedTagIds, setOriginalSelectedTagIds] = useState<string[]>([]);
+  const [tagActionPending, setTagActionPending] = useState(false);
+  const [, startTagTransition] = useTransition();
+  const selectedTagSet = new Set(selectedTagIds);
+  const canManageTags = canUpdateTag || canDeleteTag;
+  const deletedTagIdSet = new Set(tagIdsMarkedForDelete);
+  const visibleTags = tags.filter((tag) => !deletedTagIdSet.has(tag.id));
+
+  function toggleTag(tagId: string) {
+    if (isManagingTags) {
+      return;
+    }
+
+    const nextSelected = new Set(selectedTagIds);
+
+    if (nextSelected.has(tagId)) {
+      nextSelected.delete(tagId);
+    } else {
+      nextSelected.add(tagId);
+    }
+
+    onSelectedTagIdsChange(normalizeTagIds(Array.from(nextSelected), tags));
+  }
+
+  function submitCreateTag() {
+    setTagManageError("");
+    setTagManageNotice("");
+
+    if (!newTagName.trim()) {
+      setTagManageError("Tag name is required.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("name", newTagName);
+    startTagTransition(() => {
+      setTagActionPending(true);
+      void createTagAction(initialState, formData).then((result) => {
+        setTagActionPending(false);
+
+        if (!result.ok) {
+          setTagManageError(result.message);
+          return;
+        }
+
+        if (result.tagId) {
+          onSelectedTagIdsChange(normalizeTagIds([...selectedTagIds, result.tagId]));
+        }
+
+        setNewTagName("");
+        setTagManageNotice(result.message);
+        router.refresh();
+      });
+    });
+  }
+
+  function enterManageMode() {
+    setIsManagingTags(true);
+    setTagNameDrafts(Object.fromEntries(tags.map((tag) => [tag.id, tag.name])));
+    setTagIdsMarkedForDelete([]);
+    setOriginalSelectedTagIds(selectedTagIds);
+    setTagManageError("");
+    setTagManageNotice("");
+  }
+
+  function discardManageChanges() {
+    setIsManagingTags(false);
+    setTagNameDrafts(Object.fromEntries(tags.map((tag) => [tag.id, tag.name])));
+    setTagIdsMarkedForDelete([]);
+    onSelectedTagIdsChange(originalSelectedTagIds);
+    setOriginalSelectedTagIds([]);
+    setTagManageError("");
+    setTagManageNotice("");
+  }
+
+  function markTagForDelete(tag: TagRow) {
+    const productCount = tag.productCount ?? 0;
+    const confirmed = window.confirm(
+      productCount > 0
+        ? `Delete tag "${tag.name}"? It is assigned to ${productCount} product(s) and will be removed from those products.`
+        : `Delete tag "${tag.name}"? This will remove it from all assigned products.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setTagIdsMarkedForDelete((current) => Array.from(new Set([...current, tag.id])));
+    onSelectedTagIdsChange(selectedTagIds.filter((tagId) => tagId !== tag.id));
+    setTagManageError("");
+    setTagManageNotice("");
+  }
+
+  function validateTagManageChanges() {
+    const remainingTags = tags.filter((tag) => !deletedTagIdSet.has(tag.id));
+    const trimmedNames = remainingTags.map((tag) => (tagNameDrafts[tag.id] ?? tag.name).trim());
+
+    if (trimmedNames.some((name) => !name)) {
+      return "Tag name is required.";
+    }
+
+    if (new Set(trimmedNames.map((name) => name.toLowerCase())).size !== trimmedNames.length) {
+      return "Tag names must be unique.";
+    }
+
+    return "";
+  }
+
+  function saveManageChanges() {
+    setTagManageError("");
+    setTagManageNotice("");
+
+    const validationMessage = validateTagManageChanges();
+
+    if (validationMessage) {
+      setTagManageError(validationMessage);
+      return;
+    }
+
+    const renameOperations = tags
+      .filter((tag) => !deletedTagIdSet.has(tag.id))
+      .map((tag) => ({
+        tag,
+        name: (tagNameDrafts[tag.id] ?? tag.name).trim()
+      }))
+      .filter((operation) => operation.name !== operation.tag.name);
+    const deleteOperations = tags.filter((tag) => deletedTagIdSet.has(tag.id));
+
+    if (renameOperations.length === 0 && deleteOperations.length === 0) {
+      setTagManageError("No tag changes to save.");
+      return;
+    }
+
+    if (
+      deleteOperations.length > 0 &&
+      !window.confirm(
+        `Save changes and delete ${deleteOperations.length} tag(s)? Deleted tags will be removed from assigned products.`
+      )
+    ) {
+      return;
+    }
+
+    startTagTransition(() => {
+      setTagActionPending(true);
+      void (async () => {
+        for (const operation of renameOperations) {
+          const formData = new FormData();
+          formData.set("tagId", operation.tag.id);
+          formData.set("name", operation.name);
+          const result = await updateTagAction(initialState, formData);
+
+          if (!result.ok) {
+            setTagManageError(result.message);
+            setTagActionPending(false);
+            return;
+          }
+        }
+
+        for (const tag of deleteOperations) {
+          const formData = new FormData();
+          formData.set("tagId", tag.id);
+          const result = await deleteTagAction(initialState, formData);
+
+          if (!result.ok) {
+            setTagManageError(result.message);
+            setTagActionPending(false);
+            return;
+          }
+        }
+
+        setIsManagingTags(false);
+        setTagNameDrafts({});
+        setTagIdsMarkedForDelete([]);
+        setOriginalSelectedTagIds([]);
+        setTagManageNotice("Tag changes saved.");
+        setTagActionPending(false);
+        router.refresh();
+      })();
+    });
+  }
+
+  return (
+    <fieldset className="flex min-w-0 flex-col gap-2 text-sm font-medium">
+      <legend>Product tags</legend>
+      <p className="text-xs font-normal leading-5 text-muted-foreground">
+        Select catalogue chips for filtering and collection browsing.
+      </p>
+      {visibleTags.length ? (
+        <div className="flex flex-wrap gap-2">
+          {visibleTags.map((tag) => {
+            const isSelected = selectedTagSet.has(tag.id);
+
+            return isManagingTags ? (
+              <div
+                key={tag.id}
+                className="relative inline-flex min-h-10 max-w-full items-center rounded-lg border border-border bg-soft-accent/70 px-3 py-2 pr-7"
+              >
+                <input
+                  value={tagNameDrafts[tag.id] ?? tag.name}
+                  onChange={(event) =>
+                    setTagNameDrafts((current) => ({
+                      ...current,
+                      [tag.id]: event.target.value
+                    }))
+                  }
+                  disabled={!canUpdateTag || tagActionPending}
+                  className="min-w-16 max-w-40 bg-transparent text-sm font-semibold text-foreground outline-none"
+                  aria-label={`Rename ${tag.name}`}
+                />
+                {canDeleteTag ? (
+                  <button
+                    type="button"
+                    onClick={() => markTagForDelete(tag)}
+                    disabled={tagActionPending}
+                    className="absolute -right-1 -top-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-danger/30 bg-danger text-white shadow-sm transition hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label={`Delete ${tag.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                key={tag.id}
+                type="button"
+                onClick={() => toggleTag(tag.id)}
+                className={
+                  isSelected
+                    ? "inline-flex min-h-10 items-center justify-center rounded-lg border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                    : "inline-flex min-h-10 items-center justify-center rounded-lg border border-border bg-soft-accent/70 px-3 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+                }
+                aria-pressed={isSelected}
+              >
+                {tag.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-border bg-background/70 px-3 py-2 text-xs font-normal text-muted-foreground">
+          {tags.length ? "All tags are marked for deletion." : "No tags yet. Add one below."}
+        </p>
+      )}
+
+      {canCreateTag && !isManagingTags ? (
+        <div className="mt-2 flex gap-2">
+          <Input
+            value={newTagName}
+            onChange={(event) => {
+              setNewTagName(event.target.value);
+              setTagManageError("");
+              setTagManageNotice("");
+            }}
+            placeholder="New tag"
+            className="min-h-10"
+          />
+          <Button type="button" variant="secondary" onClick={submitCreateTag} disabled={tagActionPending}>
+            <Plus className="h-4 w-4" />
+            Add tag
+          </Button>
+        </div>
+      ) : null}
+
+      {canManageTags ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {isManagingTags ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={discardManageChanges}
+                disabled={tagActionPending}
+                className="min-h-9 px-3 text-xs"
+              >
+                Discard
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={saveManageChanges}
+                disabled={tagActionPending}
+                className="min-h-9 px-3 text-xs"
+              >
+                <Save className="h-3.5 w-3.5" />
+                Save
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={enterManageMode}
+              className="min-h-9 px-3 text-xs"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Manage tags
+            </Button>
+          )}
+        </div>
+      ) : null}
+      {tagManageError ? <p className="text-xs font-normal text-danger">{tagManageError}</p> : null}
+      {tagManageNotice ? <p className="text-xs font-normal text-success">{tagManageNotice}</p> : null}
+    </fieldset>
+  );
+}
+
 function ProductForm({
   mode,
   product,
@@ -387,7 +752,11 @@ function ProductForm({
   action,
   onCancel,
   canUploadImage,
-  canViewProductCost
+  canViewProductCost,
+  tags,
+  canCreateTag,
+  canUpdateTag,
+  canDeleteTag
 }: ProductFormProps) {
   const isEdit = mode === "edit";
   const [productImages, setProductImages] = useState<ImageHolderDraft[]>(() => imagesForProduct(product));
@@ -396,6 +765,7 @@ function ProductForm({
   const previewUrlsRef = useRef<Set<string>>(new Set());
   const selectedWebsitePages = normalizeWebsitePages(draft.websitePages);
   const selectedWebsitePageSet = new Set(selectedWebsitePages);
+  const selectedTagIds = normalizeTagIds(draft.tagIds, tags);
   const pageSortOrders = normalizeWebsitePageSortOrders(draft.websitePageSortOrders);
   const activeProductImages = productImages.filter((image) => !image.remove);
   const activeVariantImages = variantImages.filter((image) => !image.remove);
@@ -825,6 +1195,9 @@ function ProductForm({
         {isEdit && product ? <input type="hidden" name="productId" value={product.id} /> : null}
         <input type="hidden" name="imageManifest" value={JSON.stringify(imageManifest)} />
         <input type="hidden" name="colorVariantManifest" value={JSON.stringify(colorVariantManifest)} />
+        {selectedTagIds.map((tagId) => (
+          <input key={tagId} type="hidden" name="tagIds" value={tagId} />
+        ))}
 
         <div className="space-y-4 px-5 pb-5 pt-2">
           {renderCollapsibleSection({
@@ -930,111 +1303,125 @@ function ProductForm({
             children: (
               <>
                 <input
-              type="hidden"
-              name="websitePagesMode"
-              value={draft.isWebsiteVisible ? "enabled" : "locked"}
-            />
-            {!draft.isWebsiteVisible
-              ? selectedWebsitePages.map((page) => (
-                  <span key={page}>
-                    <input type="hidden" name="websitePages" value={page} />
-                    <input
-                      type="hidden"
-                      name={`websitePageSortOrder_${page}`}
-                      value={pageSortOrders[page as WebsitePageValue] ?? "0"}
-                    />
-                  </span>
-                ))
-              : null}
-            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_minmax(260px,1fr)] lg:items-start">
-              <fieldset className="flex flex-col gap-2 text-sm font-medium">
-                <legend>Website visible</legend>
-                <div className="inline-flex w-fit overflow-hidden rounded-lg border border-border bg-panel p-1">
-                  {[
-                    { label: "Yes", value: true },
-                    { label: "No", value: false }
-                  ].map((option) => (
-                    <label
-                      key={option.label}
-                      className={
-                        draft.isWebsiteVisible === option.value
-                          ? "cursor-pointer rounded-md bg-soft-accent px-3 py-2 text-sm font-semibold text-foreground"
-                          : "cursor-pointer rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
-                      }
-                    >
-                      <input
-                        type="radio"
-                        name="isWebsiteVisible"
-                        value={option.value ? "on" : "off"}
-                        checked={draft.isWebsiteVisible === option.value}
-                        onChange={() => onDraftChange({ isWebsiteVisible: option.value })}
-                        className="sr-only"
-                      />
-                      {option.label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <fieldset className="flex min-w-0 flex-col gap-2 text-sm font-medium">
-                <legend>Web pages visibility</legend>
-                <p className="text-xs font-normal leading-5 text-muted-foreground">
-                  Choose where this product can appear on the public catalogue.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {websitePageOptions.map((page) => {
-                    const isSelected = selectedWebsitePages.includes(page.value);
-                    const isDisabled = !draft.isWebsiteVisible;
-
-                    return (
-                      <label
-                        key={page.value}
-                        className={
-                          isDisabled
-                            ? "inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-lg border border-border bg-muted/45 px-3 text-sm font-semibold text-muted-foreground opacity-70"
-                            : isSelected
-                              ? "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                              : "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-border bg-soft-accent/70 px-3 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
-                        }
-                        aria-disabled={isDisabled}
-                      >
+                  type="hidden"
+                  name="websitePagesMode"
+                  value={draft.isWebsiteVisible ? "enabled" : "locked"}
+                />
+                {!draft.isWebsiteVisible
+                  ? selectedWebsitePages.map((page) => (
+                      <span key={page}>
+                        <input type="hidden" name="websitePages" value={page} />
                         <input
-                          type="checkbox"
-                          name="websitePages"
-                          value={page.value}
-                          checked={isSelected}
-                          disabled={isDisabled}
-                          onChange={() => toggleWebsitePage(page.value)}
-                          className="sr-only"
+                          type="hidden"
+                          name={`websitePageSortOrder_${page}`}
+                          value={pageSortOrders[page as WebsitePageValue] ?? "0"}
                         />
-                        {page.label}
-                      </label>
-                    );
-                  })}
+                      </span>
+                    ))
+                  : null}
+                <div className="mt-4 grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
+                  <fieldset className="flex flex-col gap-2 text-sm font-medium">
+                    <legend>Website visible</legend>
+                    <p className="text-xs font-normal leading-5 text-muted-foreground">
+                      Publish this product on the catalogue.
+                    </p>
+                    <div className="inline-flex min-h-10 w-fit overflow-hidden rounded-lg border border-border bg-panel p-1">
+                      {[
+                        { label: "Yes", value: true },
+                        { label: "No", value: false }
+                      ].map((option) => (
+                        <label
+                          key={option.label}
+                          className={
+                            draft.isWebsiteVisible === option.value
+                              ? "cursor-pointer rounded-md bg-soft-accent px-3 py-2 text-sm font-semibold text-foreground"
+                              : "cursor-pointer rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                          }
+                        >
+                          <input
+                            type="radio"
+                            name="isWebsiteVisible"
+                            value={option.value ? "on" : "off"}
+                            checked={draft.isWebsiteVisible === option.value}
+                            onChange={() => onDraftChange({ isWebsiteVisible: option.value })}
+                            className="sr-only"
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <div className="xl:row-span-2">
+                    <ProductTagManager
+                      tags={tags}
+                      selectedTagIds={selectedTagIds}
+                      onSelectedTagIdsChange={(tagIds) => onDraftChange({ tagIds })}
+                      canCreateTag={canCreateTag}
+                      canUpdateTag={canUpdateTag}
+                      canDeleteTag={canDeleteTag}
+                    />
+                  </div>
+
+                  <fieldset className="flex min-w-0 flex-col gap-2 text-sm font-medium">
+                    <legend>Web pages visibility</legend>
+                    <p className="text-xs font-normal leading-5 text-muted-foreground">
+                      Choose where this product can appear on the public catalogue.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {websitePageOptions.map((page) => {
+                        const isSelected = selectedWebsitePages.includes(page.value);
+                        const isDisabled = !draft.isWebsiteVisible;
+
+                        return (
+                          <label
+                            key={page.value}
+                            className={
+                              isDisabled
+                                ? "inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-lg border border-border bg-muted/45 px-3 text-sm font-semibold text-muted-foreground opacity-70"
+                                : isSelected
+                                  ? "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-primary/30 bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                                  : "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-lg border border-border bg-soft-accent/70 px-3 text-sm font-semibold text-foreground transition hover:bg-soft-accent"
+                            }
+                            aria-disabled={isDisabled}
+                          >
+                            <input
+                              type="checkbox"
+                              name="websitePages"
+                              value={page.value}
+                              checked={isSelected}
+                              disabled={isDisabled}
+                              onChange={() => toggleWebsitePage(page.value)}
+                              className="sr-only"
+                            />
+                            {page.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
                 </div>
-              </fieldset>
-            </div>
-            <input type="hidden" name="websiteSortOrder" value={draft.websiteSortOrder} />
+                <input type="hidden" name="websiteSortOrder" value={draft.websiteSortOrder} />
                 {selectedWebsitePages.length > 0 ? (
-              <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
-                {websitePageOptions
-                  .filter((page) => selectedWebsitePageSet.has(page.value))
-                  .map((page) => (
-                    <label key={page.value} className="flex flex-col gap-2 text-sm font-medium">
-                      {page.label} sort order
-                      <Input
-                        name={`websitePageSortOrder_${page.value}`}
-                        type="number"
-                        min="0"
-                        step="1"
-                        disabled={!draft.isWebsiteVisible}
-                        value={pageSortOrders[page.value] ?? "0"}
-                        onChange={(event) => updatePageSortOrder(page.value, event.target.value)}
-                      />
-                    </label>
-                  ))}
-              </div>
-            ) : null}
+                  <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
+                    {websitePageOptions
+                      .filter((page) => selectedWebsitePageSet.has(page.value))
+                      .map((page) => (
+                        <label key={page.value} className="flex flex-col gap-2 text-sm font-medium">
+                          {page.label} sort order
+                          <Input
+                            name={`websitePageSortOrder_${page.value}`}
+                            type="number"
+                            min="0"
+                            step="1"
+                            disabled={!draft.isWebsiteVisible}
+                            value={pageSortOrders[page.value] ?? "0"}
+                            onChange={(event) => updatePageSortOrder(page.value, event.target.value)}
+                          />
+                        </label>
+                      ))}
+                  </div>
+                ) : null}
               </>
             )
           })}
@@ -1900,6 +2287,14 @@ function ProductViewModal({
               <StatusPill tone={product.isWebsiteVisible ? "success" : "neutral"}>
                 {product.isWebsiteVisible ? "Visible" : "Hidden"}
               </StatusPill>
+              {product.tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex min-h-7 max-w-full items-center rounded-full border border-border bg-soft-accent/70 px-2.5 text-xs font-medium text-muted-foreground"
+                >
+                  <span className="min-w-0 truncate">{tag.name}</span>
+                </span>
+              ))}
             </div>
             <dl className="grid gap-3 sm:grid-cols-2">
               {detailRows.map(([label, value]) => (
@@ -2014,6 +2409,7 @@ function ProductViewModal({
 
 export function ProductWorkspace({
   products,
+  tags,
   canCreate,
   canUpdate,
   canDelete,
@@ -2415,6 +2811,10 @@ export function ProductWorkspace({
             onCancel={() => requestCloseForm(createHasUnsavedChanges)}
             canUploadImage={canUpdate}
             canViewProductCost={canViewProductCost}
+            tags={tags}
+            canCreateTag={canCreate || canUpdate}
+            canUpdateTag={canUpdate}
+            canDeleteTag={canDelete}
           />
         </ProductFormModal>
       ) : null}
@@ -2435,6 +2835,10 @@ export function ProductWorkspace({
             onCancel={() => requestCloseForm(selectedProductHasUnsavedChanges)}
             canUploadImage={canUpdate}
             canViewProductCost={canViewProductCost}
+            tags={tags}
+            canCreateTag={canCreate || canUpdate}
+            canUpdateTag={canUpdate}
+            canDeleteTag={canDelete}
           />
         </ProductFormModal>
       ) : null}

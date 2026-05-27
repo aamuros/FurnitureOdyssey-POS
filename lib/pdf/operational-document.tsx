@@ -10,6 +10,7 @@ import {
   DreamHomePreparedBy
 } from "@/lib/pdf/dream-home-layout";
 import { formatDate, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
+import { PdfDocumentTermsBlockView, PdfPaymentTermsBlockView } from "@/lib/pdf/payment-terms-block";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
 const { accent, background, dark, muted, border, softFill } = dreamHomeColors;
@@ -421,23 +422,39 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           ) : null}
 
           {isInvoice ? (
-            <View style={styles.policyAndSignatureBlock} wrap={false}>
-              <DreamHomePolicies compact />
+            <View style={styles.policyAndSignatureBlock} wrap={!data.paymentTermsBlock ? false : undefined}>
+              {data.paymentTermsBlock ? (
+                <PdfPaymentTermsBlockView terms={data.paymentTermsBlock} compact />
+              ) : (
+                <DreamHomePolicies compact />
+              )}
               <DreamHomePreparedBy />
             </View>
           ) : null}
 
           {isInvoice ? null : (
             <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms}>
-              <Text style={styles.sectionTitle}>
-                {isDeliveryReceipt ? "TERMS & CONDITION:" : isPaymentReceipt ? "Note:" : "Terms:"}
-              </Text>
-              {(isDeliveryReceipt ? deliveryReceiptTerms : isPaymentReceipt ? paymentReceiptTerms : standardTerms).map((term) => (
-                <View key={term} style={styles.termRow}>
-                  <Text style={styles.bullet}>-</Text>
-                  <Text>{term}</Text>
-                </View>
-              ))}
+              {isFinalSummary ? (
+                data.paymentTermsBlock ? (
+                  <PdfPaymentTermsBlockView terms={data.paymentTermsBlock} compact />
+                ) : (
+                  <FallbackTerms title="Terms:" lines={standardTerms} />
+                )
+              ) : isPaymentReceipt ? (
+                <PdfDocumentTermsBlockView
+                  terms={data.documentTermsBlock}
+                  fallbackTitle="Note:"
+                  fallbackLines={paymentReceiptTerms}
+                />
+              ) : isDeliveryReceipt ? (
+                <PdfDocumentTermsBlockView
+                  terms={data.documentTermsBlock}
+                  fallbackTitle="TERMS & CONDITION:"
+                  fallbackLines={deliveryReceiptTerms}
+                />
+              ) : (
+                <FallbackTerms title="Terms:" lines={standardTerms} />
+              )}
               <View style={styles.footer}>
                 <Text>{footerNote(data)}</Text>
               </View>
@@ -450,6 +467,20 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
         {data.signatureRequired && isDeliveryReceipt ? <SignatureBlock /> : null}
       </Page>
     </Document>
+  );
+}
+
+function FallbackTerms({ title, lines }: { title: string; lines: string[] }) {
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {lines.map((term) => (
+        <View key={term} style={styles.termRow}>
+          <Text style={styles.bullet}>-</Text>
+          <Text>{term}</Text>
+        </View>
+      ))}
+    </>
   );
 }
 

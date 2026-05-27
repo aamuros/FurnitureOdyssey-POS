@@ -3,7 +3,9 @@
 import { Prisma } from "@prisma/client";
 import type { ProductStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
-import { requirePermission } from "@/lib/auth/server";
+import { redirect } from "next/navigation";
+import { hasPermission } from "@/lib/auth/permissions";
+import { requireActiveUser, requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
 import { uploadFileToCloudinary } from "@/lib/uploads/server";
 import {
@@ -14,6 +16,8 @@ import {
 type ActionState = {
   ok: boolean;
   message: string;
+  tagId?: string;
+  tagName?: string;
 };
 
 function parseWebsitePages(formData: FormData) {
@@ -21,6 +25,79 @@ function parseWebsitePages(formData: FormData) {
     .getAll("websitePages")
     .map((value) => String(value))
     .filter(Boolean);
+}
+
+function parseTagIds(formData: FormData) {
+  return Array.from(
+    new Set(
+      formData
+        .getAll("tagIds")
+        .map((value) => String(value).trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+async function validateTagIds(tagIds: string[]) {
+  if (tagIds.length === 0) {
+    return true;
+  }
+
+  const count = await prisma.tag.count({
+    where: {
+      id: {
+        in: tagIds
+      }
+    }
+  });
+
+  return count === tagIds.length;
+}
+
+function slugifyTagId(name: string) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function uniqueTagId(name: string) {
+  const baseId = slugifyTagId(name) || "tag";
+  let candidate = baseId;
+  let suffix = 2;
+
+  while (await prisma.tag.findUnique({ where: { id: candidate }, select: { id: true } })) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
+function tagNameFromForm(formData: FormData) {
+  return String(formData.get("name") ?? "").trim();
+}
+
+function tagConflictMessage(error: unknown) {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  ) {
+    return "A tag with this name already exists.";
+  }
+
+  return null;
+}
+
+async function requireProductCreateOrUpdate() {
+  const actor = await requireActiveUser();
+
+  if (!hasPermission(actor, "PRODUCTS", "CREATE") && !hasPermission(actor, "PRODUCTS", "UPDATE")) {
+    redirect("/dashboard?error=forbidden");
+  }
+
+  return actor;
 }
 
 type ImageManifestItem = {
@@ -201,6 +278,7 @@ export async function createProductAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("PRODUCTS", "CREATE");
   const websitePages = formData.has("websitePagesMode") ? parseWebsitePages(formData) : [];
+  const tagIds = parseTagIds(formData);
   const imageManifest = normalizePrimaryImages(parseImageManifest(formData.get("imageManifest")));
   const colorVariantManifest = parseColorVariantManifest(formData.get("colorVariantManifest"));
   const parsed = createProductSchema.safeParse({
@@ -218,6 +296,7 @@ export async function createProductAction(
     websiteSortOrder: formData.get("websiteSortOrder"),
     websitePages,
     websitePageSortOrders: parseWebsitePageSortOrders(formData, websitePages),
+    tagIds,
     images: []
   });
 
@@ -225,6 +304,13 @@ export async function createProductAction(
     return {
       ok: false,
       message: productValidationMessage(parsed.error)
+    };
+  }
+
+  if (!(await validateTagIds(tagIds))) {
+    return {
+      ok: false,
+      message: "Some selected tags no longer exist. Refresh and try again."
     };
   }
 
@@ -248,6 +334,14 @@ export async function createProductAction(
           internalNotes: parsed.data.internalNotes,
           createdById: actor.id,
           updatedById: actor.id,
+          tagAssignments: parsed.data.tagIds.length
+            ? {
+                createMany: {
+                  data: parsed.data.tagIds.map((tagId) => ({ tagId })),
+                  skipDuplicates: true
+                }
+              }
+            : undefined,
           images: undefined
         }
       });
@@ -376,6 +470,7 @@ export async function updateProductAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("PRODUCTS", "UPDATE");
   const productId = String(formData.get("productId") ?? "");
+  const tagIds = parseTagIds(formData);
   const imageManifest = normalizePrimaryImages(parseImageManifest(formData.get("imageManifest")));
   const colorVariantManifest = parseColorVariantManifest(formData.get("colorVariantManifest"));
 
@@ -435,6 +530,7 @@ export async function updateProductAction(
     websitePageSortOrders: formData.has("websitePagesMode")
       ? parseWebsitePageSortOrders(formData, websitePages)
       : existing.websitePageSortOrders,
+    tagIds,
     images: []
   });
 
@@ -442,6 +538,13 @@ export async function updateProductAction(
     return {
       ok: false,
       message: productValidationMessage(parsed.error)
+    };
+  }
+
+  if (!(await validateTagIds(tagIds))) {
+    return {
+      ok: false,
+      message: "Some selected tags no longer exist. Refresh and try again."
     };
   }
 
@@ -493,6 +596,22 @@ export async function updateProductAction(
         },
         data
       });
+
+      await tx.productTagAssignment.deleteMany({
+        where: {
+          productId: updated.id
+        }
+      });
+
+      if (parsed.data.tagIds.length) {
+        await tx.productTagAssignment.createMany({
+          data: parsed.data.tagIds.map((tagId) => ({
+            productId: updated.id,
+            tagId
+          })),
+          skipDuplicates: true
+        });
+      }
 
       await tx.activityLog.create({
         data: {
@@ -690,6 +809,218 @@ export async function updateProductAction(
       message: uniqueCodeMessage(error) ?? "Unable to update product."
     };
   }
+}
+
+export async function createTagAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireProductCreateOrUpdate();
+  const name = tagNameFromForm(formData);
+
+  if (!name) {
+    return {
+      ok: false,
+      message: "Tag name is required."
+    };
+  }
+
+  if (name.length > 60) {
+    return {
+      ok: false,
+      message: "Tag name must be 60 characters or fewer."
+    };
+  }
+
+  try {
+    const tag = await prisma.$transaction(async (tx) => {
+      const created = await tx.tag.create({
+        data: {
+          id: await uniqueTagId(name),
+          name
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "PRODUCT_UPDATED",
+          actorId: actor.id,
+          summary: `Created catalogue tag ${created.name}.`,
+          metadata: {
+            tagId: created.id,
+            tagName: created.name,
+            tagAction: "created"
+          }
+        }
+      });
+
+      return created;
+    });
+
+    revalidatePath("/products");
+    revalidatePath("/catalogue");
+
+    return {
+      ok: true,
+      message: `Tag created: ${tag.name}.`,
+      tagId: tag.id,
+      tagName: tag.name
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: tagConflictMessage(error) ?? "Unable to create tag."
+    };
+  }
+}
+
+export async function updateTagAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "UPDATE");
+  const tagId = String(formData.get("tagId") ?? "").trim();
+  const name = tagNameFromForm(formData);
+
+  if (!tagId) {
+    return {
+      ok: false,
+      message: "Choose a tag to update."
+    };
+  }
+
+  if (!name) {
+    return {
+      ok: false,
+      message: "Tag name is required."
+    };
+  }
+
+  if (name.length > 60) {
+    return {
+      ok: false,
+      message: "Tag name must be 60 characters or fewer."
+    };
+  }
+
+  try {
+    const tag = await prisma.$transaction(async (tx) => {
+      const updated = await tx.tag.update({
+        where: {
+          id: tagId
+        },
+        data: {
+          name
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "PRODUCT_UPDATED",
+          actorId: actor.id,
+          summary: `Renamed catalogue tag ${updated.name}.`,
+          metadata: {
+            tagId: updated.id,
+            tagName: updated.name,
+            tagAction: "updated"
+          }
+        }
+      });
+
+      return updated;
+    });
+
+    revalidatePath("/products");
+    revalidatePath("/catalogue");
+
+    return {
+      ok: true,
+      message: `Tag updated: ${tag.name}.`,
+      tagId: tag.id,
+      tagName: tag.name
+    };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return {
+        ok: false,
+        message: "Tag was not found."
+      };
+    }
+
+    return {
+      ok: false,
+      message: tagConflictMessage(error) ?? "Unable to update tag."
+    };
+  }
+}
+
+export async function deleteTagAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("PRODUCTS", "DELETE");
+  const tagId = String(formData.get("tagId") ?? "").trim();
+
+  if (!tagId) {
+    return {
+      ok: false,
+      message: "Choose a tag to delete."
+    };
+  }
+
+  const tag = await prisma.tag.findUnique({
+    where: {
+      id: tagId
+    },
+    select: {
+      id: true,
+      name: true,
+      _count: {
+        select: {
+          products: true
+        }
+      }
+    }
+  });
+
+  if (!tag) {
+    return {
+      ok: false,
+      message: "Tag was not found."
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.activityLog.create({
+      data: {
+        action: "PRODUCT_UPDATED",
+        actorId: actor.id,
+        summary: `Deleted catalogue tag ${tag.name}.`,
+        metadata: {
+          tagId: tag.id,
+          tagName: tag.name,
+          tagAction: "deleted",
+          assignedProductCount: tag._count.products
+        }
+      }
+    });
+
+    await tx.tag.delete({
+      where: {
+        id: tag.id
+      }
+    });
+  });
+
+  revalidatePath("/products");
+  revalidatePath("/catalogue");
+
+  return {
+    ok: true,
+    message: "Tag deleted and removed from assigned products.",
+    tagId: tag.id,
+    tagName: tag.name
+  };
 }
 
 export async function deleteProductAction(

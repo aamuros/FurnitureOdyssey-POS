@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import Link from "next/link";
 import type { DeliveryStatus } from "@prisma/client";
@@ -44,6 +44,7 @@ import {
 } from "@/lib/orders/status-labels";
 import type { StatusTone } from "@/lib/orders/status-labels";
 import { getAllowedNextStatuses } from "@/lib/status-transitions";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
@@ -849,17 +850,6 @@ function DeliveryTimePicker({
   const [minute, setMinute] = useState("00");
   const [period, setPeriod] = useState<"AM" | "PM">("AM");
   const containerRef = useRef<HTMLDivElement>(null);
-  const hourListRef = useRef<HTMLDivElement>(null);
-  const minuteListRef = useRef<HTMLDivElement>(null);
-
-  const scrollToSelected = useCallback(() => {
-    requestAnimationFrame(() => {
-      const hourEl = hourListRef.current?.querySelector("[data-selected=\"true\"]") as HTMLElement | null;
-      const minuteEl = minuteListRef.current?.querySelector("[data-selected=\"true\"]") as HTMLElement | null;
-      hourEl?.scrollIntoView({ block: "center" });
-      minuteEl?.scrollIntoView({ block: "center" });
-    });
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -876,9 +866,7 @@ function DeliveryTimePicker({
       setMinute("00");
       setPeriod("AM");
     }
-
-    scrollToSelected();
-  }, [open, value, scrollToSelected]);
+  }, [open, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -930,18 +918,18 @@ function DeliveryTimePicker({
             <div className="border-r border-border px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Min</div>
             <div className="px-1 py-1.5 text-center text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Period</div>
           </div>
-          <div className="grid grid-cols-3 gap-0">
-            <div ref={hourListRef} className="scrollbar-thin max-h-[168px] overflow-y-auto border-r border-border">
+          <div className="grid h-[168px] grid-cols-3 gap-0">
+            <div className="scrollbar-thin h-[168px] overflow-y-auto border-r border-border">
               {HOUR_OPTIONS.map((h) => (
                 <button
                   key={h}
                   type="button"
                   data-selected={h === hour}
-                  onClick={() => { setHour(h); scrollToSelected(); }}
+                  onClick={() => setHour(h)}
                   className={cn(
-                    "w-full py-2 text-center text-sm font-medium transition-colors",
+                    "h-10 w-full border border-transparent text-center text-sm font-medium leading-none transition-colors",
                     h === hour
-                      ? "bg-primary/10 text-primary"
+                      ? "border-primary/30 bg-primary/10 text-primary"
                       : "text-foreground hover:bg-muted/50"
                   )}
                 >
@@ -949,17 +937,17 @@ function DeliveryTimePicker({
                 </button>
               ))}
             </div>
-            <div ref={minuteListRef} className="scrollbar-thin max-h-[168px] overflow-y-auto border-r border-border">
+            <div className="scrollbar-thin h-[168px] overflow-y-auto border-r border-border">
               {MINUTE_OPTIONS.map((m) => (
                 <button
                   key={m}
                   type="button"
                   data-selected={m === minute}
-                  onClick={() => { setMinute(m); scrollToSelected(); }}
+                  onClick={() => setMinute(m)}
                   className={cn(
-                    "w-full py-2 text-center text-sm font-medium transition-colors",
+                    "h-10 w-full border border-transparent text-center text-sm font-medium leading-none transition-colors",
                     m === minute
-                      ? "bg-primary/10 text-primary"
+                      ? "border-primary/30 bg-primary/10 text-primary"
                       : "text-foreground hover:bg-muted/50"
                   )}
                 >
@@ -967,16 +955,16 @@ function DeliveryTimePicker({
                 </button>
               ))}
             </div>
-            <div className="flex flex-col">
+            <div className="flex h-[168px] flex-col">
               {(["AM", "PM"] as const).map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setPeriod(p)}
                   className={cn(
-                    "flex-1 text-center text-sm font-semibold transition-colors",
+                    "h-[84px] border border-transparent text-center text-sm font-semibold leading-none transition-colors",
                     p === period
-                      ? "bg-primary/10 text-primary"
+                      ? "border-primary/30 bg-primary/10 text-primary"
                       : "text-foreground hover:bg-muted/50"
                   )}
                 >
@@ -2222,6 +2210,7 @@ export function NewOrderLauncher({
   const [productOptions, setProductOptions] = useState<OptionLoadState<ProductOption>>(
     () => emptyOptionState()
   );
+  useBodyScrollLock(open);
 
   if (!canCreateOrders) {
     return null;
@@ -4181,6 +4170,7 @@ function OrderDetailPanel({
     canCreateDeliveries,
     canUpdateDeliveries
   });
+  useBodyScrollLock(true);
 
   useEffect(() => {
     if (!detailPersistence.restored || hasAppliedDetailDraft.current) {

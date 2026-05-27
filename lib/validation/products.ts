@@ -63,6 +63,7 @@ const productFields = {
   websiteSortOrder: optionalInt,
   websitePages: z.array(websitePage).default([]),
   websitePageSortOrders,
+  tagIds: z.array(z.string().trim().min(1)).default([]),
   images: z.array(productImageSchema).default([])
 };
 

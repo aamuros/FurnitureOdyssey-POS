@@ -5,7 +5,8 @@ import { defaultPdfLogoPath, defaultPdfLogoSource } from "@/lib/pdf/assets";
 import { companyForPdf } from "@/lib/pdf/data";
 import { formatMoney, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import { renderOperationalPdf, renderQuotationPdf } from "@/lib/pdf/render";
-import { defaultAppSettings } from "@/lib/settings/get-settings";
+import { defaultAppSettings, defaultPaymentSettings } from "@/lib/settings/get-settings";
+import { paymentSettingsSchema } from "@/lib/validation/settings";
 import type { OperationalPdfData } from "@/lib/pdf/types";
 
 test("default PDF logo resolves to a local tracked image asset", () => {
@@ -41,6 +42,36 @@ test("PDF company data suppresses placeholder settings", () => {
   assert.equal(company.paymentInstructions, null);
 });
 
+test("default payment settings include configurable PDF terms", () => {
+  assert.equal(defaultPaymentSettings.pdfPaymentPolicyTitle, "Payment Policy and Delivery Options");
+  assert.match(defaultPaymentSettings.pdfPaymentHighlightNote, /within 7 days/);
+  assert.equal(defaultPaymentSettings.pdfBankDetailsTitle, "BANK DETAILS");
+  assert.match(defaultPaymentSettings.pdfPaymentReceiptTerms, /This receipt acknowledges the payment recorded/);
+  assert.match(defaultPaymentSettings.pdfDeliveryReceiptTerms, /Warranty covers factory defects only/);
+  assert.equal(defaultAppSettings.payment.pdfPaymentPolicyTitle, defaultPaymentSettings.pdfPaymentPolicyTitle);
+});
+
+test("payment settings schema accepts configurable PDF terms", () => {
+  const parsed = paymentSettingsSchema.safeParse({
+    defaultPaymentInstructions: "Pay before delivery.",
+    bankDetails: "Bank",
+    eWalletDetails: "Wallet",
+    otherPaymentNotes: "Notes",
+    mopScript: "MOP",
+    pdfPaymentPolicyTitle: "Payment Policy and Delivery Options",
+    pdfPaymentPolicyBullets: "- Down payment required\n* Balance before delivery",
+    pdfPaymentHighlightNote: "Items delivered/pickup will be considered good condition if no claim has been made within 7 days.",
+    pdfBankDetailsTitle: "BANK DETAILS",
+    pdfBankDetails: "Bank\nAccount Name\nAccount No.",
+    pdfPaymentReceiptTermsTitle: "Note:",
+    pdfPaymentReceiptTerms: defaultPaymentSettings.pdfPaymentReceiptTerms,
+    pdfDeliveryReceiptTermsTitle: "TERMS & CONDITION:",
+    pdfDeliveryReceiptTerms: defaultPaymentSettings.pdfDeliveryReceiptTerms
+  });
+
+  assert.equal(parsed.success, true);
+});
+
 test("PDF money formatting uses clean ASCII currency text without sign glyphs", () => {
   assert.equal(formatMoney(1500, "PHP"), "PHP 1,500.00");
   assert.equal(formatMoney(100, "PHP"), "PHP 100.00");
@@ -57,6 +88,8 @@ test("shared operational PDF template uses the branded stationery sections on A4
   assert.doesNotMatch(source, /<DreamHomeHeader[^>]*compact/);
   assert.match(source, /DreamHomePolicies/);
   assert.match(source, /DreamHomePreparedBy/);
+  assert.match(source, /PdfPaymentTermsBlockView/);
+  assert.match(source, /PdfDocumentTermsBlockView/);
   assert.match(source, /Billed To:/);
   assert.match(source, /documentDate/);
   assert.match(source, /BUYER\/RECEIVER SIGNATURE AND DATE/);
@@ -149,7 +182,7 @@ test("Dream Home quotation PDF uses the uploaded logo path and does not render a
   assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
 });
 
-test("delivery receipt uses the required terms and conditions copy", () => {
+test("delivery receipt keeps default terms and signature behavior available", () => {
   const source = readFileSync("lib/pdf/operational-document.tsx", "utf8");
 
   assert.match(source, /const deliveryReceiptTerms = \[/);
@@ -163,7 +196,48 @@ test("delivery receipt uses the required terms and conditions copy", () => {
     source,
     /Inspection: The terms may require the buyer to inspect the goods immediately upon receipt and to note any damages or discrepancies on the receipt\./
   );
-  assert.match(source, /isDeliveryReceipt \? deliveryReceiptTerms : isPaymentReceipt \? paymentReceiptTerms : standardTerms/);
+  assert.match(source, /PdfDocumentTermsBlockView/);
+  assert.match(source, /fallbackLines=\{deliveryReceiptTerms\}/);
+  assert.match(source, /BUYER\/RECEIVER SIGNATURE AND DATE/);
+  assert.match(source, /I HEREBY ACKNOWLEDGE/);
+});
+
+test("payment receipt note text remains available as the default configurable setting", () => {
+  assert.match(defaultPaymentSettings.pdfPaymentReceiptTerms, /This receipt acknowledges the payment recorded/);
+  assert.match(defaultPaymentSettings.pdfPaymentReceiptTerms, /Please keep this document for your reference/);
+});
+
+test("PDF data supports configurable payment and document terms blocks", () => {
+  const quotation = sampleQuotationData();
+  const receipt: OperationalPdfData = {
+    ...sampleQuotationData(),
+    kind: "payment-receipt",
+    title: "Payment Receipt",
+    documentTermsBlock: {
+      title: "Note:",
+      lines: ["Recorded payment"]
+    }
+  };
+
+  quotation.paymentTermsBlock = {
+    policyTitle: "Payment Policy and Delivery Options",
+    policyBullets: ["Down payment required"],
+    highlightNote: "Red notice",
+    bankDetailsTitle: "BANK DETAILS",
+    bankDetailsLines: ["Bank line"]
+  };
+
+  assert.equal(quotation.paymentTermsBlock.policyBullets[0], "Down payment required");
+  assert.equal(receipt.documentTermsBlock?.title, "Note:");
+});
+
+test("quotation layout uses configurable terms without removing prepared by", () => {
+  const source = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
+
+  assert.match(source, /PdfPaymentTermsBlockView/);
+  assert.match(source, /data\.paymentTermsBlock \? <PdfPaymentTermsBlockView/);
+  assert.match(source, /: <DreamHomePolicies \/>/);
+  assert.match(source, /<DreamHomePreparedBy \/>/);
 });
 
 test("quotation PDF renders customer address between issued row and item table only when present", () => {

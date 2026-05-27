@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
+import { useBodyScrollLock } from "@/lib/use-body-scroll-lock";
 import { cn } from "@/lib/utils";
 
 type AdminModalProps = {
@@ -14,28 +15,6 @@ type AdminModalProps = {
   onBackdropMouseDown?: () => void;
 };
 
-let bodyScrollLockCount = 0;
-let previousBodyOverflow = "";
-
-function useBodyScrollLock() {
-  useEffect(() => {
-    if (bodyScrollLockCount === 0) {
-      previousBodyOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-    }
-
-    bodyScrollLockCount += 1;
-
-    return () => {
-      bodyScrollLockCount = Math.max(0, bodyScrollLockCount - 1);
-
-      if (bodyScrollLockCount === 0) {
-        document.body.style.overflow = previousBodyOverflow;
-      }
-    };
-  }, []);
-}
-
 export function AdminModal({
   children,
   className,
@@ -45,7 +24,7 @@ export function AdminModal({
   onBackdropMouseDown
 }: AdminModalProps) {
   const [mounted, setMounted] = useState(false);
-  useBodyScrollLock();
+  useBodyScrollLock(true);
 
   useEffect(() => {
     setMounted(true);

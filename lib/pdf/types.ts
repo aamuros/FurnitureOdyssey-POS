@@ -24,6 +24,19 @@ export type PdfItemRow = {
   imageUrl?: string | null;
 };
 
+export type PdfPaymentTermsBlock = {
+  policyTitle?: string | null;
+  policyBullets: string[];
+  highlightNote?: string | null;
+  bankDetailsTitle?: string | null;
+  bankDetailsLines: string[];
+};
+
+export type PdfDocumentTermsBlock = {
+  title?: string | null;
+  lines: string[];
+};
+
 export type OperationalPdfData = {
   kind: OperationalPdfKind;
   title: string;
@@ -61,4 +74,6 @@ export type OperationalPdfData = {
   paymentInstructions?: string | null;
   footerNote?: string | null;
   signatureRequired?: boolean;
+  paymentTermsBlock?: PdfPaymentTermsBlock | null;
+  documentTermsBlock?: PdfDocumentTermsBlock | null;
 };

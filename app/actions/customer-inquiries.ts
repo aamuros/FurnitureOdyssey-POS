@@ -13,6 +13,7 @@ import { requirePermission } from "@/lib/auth/server";
 import {
   createCustomerSchema,
   createInquirySchema,
+  updateCustomerSchema,
   type CreateCustomerInput
 } from "@/lib/validation/customer-inquiries";
 
@@ -155,6 +156,196 @@ export async function createCustomerAction(
   return {
     ok: true,
     message: `Customer saved: ${customer.displayName}.`,
+    customerId: customer.id,
+    customerDisplayName: customer.displayName
+  };
+}
+
+export async function updateCustomerAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("CUSTOMERS", "UPDATE");
+  const parsed = updateCustomerSchema.safeParse({
+    customerId: formData.get("customerId"),
+    customerType: formData.get("customerType"),
+    displayName: formData.get("displayName"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
+    companyName: formData.get("companyName"),
+    contactPersonName: formData.get("contactPersonName"),
+    source: formData.get("source") || undefined,
+    assignedStaffId: formData.get("assignedStaffId"),
+    notes: formData.get("notes"),
+    contacts: parseContacts(formData.get("contacts"))
+  });
+
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: friendlyValidationMessage(
+        parsed.error.issues[0]?.message,
+        "Invalid customer details."
+      )
+    };
+  }
+
+  const customer = await prisma.$transaction(async (tx) => {
+    const existing = await tx.customer.findUnique({
+      where: {
+        id: parsed.data.customerId
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (!existing) {
+      throw new Error("Customer was not found.");
+    }
+
+    const contacts = normalizedContacts(parsed.data);
+    await tx.customerContact.deleteMany({
+      where: {
+        customerId: parsed.data.customerId
+      }
+    });
+
+    const updated = await tx.customer.update({
+      where: {
+        id: parsed.data.customerId
+      },
+      data: {
+        customerType: parsed.data.customerType as CustomerType,
+        displayName: buildDisplayName(parsed.data),
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        companyName: parsed.data.companyName,
+        contactPersonName: parsed.data.contactPersonName,
+        source: parsed.data.source as InquirySource | undefined,
+        assignedStaffId: parsed.data.assignedStaffId,
+        notes: parsed.data.notes,
+        contacts: contacts.length
+          ? {
+              createMany: {
+                data: contacts
+              }
+            }
+          : undefined
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "CUSTOMER_UPDATED",
+        actorId: actor.id,
+        summary: `Updated customer record for ${updated.displayName}.`,
+        metadata: {
+          customerId: updated.id,
+          customerType: updated.customerType,
+          source: updated.source ?? ""
+        }
+      }
+    });
+
+    return updated;
+  }).catch((error) => {
+    if (error instanceof Error && error.message === "Customer was not found.") {
+      return null;
+    }
+
+    throw error;
+  });
+
+  if (!customer) {
+    return {
+      ok: false,
+      message: "Customer was not found."
+    };
+  }
+
+  revalidatePath("/customers");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
+  return {
+    ok: true,
+    message: `Customer updated: ${customer.displayName}.`,
+    customerId: customer.id,
+    customerDisplayName: customer.displayName
+  };
+}
+
+export async function deleteCustomerAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("CUSTOMERS", "DELETE");
+  const customerId = String(formData.get("customerId") ?? "");
+
+  if (!customerId) {
+    return {
+      ok: false,
+      message: "Choose a customer."
+    };
+  }
+
+  const customer = await prisma.customer.findUnique({
+    where: {
+      id: customerId
+    },
+    select: {
+      id: true,
+      displayName: true,
+      customerType: true,
+      source: true,
+      archivedAt: true
+    }
+  });
+
+  if (!customer) {
+    return {
+      ok: false,
+      message: "Customer was not found."
+    };
+  }
+
+  if (customer.archivedAt) {
+    return {
+      ok: false,
+      message: `${customer.displayName} is already deleted.`
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.customer.update({
+      where: {
+        id: customer.id
+      },
+      data: {
+        archivedAt: new Date()
+      }
+    });
+
+    await tx.activityLog.create({
+      data: {
+        action: "CUSTOMER_UPDATED",
+        actorId: actor.id,
+        summary: `Archived customer record for ${customer.displayName}.`,
+        metadata: {
+          customerId: customer.id,
+          customerType: customer.customerType,
+          source: customer.source ?? ""
+        }
+      }
+    });
+  });
+
+  revalidatePath("/customers");
+  revalidatePath("/quotations");
+  revalidatePath("/orders");
+  return {
+    ok: true,
+    message: `Customer deleted: ${customer.displayName}.`,
     customerId: customer.id,
     customerDisplayName: customer.displayName
   };

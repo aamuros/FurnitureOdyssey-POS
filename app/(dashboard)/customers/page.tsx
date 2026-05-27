@@ -58,6 +58,8 @@ function customersHref(
 export default async function CustomersPage({ searchParams }: CustomersPageProps) {
   const user = await requirePermission("CUSTOMERS", "VIEW");
   const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
+  const canUpdateCustomers = hasPermission(user, "CUSTOMERS", "UPDATE");
+  const canDeleteCustomers = hasPermission(user, "CUSTOMERS", "DELETE");
   const params = (await searchParams) ?? {};
   const query = params.q?.trim();
   const customerType =
@@ -119,6 +121,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         companyName: true,
         contactPersonName: true,
         source: true,
+        notes: true,
+        assignedStaffId: true,
         updatedAt: true,
         contacts: {
           orderBy: [
@@ -129,7 +133,14 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
               createdAt: "asc"
             }
           ],
-          take: 3
+          select: {
+            id: true,
+            type: true,
+            label: true,
+            value: true,
+            isPrimary: true,
+            notes: true
+          }
         },
         assignedStaff: {
           select: {
@@ -218,6 +229,8 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
       </form>
       <CustomerWorkspace
         canCreateCustomers={canCreateCustomers}
+        canUpdateCustomers={canUpdateCustomers}
+        canDeleteCustomers={canDeleteCustomers}
         persistenceUserKey={user.id}
         customers={customers.map((customer) => ({
           id: customer.id,
@@ -229,8 +242,18 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
             ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
             : null,
           contactValues: customer.contacts.map((contact) => contact.value),
+          contacts: customer.contacts.map((contact) => ({
+            id: contact.id,
+            type: contact.type,
+            label: contact.label,
+            value: contact.value,
+            isPrimary: contact.isPrimary,
+            notes: contact.notes
+          })),
           source: customer.source ?? customer.inquiries[0]?.source ?? null,
           assignedStaff: customer.assignedStaff?.displayName ?? null,
+          assignedStaffId: customer.assignedStaffId,
+          notes: customer.notes,
           updatedAt: formatDate(customer.updatedAt)
         }))}
       />
