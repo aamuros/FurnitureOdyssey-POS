@@ -24,6 +24,7 @@ export type ReportSearchParams = {
   paymentStatus?: string;
   deliveryStatus?: string;
   staffId?: string;
+  range?: string;
   from?: string;
   to?: string;
   hasBalance?: string;

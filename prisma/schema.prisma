@@ -877,6 +877,7 @@ model Delivery {
   recipientName             String?
   recipientPhone            String?
   deliveryNotes             String?
+  pdfDetails                Json?
   internalNotes             String?
   assignedStaffId           String?               @db.Uuid
   googleCalendarEventId     String?

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
-import { NewOrderLauncher, OrderWorkspace } from "@/components/dashboard/order-workspace";
+import { OrderWorkspace } from "@/components/dashboard/order-workspace";
 import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,7 @@ type OrderListDelivery = {
   status: string;
   scheduledDate: Date | null;
   scheduledTimeWindow: string | null;
+  pdfDetails: unknown;
   deliveryProviderType: string | null;
   deliveryProviderName: string | null;
   deliveryProviderReference: string | null;
@@ -260,6 +261,56 @@ function addressLine(value: unknown) {
   ];
 
   return parts.filter(Boolean).join(" · ") || null;
+}
+
+function normalizePdfDetailsRows(
+  value: unknown,
+  fallbackRows: Array<{ id: string; label: string; value: string }>
+) {
+  if (!Array.isArray(value)) {
+    return fallbackRows;
+  }
+
+  const rows = value
+    .slice(0, 12)
+    .map((row, index) => {
+      if (!row || typeof row !== "object") {
+        return null;
+      }
+
+      const record = row as Record<string, unknown>;
+      const label = typeof record.label === "string" ? record.label.trim().slice(0, 80) : "";
+      const rowValue = typeof record.value === "string" ? record.value.trim().slice(0, 200) : "";
+
+      if (!label || !rowValue) {
+        return null;
+      }
+
+      return {
+        id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `row-${index + 1}`,
+        label,
+        value: rowValue
+      };
+    })
+    .filter((row): row is { id: string; label: string; value: string } => Boolean(row));
+
+  return rows.length ? rows : fallbackRows;
+}
+
+function defaultDeliveryPdfDetails(
+  orderNumber: string | null,
+  delivery: Pick<OrderListDelivery, "deliveryNumber" | "scheduledDate" | "scheduledTimeWindow">
+) {
+  return [
+    { id: "row-1", label: "Order", value: orderNumber ?? "Not assigned" },
+    {
+      id: "row-2",
+      label: "Delivery receipt number",
+      value: delivery.deliveryNumber ?? "Auto-generated after saving/export"
+    },
+    { id: "row-3", label: "Scheduled date", value: formatDate(delivery.scheduledDate) ?? "Not scheduled" },
+    { id: "row-4", label: "Time window", value: delivery.scheduledTimeWindow ?? "Not set" }
+  ];
 }
 
 function dateRangeWhere(from: Date | undefined, to: Date | undefined) {
@@ -596,8 +647,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const requestedView = enumValue(orderViews, params.view) ?? legacyView ?? "needsAction";
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
 
-  const canCreateOrders = hasPermission(user, "ORDERS", "CREATE");
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
+  const canDeleteOrders = hasPermission(user, "ORDERS", "DELETE");
   const canViewPayments = hasPermission(user, "PAYMENTS", "VIEW");
   const canCreatePayments = hasPermission(user, "PAYMENTS", "CREATE");
   const canViewDeliveries = hasPermission(user, "DELIVERIES", "VIEW");
@@ -858,6 +909,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 status: true,
                 scheduledDate: true,
                 scheduledTimeWindow: true,
+                pdfDetails: true,
                 deliveryProviderType: true,
                 deliveryProviderName: true,
                 deliveryProviderReference: true,
@@ -957,12 +1009,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       <PageHeader
         title="Orders"
         description="Scan open orders, balances, delivery schedules, documents, and the next staff action."
-      >
-        <NewOrderLauncher
-          canCreateOrders={canCreateOrders}
-          canViewPayments={canViewPayments}
-        />
-      </PageHeader>
+      />
       <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_auto]">
           <DynamicSearchInput
@@ -1077,6 +1124,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       </form>
       <OrderWorkspace
         canUpdateOrders={canUpdateOrders}
+        canDeleteOrders={canDeleteOrders}
         canViewPayments={canViewPayments}
         canCreatePayments={canCreatePayments}
         canViewDeliveries={canViewDeliveries}
@@ -1235,6 +1283,10 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
               deliveryProviderReference: delivery.deliveryProviderReference,
               recipientName: delivery.recipientName,
               recipientPhone: delivery.recipientPhone,
+              pdfDetails: normalizePdfDetailsRows(
+                delivery.pdfDetails,
+                defaultDeliveryPdfDetails(order.orderNumber, delivery)
+              ),
               addressLine: addressLine(delivery.deliveryAddressSnapshot),
               receiptGenerated: delivery.documents.length > 0,
               itemCount: delivery._count.items,

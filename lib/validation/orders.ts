@@ -1,17 +1,26 @@
 import { z } from "zod";
 import { quotationImageSchema } from "@/lib/validation/quotations";
 
-const optionalText = z
-  .string()
-  .trim()
+const nullableStringInput = z.preprocess((value) => {
+  if (value == null) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return String(value);
+}, z.string());
+
+const optionalText = nullableStringInput
+  .pipe(z.string().trim())
   .transform((value) => (value.length ? value : undefined))
   .optional();
 
 const optionalTextMax = (max: number, message: string) =>
-  z
-    .string()
-    .trim()
-    .max(max, message)
+  nullableStringInput
+    .pipe(z.string().trim().max(max, message))
     .transform((value) => (value.length ? value : undefined))
     .optional();
 
@@ -164,6 +173,58 @@ export const deliveryItemSchema = z
     }
   });
 
+export const pdfDisplayRowSchema = z.object({
+  id: nullableStringInput.pipe(z.string().trim()).optional(),
+  label: nullableStringInput.pipe(z.string().trim().max(80, "PDF detail labels must be 80 characters or fewer.")),
+  value: nullableStringInput.pipe(z.string().trim().max(200, "PDF detail values must be 200 characters or fewer."))
+});
+
+export const pdfDetailsSchema = z
+  .preprocess((value) => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value !== "string" || !value.trim()) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, z.array(pdfDisplayRowSchema).max(12, "PDF details can include up to 12 rows."))
+  .transform((rows) =>
+    rows
+      .map((row, index) => ({
+        id: row.id?.trim() || `row-${index + 1}`,
+        label: row.label.trim(),
+        value: row.value.trim()
+      }))
+      .filter((row) => row.label || row.value)
+  )
+  .superRefine((rows, context) => {
+    rows.forEach((row, index) => {
+      if (row.value && !row.label) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PDF detail label is required when a value is entered.",
+          path: [index, "label"]
+        });
+      }
+
+      if (row.label && !row.value) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PDF detail value is required when a label is entered.",
+          path: [index, "value"]
+        });
+      }
+    });
+  });
+
 export const createDeliverySchema = z
   .object({
     orderId: z.string().uuid("Choose an order."),
@@ -182,11 +243,21 @@ export const createDeliverySchema = z
     recipientPhone: optionalText,
     deliveryAddress: optionalText,
     deliveryNotes: optionalText,
+    pdfDetails: pdfDetailsSchema.default([]),
     internalNotes: optionalText,
     items: z.array(deliveryItemSchema).min(1, "Add at least one delivery item.")
   });
 
 export const completeOrderSchema = z.object({
+  orderId: z.string().uuid("Choose an order.")
+});
+
+export const cancelOrderSchema = z.object({
+  orderId: z.string().uuid("Choose an order."),
+  cancellationReason: optionalTextMax(1000, "Cancellation reason must be 1000 characters or fewer.")
+});
+
+export const deleteOrderSchema = z.object({
   orderId: z.string().uuid("Choose an order.")
 });
 

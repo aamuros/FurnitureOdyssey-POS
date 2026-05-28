@@ -10,6 +10,12 @@ export type PdfSummaryRow = {
   value: string;
 };
 
+export type PdfDisplayRow = {
+  id?: string;
+  label: string;
+  value: string;
+};
+
 export type PdfItemRow = {
   code?: string | null;
   name: string;

@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { ReportDateRangeFilter } from "@/components/dashboard/report-date-range-filter";
 import { StatusPill } from "@/components/ui/status-pill";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
 import { cn } from "@/lib/utils";
+import { getReportDateRange } from "@/lib/reporting/date-range";
 import {
   PAGE_SIZE,
   activeDeliveryStatuses,
@@ -73,24 +75,6 @@ function labelFromEnum(value: string | null | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatSummaryDate(value: string | undefined) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return null;
-  }
-
-  const date = new Date(`${value}T00:00:00.000+08:00`);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat("en-PH", {
-    month: "long",
-    day: "numeric",
-    year: "numeric"
-  }).format(date);
 }
 
 function statusTone(status: string | null | undefined) {
@@ -263,6 +247,12 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
     canExportDocuments: hasPermission(user, "DOCUMENTS", "EXPORT")
   };
   const filterVisibility = filterVisibilityForView(view, permissions);
+  const overviewRange = getReportDateRange({
+    range: params.range,
+    from: params.from,
+    to: params.to,
+    fallback: "today"
+  });
 
   const activeQuery = filterVisibility.showSearch ? query : undefined;
   const activeStatus = filterVisibility.showStatus ? status : undefined;
@@ -270,6 +260,8 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
   const activeDeliveryStatus = filterVisibility.showDeliveryStatus ? deliveryStatus : undefined;
   const activeHasBalance = filterVisibility.showHasBalance && (hasBalance || view === "balances");
   const activeOverdueOnly = filterVisibility.showOverdueOnly && overdueOnly;
+  const activeStaffId = view === "overview" ? undefined : staffId;
+  const activeDateRange = view === "overview" ? overviewRange.dateRange : dateRange;
 
   const [staff, report] = await Promise.all([
     prisma.userProfile.findMany({
@@ -290,8 +282,8 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
       status: activeStatus,
       paymentStatus: activePaymentStatus,
       deliveryStatus: activeDeliveryStatus,
-      staffId,
-      dateRange,
+      staffId: activeStaffId,
+      dateRange: activeDateRange,
       page,
       hasBalance: activeHasBalance,
       overdueOnly: activeOverdueOnly,
@@ -335,6 +327,7 @@ export default async function SalesHistoryPage({ searchParams }: SalesHistoryPag
         staff={staff}
         filterVisibility={filterVisibility}
         selectedStaffId={staffId}
+        overviewRange={overviewRange}
         hasBalance={activeHasBalance}
         overdueOnly={activeOverdueOnly}
       />
@@ -350,6 +343,7 @@ function ReportFilters({
   staff,
   filterVisibility,
   selectedStaffId,
+  overviewRange,
   hasBalance,
   overdueOnly
 }: {
@@ -358,6 +352,7 @@ function ReportFilters({
   staff: Array<{ id: string; displayName: string }>;
   filterVisibility: FilterVisibility;
   selectedStaffId: string | undefined;
+  overviewRange: ReturnType<typeof getReportDateRange>;
   hasBalance: boolean;
   overdueOnly: boolean;
 }) {
@@ -376,6 +371,19 @@ function ReportFilters({
     params.status || params.paymentStatus || params.deliveryStatus || params.hasBalance || params.overdueOnly
   );
   const isOverview = view === "overview";
+
+  if (isOverview) {
+    return (
+      <ReportDateRangeFilter
+        pathname="/sales-history"
+        currentRange={overviewRange.range}
+        from={overviewRange.fromInput}
+        to={overviewRange.toInput}
+        preserveParams={{ view: "overview" }}
+        summary={overviewRange.label}
+      />
+    );
+  }
 
   return (
     <form className="mb-3 space-y-2.5 rounded-lg border border-border bg-panel p-3">
@@ -418,7 +426,6 @@ function ReportFilters({
           {hasActiveFilters ? "Clear" : "Reset"}
         </Link>
       </div>
-      {isOverview ? <p className="text-xs text-muted-foreground">{filterSummary(staff, selectedStaffId, params)}</p> : null}
       {hasAdvancedFilters ? (
         <details open={hasActiveAdvancedFilters} className="border-t border-border pt-2.5">
           <summary className="cursor-pointer text-xs font-semibold text-muted-foreground transition hover:text-foreground">
@@ -472,29 +479,6 @@ function ReportFilters({
       ) : null}
     </form>
   );
-}
-
-function filterSummary(
-  staff: Array<{ id: string; displayName: string }>,
-  selectedStaffId: string | undefined,
-  params: ReportSearchParams
-) {
-  const staffName = selectedStaffId
-    ? staff.find((member) => member.id === selectedStaffId)?.displayName ?? "Selected staff"
-    : "all staff";
-  const from = formatSummaryDate(params.from);
-  const to = formatSummaryDate(params.to);
-  let dateLabel = "All dates";
-
-  if (from && to) {
-    dateLabel = `${from} – ${to}`;
-  } else if (from) {
-    dateLabel = `From ${from}`;
-  } else if (to) {
-    dateLabel = `Until ${to}`;
-  }
-
-  return `Showing ${staffName} · ${dateLabel}`;
 }
 
 function searchPlaceholder(view: ReportView) {
@@ -631,6 +615,7 @@ async function getOverviewReport({
 
   const paymentDateWhere: Prisma.PaymentWhereInput = {
     receivedById: staffId,
+    status: "RECORDED",
     paymentDate: dateRange
   };
 
@@ -643,6 +628,7 @@ async function getOverviewReport({
     totalOrders,
     unfinishedOrders,
     salesTotals,
+    profitTotals,
     outstandingBalance,
     paymentCount,
     scheduledDeliveryCount
@@ -653,6 +639,23 @@ async function getOverviewReport({
       : 0,
     permissions.canViewPayments
       ? prisma.order.aggregate(overviewSalesAggregateArgs(orderDateWhere))
+      : null,
+    permissions.canViewOrders && permissions.canViewPayments
+      ? prisma.order.aggregate({
+          where: {
+            AND: [
+              orderDateWhere,
+              {
+                status: {
+                  not: "CANCELLED"
+                }
+              }
+            ]
+          },
+          _sum: {
+            grossProfitAmount: true
+          }
+        })
       : null,
     permissions.canViewPayments
       ? prisma.order.aggregate(overviewOutstandingBalanceAggregateArgs(orderDateWhere))
@@ -670,6 +673,7 @@ async function getOverviewReport({
       : 0,
   ]);
   const salesTotal = Number(salesTotals?._sum.totalAmount ?? 0);
+  const profitTotal = Number(profitTotals?._sum.grossProfitAmount ?? 0);
 
   return (
     <ReportSection
@@ -693,6 +697,12 @@ async function getOverviewReport({
             }
             helper="Customer balances still open"
             href={permissions.canViewPayments ? "/sales-history?view=balances" : undefined}
+            primary
+          />
+          <OverviewMetricCard
+            label="Profit"
+            value={permissions.canViewOrders && permissions.canViewPayments ? formatMoney(profitTotal) : "Restricted"}
+            helper="Gross profit in selected range"
             primary
           />
           <OverviewMetricCard

@@ -28,6 +28,7 @@ import type {
   OperationalPdfData,
   OperationalPdfKind,
   PdfDocumentTermsBlock,
+  PdfDisplayRow,
   PdfPaymentTermsBlock,
   PdfSummaryRow
 } from "@/lib/pdf/types";
@@ -172,6 +173,74 @@ function generatedFilename(kind: OperationalPdfKind, identifier: string) {
   const date = new Date().toISOString().slice(0, 10);
 
   return `${safeFilename(kind)}-${safeFilename(identifier)}-${date}.pdf`;
+}
+
+function normalizePdfDisplayRows(value: unknown): PdfDisplayRow[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .slice(0, 12)
+    .map((row, index) => {
+      if (!row || typeof row !== "object") {
+        return null;
+      }
+
+      const record = row as Record<string, unknown>;
+      const label = typeof record.label === "string" ? record.label.trim().slice(0, 80) : "";
+      const rowValue = typeof record.value === "string" ? record.value.trim().slice(0, 200) : "";
+
+      if (!label || !rowValue) {
+        return null;
+      }
+
+      return {
+        id: typeof record.id === "string" && record.id.trim() ? record.id.trim() : `row-${index + 1}`,
+        label,
+        value: rowValue
+      };
+    })
+    .filter((row): row is { id: string; label: string; value: string } => Boolean(row));
+}
+
+function deliveryReceiptSummaryRows({
+  pdfDetails,
+  orderNumber,
+  deliveryReceiptNumber,
+  scheduledDate,
+  scheduledTimeWindow
+}: {
+  pdfDetails: unknown;
+  orderNumber: string;
+  deliveryReceiptNumber: string;
+  scheduledDate: Date | null;
+  scheduledTimeWindow: string | null;
+}): PdfSummaryRow[] {
+  const fallbackRows = [
+    { label: "Order", value: orderNumber },
+    { label: "Delivery receipt number", value: deliveryReceiptNumber },
+    { label: "Scheduled date", value: formatDate(scheduledDate) },
+    { label: "Time window", value: fallbackText(scheduledTimeWindow) }
+  ];
+
+  if (pdfDetails == null) {
+    return fallbackRows;
+  }
+
+  if (!Array.isArray(pdfDetails)) {
+    return fallbackRows;
+  }
+
+  const rows = normalizePdfDisplayRows(pdfDetails);
+
+  return rows.map((row) => ({
+    label: row.label,
+    value:
+      row.value === "Auto-generated after saving/export"
+        ? deliveryReceiptNumber
+        : row.value
+  }));
 }
 
 function primaryImage(
@@ -632,7 +701,8 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
       },
       select: {
         id: true,
-        deliveryNumber: true
+        deliveryNumber: true,
+        pdfDetails: true
       }
     });
 
@@ -713,20 +783,13 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
         ]) ?? jsonText(delivery.order.deliveryAddressSnapshot, ["addressLine", "city", "province", "postalCode"])
     },
     summary: [
-      { label: "Order", value: orderDisplayNumber(settings, delivery.order) },
-      {
-        label: "Delivery receipt number",
-        value: deliveryReceiptNumber
-      },
-      { label: "Status", value: formatDeliveryStatus(delivery.status) },
-      { label: "Scheduled date", value: formatDate(delivery.scheduledDate) },
-      { label: "Time window", value: fallbackText(delivery.scheduledTimeWindow) },
-      { label: "Provider type", value: titleCaseLabel(delivery.deliveryProviderType) },
-      { label: "Provider", value: fallbackText(delivery.deliveryProviderName) },
-      { label: "Provider reference", value: fallbackText(delivery.deliveryProviderReference) },
-      { label: "Recipient", value: delivery.recipientName ?? delivery.order.customerDisplayNameSnapshot },
-      { label: "Recipient phone", value: fallbackText(delivery.recipientPhone) },
-      ...salesWorkflowRows(delivery.order)
+      ...deliveryReceiptSummaryRows({
+        pdfDetails: delivery.pdfDetails,
+        orderNumber: orderDisplayNumber(settings, delivery.order),
+        deliveryReceiptNumber,
+        scheduledDate: delivery.scheduledDate,
+        scheduledTimeWindow: delivery.scheduledTimeWindow
+      })
     ],
     items: delivery.items.map((item) => ({
       code: item.orderItem.snapshotProductCode,

@@ -94,6 +94,9 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1
   },
+  deliveryReceiptContent: {
+    flexGrow: 0
+  },
   referenceBlock: {
     marginTop: 4,
     marginBottom: 7,
@@ -132,6 +135,45 @@ const styles = StyleSheet.create({
   compactValue: {
     width: "69%",
     fontSize: 7.5
+  },
+  deliveryDetailsGrid: {
+    display: "flex",
+    flexDirection: "row",
+    gap: 10
+  },
+  deliveryDetailsRows: {
+    width: "66%"
+  },
+  deliveryDetailsRow: {
+    display: "flex",
+    flexDirection: "row",
+    paddingVertical: 1.5
+  },
+  deliveryDetailsLabel: {
+    width: "46%",
+    paddingRight: 6,
+    color: muted,
+    fontSize: 7.5
+  },
+  deliveryDetailsValue: {
+    width: "54%",
+    fontSize: 7.5
+  },
+  deliveryDetailsNotes: {
+    width: "34%",
+    borderLeft: `1px solid ${border}`,
+    paddingLeft: 8
+  },
+  deliveryDetailsNotesTitle: {
+    marginBottom: 2,
+    fontSize: 7.5,
+    fontWeight: 700,
+    color: dark,
+    textTransform: "uppercase"
+  },
+  deliveryDetailsNotesText: {
+    fontSize: 7.5,
+    lineHeight: 1.2
   },
   section: {
     marginTop: 7
@@ -278,6 +320,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     textAlign: "center"
   },
+  deliveryReceiptSignatureBlock: {
+    marginTop: 42,
+    paddingTop: 0
+  },
   finalSummarySignatureBlock: {
     paddingTop: 6
   },
@@ -305,6 +351,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
   const isInvoice = data.kind === "invoice";
   const customerLines = presentValues([data.customer.detail, data.customer.contact, data.customer.address]);
   const referenceRows = visibleRows(data.summary);
+  const hasDeliveryReceiptDetailRows = referenceRows.some((row) => row.label.trim() || row.value.trim());
   const totalRows = visibleAmountRows(data.totals ?? []);
   const paymentInstructionLines = presentValues([
     data.paymentInstructions ?? data.company.paymentInstructions,
@@ -334,9 +381,15 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           </View>
         </View>
 
-        <View style={styles.content}>
-          {referenceRows.length ? (
-            <View style={isFinalSummary ? [styles.referenceBlock, styles.finalSummaryReferenceBlock] : styles.referenceBlock}>
+        <View style={isDeliveryReceipt ? [styles.content, styles.deliveryReceiptContent] : styles.content}>
+          {isDeliveryReceipt ? (
+            hasDeliveryReceiptDetailRows ? (
+              <View style={styles.referenceBlock} wrap={false}>
+                <DeliveryReceiptDetailsBlock rows={referenceRows} notes={data.notes} />
+              </View>
+            ) : null
+          ) : referenceRows.length ? (
+            <View style={isFinalSummary ? [styles.referenceBlock, styles.finalSummaryReferenceBlock] : styles.referenceBlock} wrap={false}>
               {isFinalSummary ? (
                 <PairedCompactRows rows={referenceRows} />
               ) : (
@@ -347,7 +400,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
 
           {data.items?.length ? (
             <View style={isFinalSummary ? [styles.section, styles.finalSummarySection] : styles.section}>
-              <View style={isFinalSummary ? [styles.tableHeader, styles.finalSummaryTableHeader] : styles.tableHeader}>
+              <View style={isFinalSummary ? [styles.tableHeader, styles.finalSummaryTableHeader] : styles.tableHeader} fixed>
                 {isDeliveryReceipt ? (
                   <>
                     <Text style={styles.deliveryQty}>QTY</Text>
@@ -371,7 +424,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           ) : null}
 
           {totalRows.length ? (
-            <View style={isFinalSummary ? [styles.totalsBlock, styles.finalSummaryTotalsBlock] : styles.totalsBlock}>
+            <View style={isFinalSummary ? [styles.totalsBlock, styles.finalSummaryTotalsBlock] : styles.totalsBlock} wrap={false}>
               {totalRows.map((row) => (
                 <View
                   key={`${row.label}-${row.value}`}
@@ -403,15 +456,15 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
             </View>
           ) : null}
 
-          {isPresent(data.notes) ? (
-            <View style={isFinalSummary ? [styles.section, styles.finalSummarySection] : styles.section}>
+          {isPresent(data.notes) && !isDeliveryReceipt ? (
+            <View style={isFinalSummary ? [styles.section, styles.finalSummarySection] : styles.section} wrap={false}>
               <Text style={styles.sectionTitle}>Notes</Text>
               <Text style={styles.notes}>{data.notes}</Text>
             </View>
           ) : null}
 
           {paymentInstructionLines.length ? (
-            <View style={isFinalSummary ? [styles.paymentBox, styles.finalSummaryPaymentBox] : styles.paymentBox}>
+            <View style={isFinalSummary ? [styles.paymentBox, styles.finalSummaryPaymentBox] : styles.paymentBox} wrap={false}>
               <Text style={styles.sectionTitle}>Payment Instructions</Text>
               {paymentInstructionLines.map((line) => (
                 <Text key={line} style={styles.notes}>
@@ -422,7 +475,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           ) : null}
 
           {isInvoice ? (
-            <View style={styles.policyAndSignatureBlock} wrap={!data.paymentTermsBlock ? false : undefined}>
+            <View style={styles.policyAndSignatureBlock} wrap={false}>
               {data.paymentTermsBlock ? (
                 <PdfPaymentTermsBlockView terms={data.paymentTermsBlock} compact />
               ) : (
@@ -433,7 +486,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           ) : null}
 
           {isInvoice ? null : (
-            <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms}>
+            <View style={isFinalSummary ? [styles.terms, styles.finalSummaryTerms] : styles.terms} wrap={false}>
               {isFinalSummary ? (
                 data.paymentTermsBlock ? (
                   <PdfPaymentTermsBlockView terms={data.paymentTermsBlock} compact />
@@ -464,7 +517,7 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
           {isFinalSummary ? <DreamHomePreparedBy compact /> : null}
         </View>
 
-        {data.signatureRequired && isDeliveryReceipt ? <SignatureBlock /> : null}
+        {data.signatureRequired && isDeliveryReceipt ? <SignatureBlock deliveryReceipt /> : null}
       </Page>
     </Document>
   );
@@ -526,9 +579,40 @@ function PairedCompactRows({ rows }: { rows: PdfSummaryRow[] }) {
   );
 }
 
-function SignatureBlock({ compact = false }: { compact?: boolean }) {
+function DeliveryReceiptDetailsBlock({ rows, notes }: { rows: PdfSummaryRow[]; notes?: string | null }) {
+  const hasNotes = Boolean(notes?.trim());
+
   return (
-    <View style={compact ? [styles.signatureBlock, styles.finalSummarySignatureBlock] : styles.signatureBlock} wrap={false}>
+    <View style={styles.deliveryDetailsGrid}>
+      <View style={styles.deliveryDetailsRows}>
+        {rows.map((row) => (
+          <View key={`${row.label}-${row.value}`} style={styles.deliveryDetailsRow} wrap={false}>
+            <Text style={styles.deliveryDetailsLabel}>{row.label}</Text>
+            <Text style={styles.deliveryDetailsValue}>{row.value}</Text>
+          </View>
+        ))}
+      </View>
+      <View style={styles.deliveryDetailsNotes}>
+        {hasNotes ? (
+          <>
+            <Text style={styles.deliveryDetailsNotesTitle}>Notes</Text>
+            <Text style={styles.deliveryDetailsNotesText}>{notes}</Text>
+          </>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function SignatureBlock({ compact = false, deliveryReceipt = false }: { compact?: boolean; deliveryReceipt?: boolean }) {
+  const style = compact
+    ? [styles.signatureBlock, styles.finalSummarySignatureBlock]
+    : deliveryReceipt
+      ? [styles.signatureBlock, styles.deliveryReceiptSignatureBlock]
+      : styles.signatureBlock;
+
+  return (
+    <View style={style} wrap={false}>
       <View style={styles.signatureRule} />
       <Text style={styles.signatureLabel}>BUYER/RECEIVER SIGNATURE AND DATE</Text>
       <Text style={styles.signatureAcknowledgement}>
