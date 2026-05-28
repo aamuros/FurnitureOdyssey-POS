@@ -45,7 +45,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
   {
     title: "Catalogue",
     href: "/catalogue",
-    module: "SETTINGS",
+    module: "CATALOGUE",
     icon: PanelsTopLeft
   },
   {

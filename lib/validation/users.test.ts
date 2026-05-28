@@ -74,3 +74,20 @@ test("user schemas parse Google Calendar linking permission from the checkbox", 
   });
   assert.equal(updated.canLinkGoogleCalendar, true);
 });
+
+test("user schemas accept Catalogue permissions with upload and reset actions", () => {
+  const parsed = updateUserSchema.safeParse({
+    userId: "00000000-0000-0000-0000-000000000001",
+    displayName: "Staff User",
+    role: "STAFF",
+    status: "ACTIVE",
+    permissions: [
+      { module: "CATALOGUE", action: "VIEW", allowed: true },
+      { module: "CATALOGUE", action: "UPDATE", allowed: true },
+      { module: "CATALOGUE", action: "UPLOAD", allowed: true },
+      { module: "CATALOGUE", action: "RESET", allowed: true }
+    ]
+  });
+
+  assert.equal(parsed.success, true);
+});

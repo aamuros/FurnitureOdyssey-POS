@@ -10,6 +10,7 @@ export type ModuleKey =
   | "DELIVERIES"
   | "DOCUMENTS"
   | "SALES_HISTORY"
+  | "CATALOGUE"
   | "USERS"
   | "SETTINGS";
 
@@ -20,7 +21,9 @@ export type ActionKey =
   | "DELETE"
   | "ASSIGN"
   | "EXPORT"
-  | "APPROVE";
+  | "APPROVE"
+  | "UPLOAD"
+  | "RESET";
 
 export const permissionModules: Record<ModuleKey, string> = {
   CUSTOMERS: "Customers",
@@ -32,6 +35,7 @@ export const permissionModules: Record<ModuleKey, string> = {
   DELIVERIES: "Deliveries",
   DOCUMENTS: "Documents",
   SALES_HISTORY: "Sales History",
+  CATALOGUE: "Catalogue",
   USERS: "Users",
   SETTINGS: "Settings"
 };
@@ -46,6 +50,7 @@ export const moduleActions: Record<ModuleKey, ActionKey[]> = {
   DELIVERIES: ["VIEW", "CREATE", "UPDATE"],
   DOCUMENTS: ["VIEW", "CREATE", "UPDATE", "EXPORT"],
   SALES_HISTORY: ["VIEW"],
+  CATALOGUE: ["VIEW", "UPDATE", "UPLOAD", "RESET"],
   USERS: ["VIEW", "CREATE", "UPDATE", "DELETE"],
   SETTINGS: ["VIEW", "UPDATE"]
 };

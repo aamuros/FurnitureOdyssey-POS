@@ -8,8 +8,10 @@ import { hasPermission, type UserWithPermissions } from "@/lib/auth/permissions"
 import { prisma } from "@/lib/prisma";
 
 export default async function CataloguePage() {
-  const user = (await requirePermission("SETTINGS", "VIEW")) as UserWithPermissions;
-  const canUpdate = hasPermission(user, "SETTINGS", "UPDATE");
+  const user = (await requirePermission("CATALOGUE", "VIEW")) as UserWithPermissions;
+  const canUpdate = hasPermission(user, "CATALOGUE", "UPDATE");
+  const canUpload = hasPermission(user, "CATALOGUE", "UPLOAD");
+  const canReset = hasPermission(user, "CATALOGUE", "RESET");
   const rows = await prisma.pageContent.findMany({
     orderBy: [
       { page: "asc" },
@@ -34,7 +36,12 @@ export default async function CataloguePage() {
         title="Catalogue Content"
         description="Manage public catalogue page text, headings, and section copy."
       />
-      <CatalogueContentWorkspace rows={serializedRows} canUpdate={canUpdate} />
+      <CatalogueContentWorkspace
+        rows={serializedRows}
+        canUpdate={canUpdate}
+        canUpload={canUpload}
+        canReset={canReset}
+      />
     </>
   );
 }

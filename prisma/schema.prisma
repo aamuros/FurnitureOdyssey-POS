@@ -29,6 +29,7 @@ enum PermissionModule {
   DELIVERIES
   DOCUMENTS
   SALES_HISTORY
+  CATALOGUE
   USERS
   SETTINGS
 }
@@ -41,6 +42,8 @@ enum PermissionAction {
   ASSIGN
   EXPORT
   APPROVE
+  UPLOAD
+  RESET
 }
 
 enum ActivityAction {

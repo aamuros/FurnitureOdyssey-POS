@@ -3,7 +3,8 @@
 import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/auth/server";
+import { requireActiveUser } from "@/lib/auth/server";
+import { hasPermission, type UserWithPermissions } from "@/lib/auth/permissions";
 import { uploadFileToCloudinary } from "@/lib/uploads/server";
 
 type ActionState = {
@@ -25,10 +26,25 @@ export async function updatePageContentAction(
   _previousState: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const actor = await requirePermission("SETTINGS", "UPDATE");
+  const actor = (await requireActiveUser()) as UserWithPermissions;
   const id = text(formData, "id").trim();
   let fieldValue = text(formData, "fieldValue");
   const imageFile = formData.get("imageFile");
+  const hasImageUpload = imageFile instanceof File && imageFile.size > 0;
+
+  if (hasImageUpload) {
+    if (!hasPermission(actor, "CATALOGUE", "UPLOAD")) {
+      return {
+        ok: false,
+        message: "You do not have permission to upload catalogue images."
+      };
+    }
+  } else if (!hasPermission(actor, "CATALOGUE", "UPDATE")) {
+    return {
+      ok: false,
+      message: "You do not have permission to update catalogue content."
+    };
+  }
 
   if (!id) {
     return {
@@ -55,7 +71,7 @@ export async function updatePageContentAction(
       };
     }
 
-    if (imageFile instanceof File && imageFile.size > 0) {
+    if (hasImageUpload) {
       if (!isImageFieldKey(existing.fieldKey)) {
         return {
           ok: false,
@@ -99,7 +115,7 @@ export async function updatePageContentAction(
           page: updated.page,
           section: updated.section,
           fieldKey: updated.fieldKey,
-          uploadedImage: imageFile instanceof File && imageFile.size > 0
+          uploadedImage: hasImageUpload
         }
       }
     });

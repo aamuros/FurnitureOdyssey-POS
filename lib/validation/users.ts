@@ -12,10 +12,11 @@ const permissionInputSchema = z.object({
     "DELIVERIES",
     "DOCUMENTS",
     "SALES_HISTORY",
+    "CATALOGUE",
     "USERS",
     "SETTINGS"
   ]),
-  action: z.enum(["VIEW", "CREATE", "UPDATE", "DELETE", "ASSIGN", "EXPORT", "APPROVE"]),
+  action: z.enum(["VIEW", "CREATE", "UPDATE", "DELETE", "ASSIGN", "EXPORT", "APPROVE", "UPLOAD", "RESET"]),
   allowed: z.boolean()
 });
 
