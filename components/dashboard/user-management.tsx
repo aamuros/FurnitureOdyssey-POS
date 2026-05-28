@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
@@ -72,6 +73,14 @@ type UserManagementProps = {
 type ActionState = {
   ok: boolean;
   message: string;
+  revision?: number;
+  user?: {
+    userId: string;
+    role: ManagedUser["role"];
+    status: ManagedUser["status"];
+    canLinkGoogleCalendar: boolean;
+    permissions: PermissionValue[];
+  };
 };
 
 type UserFormProps = {
@@ -87,7 +96,7 @@ type UserFormProps = {
   onCancel: () => void;
 };
 
-const initialState = {
+const initialState: ActionState = {
   ok: false,
   message: ""
 };
@@ -115,6 +124,17 @@ function mergePermissions(defaultPermissions: PermissionValue[], savedPermission
       allowed: savedPermission?.allowed ?? false
     };
   });
+}
+
+function permissionStateKey(permissions: PermissionValue[]) {
+  return permissions
+    .map((permission) => `${permission.module}:${permission.action}:${permission.allowed}`)
+    .sort()
+    .join("|");
+}
+
+function savedUserStateKey(user: Pick<ManagedUser, "id" | "role" | "status" | "canLinkGoogleCalendar" | "permissions">) {
+  return `${user.id}:${user.role}:${user.status}:${user.canLinkGoogleCalendar}:${permissionStateKey(user.permissions)}`;
 }
 
 function statusTone(status: ManagedUser["status"]) {
@@ -700,24 +720,71 @@ export function UserManagement({
   currentUserId,
   initialNotice
 }: UserManagementProps) {
+  const router = useRouter();
   const [createState, createAction, createPending] = useActionState(createUserAction, initialState);
   const [updateState, updateAction, updatePending] = useActionState(updateUserAction, initialState);
   const [deleteState, deleteAction] = useActionState(deleteUserAction, initialState);
   const defaultPermissions = useMemo(() => buildDefaultPermissions(), []);
   const [createPermissions, setCreatePermissions] = useState<PermissionValue[]>(defaultPermissions);
   const [editPermissions, setEditPermissions] = useState<PermissionValue[]>(defaultPermissions);
+  const latestSavedEditRef = useRef<{ userId: string; permissionKey: string } | null>(null);
+  const [userOverrides, setUserOverrides] = useState<
+    Record<
+      string,
+      Pick<ManagedUser, "role" | "status" | "canLinkGoogleCalendar" | "permissions">
+    >
+  >({});
   const [selectedUserId, setSelectedUserId] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [notice, setNotice] = useState(initialNotice?.message ?? "");
   const [noticeTone, setNoticeTone] = useState<"success" | "danger">(initialNotice?.tone ?? "success");
+  const displayedUsers = useMemo(
+    () =>
+      users.map((user) =>
+        userOverrides[user.id]
+          ? {
+              ...user,
+              ...userOverrides[user.id]
+            }
+          : user
+      ),
+    [userOverrides, users]
+  );
   const selectedUser = useMemo(
-    () => users.find((user) => user.id === selectedUserId) ?? null,
-    [selectedUserId, users]
+    () => displayedUsers.find((user) => user.id === selectedUserId) ?? null,
+    [displayedUsers, selectedUserId]
   );
 
   useEffect(() => {
     setSelectedUserId((current) => (current && users.some((user) => user.id === current) ? current : ""));
   }, [users]);
+
+  useEffect(() => {
+    if (updatePending) {
+      return;
+    }
+
+    if (!selectedUser) {
+      return;
+    }
+
+    const selectedPermissionKey = permissionStateKey(selectedUser.permissions);
+    const latestSavedEdit = latestSavedEditRef.current;
+
+    if (
+      latestSavedEdit &&
+      latestSavedEdit.userId === selectedUser.id &&
+      latestSavedEdit.permissionKey !== selectedPermissionKey
+    ) {
+      return;
+    }
+
+    latestSavedEditRef.current = {
+      userId: selectedUser.id,
+      permissionKey: selectedPermissionKey
+    };
+    setEditPermissions(mergePermissions(defaultPermissions, selectedUser.permissions));
+  }, [defaultPermissions, selectedUser, updatePending]);
 
   useEffect(() => {
     if (createState.message) {
@@ -738,11 +805,30 @@ export function UserManagement({
       setNoticeTone(updateState.ok ? "success" : "danger");
 
       if (updateState.ok) {
-        setSelectedUserId("");
+        if (updateState.user) {
+          const updatedUser = updateState.user;
+          const savedPermissionKey = permissionStateKey(updatedUser.permissions);
+          latestSavedEditRef.current = {
+            userId: updatedUser.userId,
+            permissionKey: savedPermissionKey
+          };
+          setUserOverrides((current) => ({
+            ...current,
+            [updatedUser.userId]: {
+              role: updatedUser.role,
+              status: updatedUser.status,
+              canLinkGoogleCalendar: updatedUser.canLinkGoogleCalendar,
+              permissions: updatedUser.permissions
+            }
+          }));
+          setSelectedUserId(updatedUser.userId);
+          setEditPermissions(mergePermissions(defaultPermissions, updatedUser.permissions));
+        }
         setShowCreateForm(false);
+        router.refresh();
       }
     }
-  }, [updateState.message, updateState.ok]);
+  }, [defaultPermissions, router, updateState.revision, updateState.message, updateState.ok, updateState.user]);
 
   useEffect(() => {
     if (deleteState.message) {
@@ -767,6 +853,10 @@ export function UserManagement({
     setNotice("");
     setShowCreateForm(false);
     setSelectedUserId(user.id);
+    latestSavedEditRef.current = {
+      userId: user.id,
+      permissionKey: permissionStateKey(user.permissions)
+    };
     setEditPermissions(mergePermissions(defaultPermissions, user.permissions));
   }
 
@@ -811,7 +901,7 @@ export function UserManagement({
 
         {selectedUser ? (
           <UserForm
-            key={selectedUser.id}
+            key={savedUserStateKey(selectedUser)}
             mode="edit"
             user={selectedUser}
             currentUserId={currentUserId}
@@ -825,9 +915,9 @@ export function UserManagement({
           />
         ) : null}
 
-        {users.length ? (
+        {displayedUsers.length ? (
           <UserTable
-            users={users}
+            users={displayedUsers}
             selectedUserId={selectedUserId}
             onEdit={openEditForm}
             deleteAction={deleteAction}

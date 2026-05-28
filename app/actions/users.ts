@@ -16,6 +16,18 @@ import { createUserSchema, updateUserSchema } from "@/lib/validation/users";
 type ActionState = {
   ok: boolean;
   message: string;
+  revision?: number;
+  user?: {
+    userId: string;
+    role: UserRole;
+    status: UserStatus;
+    canLinkGoogleCalendar: boolean;
+    permissions: Array<{
+      module: PermissionModule;
+      action: PermissionAction;
+      allowed: boolean;
+    }>;
+  };
 };
 
 function normalizePermissions(
@@ -355,7 +367,15 @@ export async function updateUserAction(
   revalidatePath("/users");
   return {
     ok: true,
-    message: "User profile updated."
+    message: "User profile updated.",
+    revision: Date.now(),
+    user: {
+      userId: parsed.data.userId,
+      role: parsed.data.role as UserRole,
+      status: parsed.data.status as UserStatus,
+      canLinkGoogleCalendar: parsed.data.canLinkGoogleCalendar,
+      permissions: normalizePermissions(parsed.data.permissions)
+    }
   };
 }
 
