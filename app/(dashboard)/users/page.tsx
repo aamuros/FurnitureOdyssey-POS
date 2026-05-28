@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { StaffCalendarIntegration } from "@/components/dashboard/staff-calendar-integration";
 import { UserManagement } from "@/components/dashboard/user-management";
 import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth/server";
+import { requireActiveUser } from "@/lib/auth/server";
+import { canAccessUsersPage, canManageUsers } from "@/lib/auth/calendar-access";
 
 type UsersPageProps = {
   searchParams?: Promise<{
@@ -58,8 +61,58 @@ function usersHref(
 }
 
 export default async function UsersPage({ searchParams }: UsersPageProps) {
-  const currentUser = await requireAdmin();
+  const currentUser = await requireActiveUser();
+
+  if (!canAccessUsersPage(currentUser)) {
+    redirect("/dashboard?error=forbidden");
+  }
+
   const params = (await searchParams) ?? {};
+
+  if (!canManageUsers(currentUser)) {
+    const connection = await prisma.userCalendarConnection.findUnique({
+      where: {
+        userId: currentUser.id
+      },
+      select: {
+        googleAccountEmail: true,
+        calendarId: true,
+        connectedAt: true,
+        revokedAt: true
+      }
+    });
+
+    return (
+      <>
+        <PageHeader
+          title="Google Calendar Integration"
+          description="Connect or disconnect your own Google Calendar for delivery scheduling."
+        />
+        <StaffCalendarIntegration
+          notice={
+            params.calendar && params.message
+              ? {
+                  message: params.message,
+                  tone: params.calendar === "success" ? "success" : "danger"
+                }
+              : undefined
+          }
+          connection={
+            connection
+              ? {
+                  connected: !connection.revokedAt,
+                  googleAccountEmail: connection.googleAccountEmail,
+                  calendarId: connection.calendarId,
+                  connectedAt: formatDate(connection.connectedAt),
+                  disconnectedAt: formatDate(connection.revokedAt)
+                }
+              : null
+          }
+        />
+      </>
+    );
+  }
+
   const query = params.q?.trim();
   const role = params.role === "ADMIN" || params.role === "STAFF" ? params.role : undefined;
   const status =
@@ -99,6 +152,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
         displayName: true,
         role: true,
         status: true,
+        canLinkGoogleCalendar: true,
         invitedAt: true,
         updatedAt: true,
         permissions: {
@@ -183,6 +237,7 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
           displayName: user.displayName,
           role: user.role,
           status: user.status,
+          canLinkGoogleCalendar: user.canLinkGoogleCalendar,
           invitedAt: formatDate(user.invitedAt),
           updatedAt: formatDate(user.updatedAt),
           permissions: user.permissions,

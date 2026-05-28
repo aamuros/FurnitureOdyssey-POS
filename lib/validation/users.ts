@@ -12,10 +12,11 @@ const permissionInputSchema = z.object({
     "DELIVERIES",
     "DOCUMENTS",
     "SALES_HISTORY",
+    "CATALOGUE",
     "USERS",
     "SETTINGS"
   ]),
-  action: z.enum(["VIEW", "CREATE", "UPDATE", "DELETE", "ASSIGN", "EXPORT", "APPROVE"]),
+  action: z.enum(["VIEW", "CREATE", "UPDATE", "DELETE", "ASSIGN", "EXPORT", "APPROVE", "UPLOAD", "RESET"]),
   allowed: z.boolean()
 });
 
@@ -40,6 +41,9 @@ const userInputSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
   displayName: z.string().trim().min(2, "Display name is required."),
   role: z.enum(["ADMIN", "STAFF"]),
+  canLinkGoogleCalendar: z
+    .preprocess((value) => value === true || value === "true" || value === "on", z.boolean())
+    .default(false),
   permissions: z.array(permissionInputSchema).default([])
 });
 

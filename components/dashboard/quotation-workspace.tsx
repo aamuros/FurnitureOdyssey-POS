@@ -1296,8 +1296,8 @@ function ProductPickerCard({
   const image = selectedVariant?.image ?? product.primaryImage;
 
   return (
-    <article className="flex min-w-0 flex-col rounded-lg border border-border bg-panel">
-      <div className="flex h-32 shrink-0 items-center justify-center overflow-hidden rounded-t-lg border-b border-border bg-muted/30 text-muted-foreground">
+    <article className="flex min-h-[380px] min-w-0 flex-col rounded-lg border border-border bg-panel">
+      <div className="flex h-32 shrink-0 items-center justify-center overflow-hidden rounded-t-lg border-b border-border bg-muted/30 bg-contain bg-no-repeat text-muted-foreground">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img

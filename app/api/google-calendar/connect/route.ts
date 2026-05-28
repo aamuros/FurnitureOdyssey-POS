@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getGoogleCalendarConfig } from "@/lib/google-calendar/config";
 import { buildGoogleOAuthUrl, createGoogleOAuthState } from "@/lib/google-calendar/oauth";
 import { requireActiveUser } from "@/lib/auth/server";
+import { canSelfManageGoogleCalendar } from "@/lib/auth/calendar-access";
 
 function usersRedirect(request: NextRequest, status: "error", message: string) {
   const url = new URL("/users", request.url);
@@ -12,6 +13,10 @@ function usersRedirect(request: NextRequest, status: "error", message: string) {
 
 export async function GET(request: NextRequest) {
   const user = await requireActiveUser();
+
+  if (!canSelfManageGoogleCalendar(user)) {
+    return usersRedirect(request, "error", "Google Calendar integration is not enabled for your account.");
+  }
 
   try {
     const config = getGoogleCalendarConfig();

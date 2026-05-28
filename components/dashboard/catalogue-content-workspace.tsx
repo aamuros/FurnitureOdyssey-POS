@@ -21,6 +21,8 @@ export type CatalogueContentRow = {
 type CatalogueContentWorkspaceProps = {
   rows: CatalogueContentRow[];
   canUpdate: boolean;
+  canUpload: boolean;
+  canReset: boolean;
 };
 
 type CataloguePageKey = "home" | "chairs" | "tables" | "collections";
@@ -97,7 +99,12 @@ const fieldLabels: Record<string, string> = {
   quote: "Quote"
 };
 
-export function CatalogueContentWorkspace({ rows, canUpdate }: CatalogueContentWorkspaceProps) {
+export function CatalogueContentWorkspace({
+  rows,
+  canUpdate,
+  canUpload,
+  canReset
+}: CatalogueContentWorkspaceProps) {
   const [activePage, setActivePage] = useState<CataloguePageKey>("home");
   const groupedRows = useMemo(() => groupRows(rows), [rows]);
   const activePageConfig = cataloguePages.find((page) => page.id === activePage) ?? cataloguePages[0];
@@ -161,6 +168,8 @@ export function CatalogueContentWorkspace({ rows, canUpdate }: CatalogueContentW
                 title={sectionLabel(section)}
                 rows={sectionRows}
                 canUpdate={canUpdate}
+                canUpload={canUpload}
+                canReset={canReset}
               />
             );
           })}
@@ -173,11 +182,15 @@ export function CatalogueContentWorkspace({ rows, canUpdate }: CatalogueContentW
 function CatalogueSection({
   title,
   rows,
-  canUpdate
+  canUpdate,
+  canUpload,
+  canReset
 }: {
   title: string;
   rows: CatalogueContentRow[];
   canUpdate: boolean;
+  canUpload: boolean;
+  canReset: boolean;
 }) {
   return (
     <div className="studio-subpanel overflow-hidden">
@@ -189,7 +202,15 @@ function CatalogueSection({
       </div>
       <div className="grid gap-3 p-4">
         {rows.length ? (
-          rows.map((row) => <CatalogueFieldForm key={row.id} row={row} canUpdate={canUpdate} />)
+          rows.map((row) => (
+            <CatalogueFieldForm
+              key={row.id}
+              row={row}
+              canUpdate={canUpdate}
+              canUpload={canUpload}
+              canReset={canReset}
+            />
+          ))
         ) : (
           <div className="studio-empty p-4 text-sm">No seeded content rows exist for this section yet.</div>
         )}
@@ -198,7 +219,17 @@ function CatalogueSection({
   );
 }
 
-function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canUpdate: boolean }) {
+function CatalogueFieldForm({
+  row,
+  canUpdate,
+  canUpload,
+  canReset
+}: {
+  row: CatalogueContentRow;
+  canUpdate: boolean;
+  canUpload: boolean;
+  canReset: boolean;
+}) {
   const [state, action, pending] = useActionState(updatePageContentAction, initialState);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [savedValue, setSavedValue] = useState(row.fieldValue);
@@ -209,6 +240,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
   const imagePreviewUrl = selectedPreviewUrl || draftValue.trim();
   const hasSelectedFile = Boolean(selectedPreviewUrl);
   const isDirty = draftValue !== savedValue || hasSelectedFile;
+  const canSubmit = hasSelectedFile ? canUpload : canUpdate;
   const useTextarea = isLongField(row);
 
   useEffect(() => {
@@ -228,9 +260,12 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
   useEffect(() => {
     if (!canUpdate) {
       setDraftValue(row.fieldValue);
+    }
+
+    if (!canUpload) {
       clearSelectedImage();
     }
-  }, [canUpdate, row.fieldValue]);
+  }, [canUpdate, canUpload, row.fieldValue]);
 
   useEffect(() => {
     return () => {
@@ -321,7 +356,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
                 htmlFor={`image-file-${row.id}`}
                 className={cn(
                   "inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-soft-accent/70 px-4 text-sm font-semibold text-foreground transition duration-150 hover:bg-soft-accent focus-within:outline-none focus-within:ring-2 focus-within:ring-primary/30",
-                  (!canUpdate || pending) && "pointer-events-none cursor-not-allowed opacity-60"
+                  (!canUpload || pending) && "pointer-events-none cursor-not-allowed opacity-60"
                 )}
               >
                 <ImagePlus className="h-4 w-4" />
@@ -347,7 +382,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
               accept="image/jpeg,image/png,image/webp"
               className="sr-only"
               onChange={handleImageChange}
-              disabled={!canUpdate || pending}
+              disabled={!canUpload || pending}
             />
           </div>
         ) : useTextarea ? (
@@ -370,7 +405,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
         )}
 
         <div className="flex flex-wrap gap-2 lg:justify-end">
-          <Button type="submit" disabled={!canUpdate || pending || !isDirty}>
+          <Button type="submit" disabled={!canSubmit || pending || !isDirty}>
             <Save className="h-4 w-4" />
             {pending ? "Saving..." : "Save"}
           </Button>
@@ -378,7 +413,7 @@ function CatalogueFieldForm({ row, canUpdate }: { row: CatalogueContentRow; canU
             type="button"
             variant="secondary"
             onClick={resetDraft}
-            disabled={!canUpdate || pending || !isDirty}
+            disabled={!canReset || pending || !isDirty}
           >
             <RotateCcw className="h-4 w-4" />
             Reset

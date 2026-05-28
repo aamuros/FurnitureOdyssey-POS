@@ -21,7 +21,6 @@ export type DashboardNavItem = {
   href: Route;
   module: PermissionModule;
   icon: LucideIcon;
-  adminOnly?: boolean;
 };
 
 export const dashboardNavItems: DashboardNavItem[] = [
@@ -46,7 +45,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
   {
     title: "Catalogue",
     href: "/catalogue",
-    module: "SETTINGS",
+    module: "CATALOGUE",
     icon: PanelsTopLeft
   },
   {
@@ -89,8 +88,7 @@ export const dashboardNavItems: DashboardNavItem[] = [
     title: "Users",
     href: "/users",
     module: "USERS",
-    icon: UserCog,
-    adminOnly: true
+    icon: UserCog
   },
   {
     title: "Settings",

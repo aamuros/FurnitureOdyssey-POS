@@ -29,6 +29,7 @@ enum PermissionModule {
   DELIVERIES
   DOCUMENTS
   SALES_HISTORY
+  CATALOGUE
   USERS
   SETTINGS
 }
@@ -41,6 +42,8 @@ enum PermissionAction {
   ASSIGN
   EXPORT
   APPROVE
+  UPLOAD
+  RESET
 }
 
 enum ActivityAction {
@@ -255,6 +258,7 @@ model UserProfile {
   displayName        String
   role               UserRole         @default(STAFF)
   status             UserStatus       @default(PENDING)
+  canLinkGoogleCalendar Boolean        @default(false)
   phone              String?
   invitedById        String?          @db.Uuid
   invitedAt          DateTime?

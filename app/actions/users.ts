@@ -16,6 +16,18 @@ import { createUserSchema, updateUserSchema } from "@/lib/validation/users";
 type ActionState = {
   ok: boolean;
   message: string;
+  revision?: number;
+  user?: {
+    userId: string;
+    role: UserRole;
+    status: UserStatus;
+    canLinkGoogleCalendar: boolean;
+    permissions: Array<{
+      module: PermissionModule;
+      action: PermissionAction;
+      allowed: boolean;
+    }>;
+  };
 };
 
 function normalizePermissions(
@@ -63,6 +75,7 @@ export async function createUserAction(
     email: formData.get("email"),
     displayName: formData.get("displayName"),
     role: formData.get("role"),
+    canLinkGoogleCalendar: formData.get("canLinkGoogleCalendar"),
     password: formData.get("password"),
     confirmPassword: formData.get("confirmPassword"),
     permissions: parsePermissions(formData.get("permissions"))
@@ -122,6 +135,7 @@ export async function createUserAction(
           displayName: parsed.data.displayName,
           role: parsed.data.role as UserRole,
           status: "ACTIVE",
+          canLinkGoogleCalendar: parsed.data.canLinkGoogleCalendar,
           invitedById: actor.id,
           invitedAt: new Date(),
           permissions: {
@@ -176,6 +190,7 @@ export async function updateUserAction(
     displayName: formData.get("displayName"),
     role: formData.get("role"),
     status: formData.get("status"),
+    canLinkGoogleCalendar: formData.get("canLinkGoogleCalendar"),
     permissions: parsePermissions(formData.get("permissions"))
   });
 
@@ -202,6 +217,7 @@ export async function updateUserAction(
         email: true,
         role: true,
         status: true,
+        canLinkGoogleCalendar: true,
         permissions: {
           select: {
             module: true,
@@ -237,6 +253,7 @@ export async function updateUserAction(
     permissionSignature(existing.permissions) !== permissionSignature(parsed.data.permissions);
   const roleChanged = existing.role !== parsed.data.role;
   const statusChanged = existing.status !== parsed.data.status;
+  const calendarPermissionChanged = existing.canLinkGoogleCalendar !== parsed.data.canLinkGoogleCalendar;
 
   await prisma.$transaction(async (tx) => {
     await tx.userPermission.deleteMany({
@@ -253,6 +270,7 @@ export async function updateUserAction(
         displayName: parsed.data.displayName,
         role: parsed.data.role as UserRole,
         status: parsed.data.status as UserStatus,
+        canLinkGoogleCalendar: parsed.data.canLinkGoogleCalendar,
         permissions: {
           createMany: {
             data: normalizePermissions(parsed.data.permissions)
@@ -275,7 +293,8 @@ export async function updateUserAction(
         summary: `Updated user access for ${existing.email}.`,
         metadata: {
           role: parsed.data.role,
-          status: parsed.data.status
+          status: parsed.data.status,
+          canLinkGoogleCalendar: String(parsed.data.canLinkGoogleCalendar)
         }
       }
     ];
@@ -299,6 +318,18 @@ export async function updateUserAction(
         actorId: actor.id,
         targetUserId: parsed.data.userId,
         summary: `Updated Staff permissions for ${existing.email}.`
+      });
+    }
+
+    if (calendarPermissionChanged) {
+      activityLogs.push({
+        action: "PERMISSIONS_CHANGED",
+        actorId: actor.id,
+        targetUserId: parsed.data.userId,
+        summary: `Updated Google Calendar linking permission for ${existing.email}.`,
+        metadata: {
+          canLinkGoogleCalendar: String(parsed.data.canLinkGoogleCalendar)
+        }
       });
     }
 
@@ -336,7 +367,15 @@ export async function updateUserAction(
   revalidatePath("/users");
   return {
     ok: true,
-    message: "User profile updated."
+    message: "User profile updated.",
+    revision: Date.now(),
+    user: {
+      userId: parsed.data.userId,
+      role: parsed.data.role as UserRole,
+      status: parsed.data.status as UserStatus,
+      canLinkGoogleCalendar: parsed.data.canLinkGoogleCalendar,
+      permissions: normalizePermissions(parsed.data.permissions)
+    }
   };
 }
 
