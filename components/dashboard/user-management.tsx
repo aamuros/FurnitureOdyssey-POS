@@ -43,6 +43,7 @@ type ManagedUser = {
   displayName: string;
   role: "ADMIN" | "STAFF";
   status: "PENDING" | "ACTIVE" | "INACTIVE";
+  canLinkGoogleCalendar: boolean;
   invitedAt: string;
   updatedAt: string;
   permissions: PermissionValue[];
@@ -138,6 +139,10 @@ function accessLabel(user: ManagedUser) {
 }
 
 function calendarStatusLabel(user: ManagedUser) {
+  if (!user.canLinkGoogleCalendar && user.role !== "ADMIN") {
+    return "Linking not allowed";
+  }
+
   if (!user.calendarConnection) {
     return "Not connected";
   }
@@ -150,6 +155,10 @@ function calendarStatusLabel(user: ManagedUser) {
 }
 
 function calendarStatusTone(user: ManagedUser) {
+  if (!user.canLinkGoogleCalendar && user.role !== "ADMIN") {
+    return "neutral" as const;
+  }
+
   if (!user.calendarConnection) {
     return "neutral" as const;
   }
@@ -369,6 +378,22 @@ function UserForm({
               </label>
             ) : null}
           </div>
+
+          <label className="flex items-start gap-3 rounded-lg border border-border bg-panel/70 p-4 text-sm">
+            <input
+              type="checkbox"
+              name="canLinkGoogleCalendar"
+              value="true"
+              defaultChecked={user?.canLinkGoogleCalendar ?? false}
+              className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+            />
+            <span>
+              <span className="block font-semibold">Allow Google Calendar integration</span>
+              <span className="mt-1 block text-muted-foreground">
+                Staff with this enabled can open Users and manage only their own Google Calendar connection.
+              </span>
+            </span>
+          </label>
 
           <PermissionEditor role={role} permissions={permissions} onChange={onPermissionsChange} />
 

@@ -4,6 +4,7 @@ import { signOut } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { DashboardNav } from "@/components/dashboard/dashboard-nav";
 import { dashboardNavItems } from "@/lib/auth/navigation";
+import { canAccessUsersPage } from "@/lib/auth/calendar-access";
 import { canViewModule, type UserWithPermissions } from "@/lib/auth/permissions";
 
 type DashboardShellProps = {
@@ -13,8 +14,8 @@ type DashboardShellProps = {
 
 export function DashboardShell({ user, children }: DashboardShellProps) {
   const visibleItems = dashboardNavItems.filter((item) => {
-    if (item.adminOnly) {
-      return user.role === "ADMIN";
+    if (item.href === "/users") {
+      return canAccessUsersPage(user);
     }
 
     if (item.href === "/dashboard") {

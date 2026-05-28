@@ -255,6 +255,7 @@ model UserProfile {
   displayName        String
   role               UserRole         @default(STAFF)
   status             UserStatus       @default(PENDING)
+  canLinkGoogleCalendar Boolean        @default(false)
   phone              String?
   invitedById        String?          @db.Uuid
   invitedAt          DateTime?

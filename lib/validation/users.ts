@@ -40,6 +40,9 @@ const userInputSchema = z.object({
   email: z.string().trim().email("Enter a valid email address."),
   displayName: z.string().trim().min(2, "Display name is required."),
   role: z.enum(["ADMIN", "STAFF"]),
+  canLinkGoogleCalendar: z
+    .preprocess((value) => value === true || value === "true" || value === "on", z.boolean())
+    .default(false),
   permissions: z.array(permissionInputSchema).default([])
 });
 

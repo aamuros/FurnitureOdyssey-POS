@@ -42,3 +42,35 @@ test("updateUserSchema does not require password fields", () => {
 
   assert.equal(parsed.success, true);
 });
+
+test("user schemas default Google Calendar linking permission to false", () => {
+  const created = createUserSchema.parse(baseCreateInput);
+  assert.equal(created.canLinkGoogleCalendar, false);
+
+  const updated = updateUserSchema.parse({
+    userId: "00000000-0000-0000-0000-000000000001",
+    displayName: "Staff User",
+    role: "STAFF",
+    status: "ACTIVE",
+    permissions: []
+  });
+  assert.equal(updated.canLinkGoogleCalendar, false);
+});
+
+test("user schemas parse Google Calendar linking permission from the checkbox", () => {
+  const created = createUserSchema.parse({
+    ...baseCreateInput,
+    canLinkGoogleCalendar: true
+  });
+  assert.equal(created.canLinkGoogleCalendar, true);
+
+  const updated = updateUserSchema.parse({
+    userId: "00000000-0000-0000-0000-000000000001",
+    displayName: "Staff User",
+    role: "STAFF",
+    status: "ACTIVE",
+    permissions: [],
+    canLinkGoogleCalendar: true
+  });
+  assert.equal(updated.canLinkGoogleCalendar, true);
+});

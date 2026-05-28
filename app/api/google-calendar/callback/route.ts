@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActiveUser } from "@/lib/auth/server";
+import { canSelfManageGoogleCalendar } from "@/lib/auth/calendar-access";
 import { getGoogleCalendarConfig } from "@/lib/google-calendar/config";
 import {
   exchangeGoogleOAuthCode,
@@ -36,6 +37,10 @@ export async function GET(request: NextRequest) {
   const user = await requireActiveUser();
   const requestUrl = new URL(request.url);
   const error = requestUrl.searchParams.get("error");
+
+  if (!canSelfManageGoogleCalendar(user)) {
+    return usersRedirect(request, "error", "Google Calendar integration is not enabled for your account.");
+  }
 
   if (error) {
     return usersRedirect(request, "error", "Google Calendar connection was cancelled or denied.");
