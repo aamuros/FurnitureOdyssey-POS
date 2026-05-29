@@ -71,9 +71,9 @@ export function PdfPaymentTermsBlockView({
   }
 
   return (
-    <View style={compact ? [styles.block, styles.compactBlock] : styles.block}>
+    <View style={compact ? [styles.block, styles.compactBlock] : styles.block} wrap={false}>
       {terms.policyTitle || terms.policyBullets.length ? (
-        <View style={compact ? [styles.section, styles.compactSection] : styles.section}>
+        <View style={compact ? [styles.section, styles.compactSection] : styles.section} wrap={false}>
           {terms.policyTitle ? <Text style={styles.title}>{terms.policyTitle}</Text> : null}
           {terms.policyBullets.map((line) => (
             <View key={line} style={styles.bulletRow}>
@@ -87,7 +87,7 @@ export function PdfPaymentTermsBlockView({
       {terms.highlightNote ? <Text style={styles.highlight}>{terms.highlightNote}</Text> : null}
 
       {terms.bankDetailsTitle || terms.bankDetailsLines.length ? (
-        <View style={compact ? [styles.section, styles.compactSection] : styles.section}>
+        <View style={compact ? [styles.section, styles.compactSection] : styles.section} wrap={false}>
           {terms.bankDetailsTitle ? <Text style={styles.bankTitle}>{terms.bankDetailsTitle}</Text> : null}
           {terms.bankDetailsLines.map((line) => (
             <Text key={line} style={styles.bankLine}>
@@ -119,7 +119,7 @@ export function PdfDocumentTermsBlockView({
   }
 
   return (
-    <View style={compact ? [styles.block, styles.compactBlock] : styles.block}>
+    <View style={compact ? [styles.block, styles.compactBlock] : styles.block} wrap={false}>
       {title ? <Text style={styles.title}>{title}</Text> : null}
       {lines.map((line) => (
         <View key={line} style={styles.bulletRow}>

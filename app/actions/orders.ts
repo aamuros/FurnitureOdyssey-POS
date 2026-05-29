@@ -46,10 +46,12 @@ import {
 import {
   completeOrderSchema,
   convertQuotationToOrderSchema,
+  cancelOrderSchema,
   createDeliverySchema,
   createManualOrderSchema,
   createOrderDocumentSchema,
   createPaymentSchema,
+  deleteOrderSchema,
   updateDeliveryProgressSchema,
   updatePaymentDueTimingSchema,
   type OrderItemInput
@@ -128,8 +130,22 @@ function parseJsonArray(value: FormDataEntryValue | null) {
   }
 }
 
-function firstIssue(error: { issues: Array<{ message: string }> }, fallback: string) {
-  return error.issues[0]?.message ?? fallback;
+function formString(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value : "";
+}
+
+function firstIssue(error: { issues: Array<{ message: string; path?: Array<string | number> }> }, fallback: string) {
+  if (!error.issues.length) {
+    return fallback;
+  }
+
+  return error.issues
+    .map((issue) => {
+      const path = issue.path?.length ? issue.path.join(".") : "form";
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
 }
 
 function roundMoney(value: number) {
@@ -139,6 +155,58 @@ function roundMoney(value: number) {
 function safeReturnPath(value: FormDataEntryValue | null, fallback: string) {
   const path = String(value ?? "").trim();
   return path.startsWith("/") && !path.startsWith("//") ? path : fallback;
+}
+
+function formatDeliveryPdfDate(value: Date | null | undefined) {
+  if (!value) {
+    return "Not scheduled";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(value);
+}
+
+function deliveryPdfDetailRows({
+  orderNumber,
+  deliveryNumber,
+  scheduledDate,
+  scheduledTimeWindow
+}: {
+  orderNumber: string | null;
+  deliveryNumber: string | null;
+  scheduledDate: Date | null | undefined;
+  scheduledTimeWindow: string | null | undefined;
+}) {
+  return [
+    { id: "row-1", label: "Order", value: orderNumber ?? "Not assigned" },
+    {
+      id: "row-2",
+      label: "Delivery receipt number",
+      value: deliveryNumber ?? "Auto-generated after saving/export"
+    },
+    { id: "row-3", label: "Scheduled date", value: formatDeliveryPdfDate(scheduledDate) },
+    { id: "row-4", label: "Time window", value: scheduledTimeWindow?.trim() || "Not set" }
+  ];
+}
+
+function submittedPdfDetailsOrDefault(
+  rawValue: FormDataEntryValue | null,
+  parsedRows: Array<{ id: string; label: string; value: string }>,
+  defaultRows: Array<{ id: string; label: string; value: string }>
+) {
+  if (rawValue == null) {
+    return defaultRows;
+  }
+
+  try {
+    const parsed = JSON.parse(String(rawValue));
+    return Array.isArray(parsed) ? parsedRows : defaultRows;
+  } catch {
+    return defaultRows;
+  }
 }
 
 function primaryContactSnapshot(
@@ -950,7 +1018,7 @@ export async function createPaymentAction(
         }
       });
 
-      if (!order || order.status === "CANCELLED") {
+      if (!order || ["COMPLETED", "CANCELLED"].includes(order.status)) {
         throw new ActionError("Order is not available for payment.");
       }
 
@@ -1055,7 +1123,7 @@ export async function updatePaymentDueTimingAction(
     }
   });
 
-  if (!order || order.status === "CANCELLED") {
+  if (!order || ["COMPLETED", "CANCELLED"].includes(order.status)) {
     return {
       ok: false,
       message: "Order is not available for payment due updates."
@@ -1112,21 +1180,25 @@ export async function createDeliveryAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("DELIVERIES", "CREATE");
   const initialDeliveryStatus: DeliveryStatus = "SCHEDULED";
+  const assignedStaffId = formString(formData, "assignedStaffId");
+  const deliveryProviderType = formString(formData, "deliveryProviderType");
+  const pdfDetailsInput = formString(formData, "pdfDetails") || "[]";
   const parsed = createDeliverySchema.safeParse({
-    orderId: formData.get("orderId"),
-    assignedStaffId: formData.get("assignedStaffId") || undefined,
-    scheduledDate: formData.get("scheduledDate") || undefined,
-    scheduledStartTime: formData.get("scheduledStartTime"),
+    orderId: formString(formData, "orderId"),
+    assignedStaffId: assignedStaffId || undefined,
+    scheduledDate: formString(formData, "scheduledDate") || undefined,
+    scheduledStartTime: formString(formData, "scheduledStartTime"),
     scheduledEndTime: undefined,
-    scheduledTimeWindow: formData.get("scheduledTimeWindow"),
-    deliveryProviderType: formData.get("deliveryProviderType") || undefined,
-    deliveryProviderName: formData.get("deliveryProviderName"),
-    deliveryProviderReference: formData.get("deliveryProviderReference"),
-    recipientName: formData.get("recipientName"),
-    recipientPhone: formData.get("recipientPhone"),
-    deliveryAddress: formData.get("deliveryAddress"),
-    deliveryNotes: formData.get("deliveryNotes"),
-    internalNotes: formData.get("internalNotes"),
+    scheduledTimeWindow: formString(formData, "scheduledTimeWindow"),
+    deliveryProviderType: deliveryProviderType || undefined,
+    deliveryProviderName: formString(formData, "deliveryProviderName"),
+    deliveryProviderReference: formString(formData, "deliveryProviderReference"),
+    recipientName: formString(formData, "recipientName"),
+    recipientPhone: formString(formData, "recipientPhone"),
+    deliveryAddress: formString(formData, "deliveryAddress"),
+    deliveryNotes: formString(formData, "deliveryNotes"),
+    pdfDetails: pdfDetailsInput,
+    internalNotes: formString(formData, "internalNotes"),
     items: parseJsonArray(formData.get("items"))
   });
 
@@ -1241,6 +1313,17 @@ export async function createDeliveryAction(
         parsed.data.scheduledDate,
         parsed.data.scheduledStartTime
       );
+      const defaultPdfDetails = deliveryPdfDetailRows({
+        orderNumber: order.orderNumber,
+        deliveryNumber,
+        scheduledDate: parsed.data.scheduledDate,
+        scheduledTimeWindow: parsed.data.scheduledTimeWindow
+      });
+      const submittedPdfDetails = submittedPdfDetailsOrDefault(
+        pdfDetailsInput,
+        parsed.data.pdfDetails,
+        defaultPdfDetails
+      );
       const delivery = await tx.delivery.create({
         data: {
           orderId: order.id,
@@ -1259,6 +1342,7 @@ export async function createDeliveryAction(
           recipientName: parsed.data.recipientName,
           recipientPhone: parsed.data.recipientPhone,
           deliveryNotes: parsed.data.deliveryNotes,
+          pdfDetails: submittedPdfDetails as Prisma.InputJsonValue,
           internalNotes: parsed.data.internalNotes,
           assignedStaffId: parsed.data.assignedStaffId,
           createdById: actor.id,
@@ -1531,6 +1615,236 @@ export async function retryDeliveryCalendarSyncAction(formData: FormData) {
   }
 
   finish("success", "Calendar sync completed — some targets were skipped.");
+}
+
+export async function cancelOrderAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "UPDATE");
+  const parsed = cancelOrderSchema.safeParse({
+    orderId: formData.get("orderId"),
+    cancellationReason: formData.get("cancellationReason") || undefined
+  });
+
+  if (!parsed.success) {
+    return { ok: false, message: firstIssue(parsed.error, "Invalid order.") };
+  }
+
+  const deliveryIdsForCalendarDelete: string[] = [];
+  let orderNumber: string | null = null;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: parsed.data.orderId },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          paymentStatus: true,
+          deliveryStatus: true,
+          paidAmount: true,
+          payments: { select: { id: true, status: true } },
+          deliveries: {
+            select: {
+              id: true,
+              status: true,
+              googleCalendarEventId: true,
+              calendarEvents: { select: { id: true } }
+            }
+          },
+          _count: { select: { documents: true } }
+        }
+      });
+
+      if (!order) {
+        throw new ActionError("Order was not found.");
+      }
+
+      orderNumber = order.orderNumber;
+
+      if (order.status === "COMPLETED") {
+        throw new ActionError("Completed orders cannot be cancelled.");
+      }
+
+      if (order.status === "CANCELLED") {
+        throw new ActionError("This order is already cancelled.");
+      }
+
+      if (order.deliveryStatus === "DELIVERED" || order.deliveries.some((delivery) => delivery.status === "DELIVERED")) {
+        throw new ActionError("Orders with delivered deliveries cannot be cancelled. Handle this order manually.");
+      }
+
+      if (order.paymentStatus === "PAID") {
+        throw new ActionError("Fully paid orders need manual review before cancellation.");
+      }
+
+      const activeDeliveries = order.deliveries.filter(
+        (delivery) => !["DELIVERED", "CANCELLED", "FAILED"].includes(delivery.status)
+      );
+      deliveryIdsForCalendarDelete.push(
+        ...activeDeliveries
+          .filter((delivery) => delivery.googleCalendarEventId || delivery.calendarEvents.length > 0)
+          .map((delivery) => delivery.id)
+      );
+
+      if (activeDeliveries.length > 0) {
+        await tx.delivery.updateMany({
+          where: { id: { in: activeDeliveries.map((delivery) => delivery.id) } },
+          data: {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
+            updatedById: actor.id
+          }
+        });
+      }
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: "CANCELLED",
+          deliveryStatus: "CANCELLED",
+          cancelledAt: new Date(),
+          updatedById: actor.id
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "ORDER_UPDATED",
+          actorId: actor.id,
+          summary: `Cancelled order ${order.orderNumber ?? order.id}.`,
+          metadata: {
+            entityType: "order",
+            entityId: order.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            oldStatus: order.status,
+            newStatus: "CANCELLED",
+            oldDeliveryStatus: order.deliveryStatus,
+            newDeliveryStatus: "CANCELLED",
+            cancellationReason: parsed.data.cancellationReason,
+            paymentCount: order.payments.length,
+            documentCount: order._count.documents,
+            sourceAction: "order_cancellation"
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return { ok: false, message: error.message };
+    }
+
+    throw error;
+  }
+
+  await Promise.all(
+    deliveryIdsForCalendarDelete.map((deliveryId) =>
+      syncDeliveryCalendarSafely(deliveryId, deleteDeliveryCalendarEvent)
+    )
+  );
+
+  revalidatePath("/orders");
+  revalidatePath("/deliveries");
+  revalidatePath("/payments");
+  revalidatePath("/documents");
+
+  return {
+    ok: true,
+    message: `Order cancelled: ${orderNumber ?? parsed.data.orderId}.`
+  };
+}
+
+export async function deleteOrderAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "DELETE");
+  const parsed = deleteOrderSchema.safeParse({
+    orderId: formData.get("orderId")
+  });
+
+  if (!parsed.success) {
+    return { ok: false, message: firstIssue(parsed.error, "Invalid order.") };
+  }
+
+  let orderNumber: string | null = null;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: parsed.data.orderId },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          customerDisplayNameSnapshot: true,
+          companyNameSnapshot: true,
+          contactPersonNameSnapshot: true,
+          totalAmount: true,
+          _count: { select: { payments: true, deliveries: true, documents: true, items: true } }
+        }
+      });
+
+      if (!order) {
+        throw new ActionError("Order was not found.");
+      }
+
+      orderNumber = order.orderNumber;
+
+      if (order.status === "COMPLETED") {
+        throw new ActionError("Completed orders cannot be deleted. Cancel or keep the order history instead.");
+      }
+
+      if (order._count.payments > 0 || order._count.deliveries > 0 || order._count.documents > 0) {
+        throw new ActionError("This order has payments, deliveries, or documents. Cancel it instead to keep history intact.");
+      }
+
+      await tx.activityLog.create({
+        data: {
+          action: "ORDER_UPDATED",
+          actorId: actor.id,
+          summary: `Deleted order ${order.orderNumber ?? order.id}.`,
+          metadata: {
+            entityType: "order",
+            entityId: order.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            status: order.status,
+            customerSnapshot: {
+              displayName: order.customerDisplayNameSnapshot,
+              companyName: order.companyNameSnapshot,
+              contactPersonName: order.contactPersonNameSnapshot
+            },
+            totalAmount: Number(order.totalAmount),
+            itemCount: order._count.items,
+            sourceAction: "order_deletion"
+          }
+        }
+      });
+
+      await tx.order.delete({ where: { id: order.id } });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return { ok: false, message: error.message };
+    }
+
+    throw error;
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/deliveries");
+  revalidatePath("/payments");
+  revalidatePath("/documents");
+  revalidatePath("/sales-history");
+
+  return {
+    ok: true,
+    message: `Order deleted: ${orderNumber ?? parsed.data.orderId}.`
+  };
 }
 
 export async function completeOrderAction(

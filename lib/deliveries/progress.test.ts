@@ -64,6 +64,52 @@ test("createDeliverySchema accepts a single exact delivery start time", () => {
   assert.equal(parsed.data.scheduledEndTime, undefined);
 });
 
+test("createDeliverySchema normalizes nullable delivery PDF details", () => {
+  const parsed = createDeliverySchema.safeParse({
+    orderId: "33333333-3333-4333-8333-333333333333",
+    scheduledDate: "2026-05-19",
+    scheduledStartTime: "15:00",
+    recipientPhone: null,
+    deliveryNotes: null,
+    pdfDetails: JSON.stringify([
+      { id: null, label: "PO", value: 1234 },
+      { id: null, label: null, value: null }
+    ]),
+    items: [
+      {
+        orderItemId: "44444444-4444-4444-8444-444444444444",
+        quantityPlanned: 1
+      }
+    ]
+  });
+
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.data.pdfDetails, [{ id: "row-1", label: "PO", value: "1234" }]);
+  assert.equal(parsed.data.recipientPhone, undefined);
+  assert.equal(parsed.data.deliveryNotes, undefined);
+});
+
+test("createDeliverySchema rejects half-filled delivery PDF details with a field path", () => {
+  const parsed = createDeliverySchema.safeParse({
+    orderId: "33333333-3333-4333-8333-333333333333",
+    scheduledDate: "2026-05-19",
+    scheduledStartTime: "15:00",
+    pdfDetails: JSON.stringify([{ id: null, label: "PO", value: null }]),
+    items: [
+      {
+        orderItemId: "44444444-4444-4444-8444-444444444444",
+        quantityPlanned: 1
+      }
+    ]
+  });
+
+  assert.equal(parsed.success, false);
+
+  if (!parsed.success) {
+    assert.deepEqual(parsed.error.issues[0]?.path, ["pdfDetails", 0, "value"]);
+  }
+});
+
 test("prepareDeliveryProgressUpdate supports scheduled to in transit to partial to delivered", () => {
   const inTransit = prepareDeliveryProgressUpdate({
     currentStatus: "SCHEDULED",

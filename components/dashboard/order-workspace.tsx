@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { DeliveryStatus } from "@prisma/client";
 import {
   CheckCircle2,
@@ -13,6 +14,7 @@ import {
   Download,
   MoreHorizontal,
   PackageSearch,
+  Pencil,
   Plus,
   ReceiptText,
   Save,
@@ -23,9 +25,11 @@ import {
 import {
   completeOrderAction,
   convertQuotationToOrderAction,
+  cancelOrderAction,
   createDeliveryAction,
   createManualOrderAction,
   createPaymentAction,
+  deleteOrderAction,
   updateDeliveryProgressAction,
   updatePaymentDueTimingAction
 } from "@/app/actions/orders";
@@ -167,6 +171,11 @@ type OrderRow = {
     deliveryProviderReference: string | null;
     recipientName: string | null;
     recipientPhone: string | null;
+    pdfDetails: Array<{
+      id: string;
+      label: string;
+      value: string;
+    }>;
     addressLine: string | null;
     receiptGenerated: boolean;
     itemCount: number;
@@ -190,9 +199,16 @@ type OrderRow = {
 
 type DeliveryRow = OrderRow["deliveries"][number];
 
+type PdfDetailRow = {
+  id: string;
+  label: string;
+  value: string;
+};
+
 type OrderWorkspaceProps = {
   canCreateOrders: boolean;
   canUpdateOrders: boolean;
+  canDeleteOrders: boolean;
   canViewPayments: boolean;
   canCreatePayments: boolean;
   canViewDeliveries: boolean;
@@ -258,6 +274,10 @@ type OrderNextStep = {
   tone: StatusTone;
 };
 type OrderDetailTab = "overview" | "items" | "payments" | "deliveries" | "documents" | "notes";
+type PendingOrderAction =
+  | { type: "cancel"; order: OrderRow }
+  | { type: "delete"; order: OrderRow }
+  | null;
 
 type NewOrderLauncherProps = Pick<
   OrderWorkspaceProps,
@@ -267,6 +287,7 @@ type NewOrderLauncherProps = Pick<
 type OrderListProps = Pick<
   OrderWorkspaceProps,
   | "canUpdateOrders"
+  | "canDeleteOrders"
   | "canViewPayments"
   | "canCreatePayments"
   | "canViewDeliveries"
@@ -409,6 +430,37 @@ function formatDateChipLabel(value: string) {
     month: "short",
     day: "numeric"
   }).format(new Date(year, month - 1, day));
+}
+
+function formatLongDateLabel(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return "Not scheduled";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(new Date(year, month - 1, day));
+}
+
+function normalizePdfDetailRows(rows: PdfDetailRow[]): PdfDetailRow[] {
+  return rows.map((row, index) => ({
+    id: row.id ?? `row-${index + 1}`,
+    label: row.label ?? "",
+    value: row.value ?? ""
+  }));
+}
+
+function defaultDeliveryPdfRows(order: OrderRow, scheduledDate: string, scheduledTimeWindow: string): PdfDetailRow[] {
+  return normalizePdfDetailRows([
+    { id: "row-1", label: "Order", value: order.displayId ?? "" },
+    { id: "row-2", label: "Delivery receipt number", value: "Auto-generated after saving/export" },
+    { id: "row-3", label: "Scheduled date", value: scheduledDate ? formatLongDateLabel(scheduledDate) : "" },
+    { id: "row-4", label: "Time window", value: scheduledTimeWindow ?? "" }
+  ]);
 }
 
 function itemCountLabel(count: number) {
@@ -995,6 +1047,181 @@ function DeliveryTimePicker({
   );
 }
 
+function DeliveryPdfDetailsEditor({
+  rows,
+  onSave
+}: {
+  rows: PdfDetailRow[];
+  onSave: (rows: PdfDetailRow[]) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const normalizedRows = useMemo(() => normalizePdfDetailRows(rows ?? []), [rows]);
+  const [draftRows, setDraftRows] = useState<PdfDetailRow[]>(normalizedRows);
+  const validationIssues = draftRows
+    .map((row, index) => ({
+      index,
+      hasLabel: (row.label ?? "").trim().length > 0,
+      hasValue: (row.value ?? "").trim().length > 0
+    }))
+    .filter((row) => row.hasLabel !== row.hasValue);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftRows(normalizedRows);
+    }
+  }, [editing, normalizedRows]);
+
+  function updateRow(id: string, key: "label" | "value", value: string) {
+    setDraftRows((currentRows) =>
+      currentRows.map((row) => (row.id === id ? { ...row, [key]: value } : row))
+    );
+  }
+
+  function saveRows() {
+    if (validationIssues.length) {
+      return;
+    }
+
+    onSave(
+      draftRows
+        .map((row, index) => ({
+          id: row.id ?? `row-${index + 1}`,
+          label: (row.label ?? "").trim().slice(0, 80),
+          value: (row.value ?? "").trim().slice(0, 200)
+        }))
+        .filter((row) => row.label || row.value)
+        .slice(0, 12)
+    );
+    setEditing(false);
+  }
+
+  if (!editing) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[13px] text-muted-foreground">
+            Changes here affect the delivery receipt PDF display only. They do not change the official order or receipt number.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-8 shrink-0 rounded-md px-2"
+            onClick={() => {
+              setDraftRows(normalizedRows);
+              setEditing(true);
+            }}
+            aria-label="Edit PDF details"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="divide-y divide-border rounded-md border border-border bg-panel">
+          {rows.length ? (
+            rows.map((row) => (
+              <div key={row.id} className="grid gap-2 px-3 py-2 text-[13px] sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <span className="min-w-0 truncate font-medium text-muted-foreground">{row.label}</span>
+                <span className="min-w-0 break-words text-foreground">{row.value}</span>
+              </div>
+            ))
+          ) : (
+            <p className="px-3 py-2 text-[13px] text-muted-foreground">No custom PDF detail rows.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-muted-foreground">
+        Changes here affect the delivery receipt PDF display only. They do not change the official order or receipt number.
+      </p>
+      <div className="space-y-2">
+        <div className="hidden grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_2.5rem] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground sm:grid">
+          <span>Text Holder</span>
+          <span>Text Value</span>
+          <span />
+        </div>
+        {draftRows.map((row, index) => {
+          const hasIssue = validationIssues.some((issue) => issue.index === index);
+
+          return (
+            <div key={row.id} className="space-y-1">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_2.5rem]">
+                <Input
+                  value={row.label ?? ""}
+                  maxLength={80}
+                  onChange={(event) => updateRow(row.id, "label", event.target.value)}
+                  placeholder="Text Holder"
+                  aria-label="PDF detail text holder"
+                  className="text-[14px]"
+                />
+                <Input
+                  value={row.value ?? ""}
+                  maxLength={200}
+                  onChange={(event) => updateRow(row.id, "value", event.target.value)}
+                  placeholder="Text Value"
+                  aria-label="PDF detail text value"
+                  className="text-[14px]"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="min-h-10 rounded-md px-2 text-danger"
+                  onClick={() => setDraftRows((currentRows) => currentRows.filter((candidate) => candidate.id !== row.id))}
+                  aria-label="Remove PDF detail row"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              {hasIssue ? <p className="text-xs text-danger">Both Text Holder and Text Value are required.</p> : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-8 rounded-md px-3 text-xs"
+          disabled={draftRows.length >= 12}
+          onClick={() =>
+            setDraftRows((currentRows) => [
+              ...currentRows,
+              { id: `custom-${Date.now()}`, label: "", value: "" }
+            ])
+          }
+        >
+          <Plus className="h-4 w-4" />
+          Add row
+        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-8 rounded-md px-3 text-xs"
+            onClick={() => {
+              setDraftRows(rows);
+              setEditing(false);
+            }}
+          >
+            Discard
+          </Button>
+          <Button
+            type="button"
+            className="min-h-8 rounded-md px-3 text-xs"
+            disabled={validationIssues.length > 0}
+            onClick={saveRows}
+          >
+            <Save className="h-4 w-4" />
+            Save
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DeliveryForm({
   order,
   staffOptions,
@@ -1009,11 +1236,17 @@ function DeliveryForm({
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledStartTimeInput, setScheduledStartTimeInput] = useState("");
   const [itemDrafts, setItemDrafts] = useState<DeliveryItemDraft[]>(() => createDeliveryItemDrafts(order));
+  const [pdfDetails, setPdfDetails] = useState<PdfDetailRow[]>(() => defaultDeliveryPdfRows(order, "", ""));
+  const [pdfDetailsEdited, setPdfDetailsEdited] = useState(false);
   const remainingItems = useMemo(() => remainingItemLines(order), [order]);
   const itemById = useMemo(() => new Map(remainingItems.map((item) => [item.id, item])), [remainingItems]);
   const parsedStartTime = parseDeliveryStartTime(scheduledStartTimeInput);
   const scheduledStartTime = parsedStartTime.valid ? parsedStartTime.normalized : "";
   const scheduledTimeWindow = parsedStartTime.valid ? parsedStartTime.display : scheduledStartTimeInput.trim();
+  const defaultPdfDetails = useMemo(
+    () => defaultDeliveryPdfRows(order, scheduledDate, scheduledTimeWindow),
+    [order, scheduledDate, scheduledTimeWindow]
+  );
   const selectedDrafts = itemDrafts.filter((item) => item.selected);
   const allRemainingItemsSelected =
     itemDrafts.length > 0 && itemDrafts.every((item) => item.selected);
@@ -1073,7 +1306,14 @@ function DeliveryForm({
 
   useEffect(() => {
     setItemDrafts(createDeliveryItemDrafts(order));
+    setPdfDetailsEdited(false);
   }, [order]);
+
+  useEffect(() => {
+    if (!pdfDetailsEdited) {
+      setPdfDetails(defaultPdfDetails);
+    }
+  }, [defaultPdfDetails, pdfDetailsEdited]);
 
   useEffect(() => {
     if (!state.ok) {
@@ -1089,6 +1329,8 @@ function DeliveryForm({
     setScheduledDate("");
     setScheduledStartTimeInput("");
     setItemDrafts(createDeliveryItemDrafts(order));
+    setPdfDetailsEdited(false);
+    setPdfDetails(defaultDeliveryPdfRows(order, "", ""));
     onSuccess?.();
   }, [onSuccess, order, state.ok]);
 
@@ -1140,6 +1382,7 @@ function DeliveryForm({
       <input type="hidden" name="items" value={JSON.stringify(deliveryItems)} />
       <input type="hidden" name="scheduledTimeWindow" value={scheduledTimeWindow} />
       <input type="hidden" name="scheduledStartTime" value={scheduledStartTime} />
+      <input type="hidden" name="pdfDetails" value={JSON.stringify(normalizePdfDetailRows(pdfDetails ?? []))} />
 
       <section className="space-y-3 rounded-md border border-border bg-panel p-4">
         <div>
@@ -1308,6 +1551,10 @@ function DeliveryForm({
           </label>
         </div>
         <label className="block space-y-2 text-[14px] font-medium text-foreground">
+          Phone
+          <Input name="recipientPhone" placeholder="Phone optional" className="text-[15px]" />
+        </label>
+        <label className="block space-y-2 text-[14px] font-medium text-foreground">
           Address
           <Input
             name="deliveryAddress"
@@ -1316,31 +1563,22 @@ function DeliveryForm({
             className="text-[15px]"
           />
         </label>
+        <label className="block space-y-2 text-[14px] font-medium text-foreground">
+          Delivery notes
+          <Textarea name="deliveryNotes" placeholder="Delivery notes optional" className="text-[15px]" />
+        </label>
         <details className="rounded-md border border-dashed border-border bg-background/70 px-4 py-3">
           <summary className="cursor-pointer text-[14px] font-medium text-muted-foreground">
-            More delivery details
+            PDF details
           </summary>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <label className="space-y-2 text-[13px] font-medium">
-              Provider reference
-              <Input name="deliveryProviderReference" placeholder="Reference optional" className="text-[14px]" />
-            </label>
-            <label className="space-y-2 text-[13px] font-medium">
-              Recipient
-              <Input name="recipientName" placeholder="Recipient optional" className="text-[14px]" />
-            </label>
-            <label className="space-y-2 text-[13px] font-medium">
-              Phone
-              <Input name="recipientPhone" placeholder="Phone optional" className="text-[14px]" />
-            </label>
-            <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
-              Delivery notes
-              <Textarea name="deliveryNotes" placeholder="Delivery notes optional" className="text-[14px]" />
-            </label>
-            <label className="space-y-2 text-[13px] font-medium sm:col-span-2">
-              Internal notes
-              <Textarea name="internalNotes" placeholder="Internal notes optional" className="text-[14px]" />
-            </label>
+          <div className="mt-4">
+            <DeliveryPdfDetailsEditor
+              rows={pdfDetails}
+              onSave={(rows) => {
+                setPdfDetails(normalizePdfDetailRows(rows ?? []));
+                setPdfDetailsEdited(true);
+              }}
+            />
           </div>
         </details>
       </section>
@@ -3609,6 +3847,7 @@ function ManualOrderForm({
 
 export function OrderWorkspace({
   canUpdateOrders,
+  canDeleteOrders,
   canViewPayments,
   canCreatePayments,
   canViewDeliveries,
@@ -3638,6 +3877,7 @@ export function OrderWorkspace({
       : null
   );
   const [activePanelAction, setActivePanelAction] = useState<ActiveOrderPanelAction | null>(null);
+  const [pendingOrderAction, setPendingOrderAction] = useState<PendingOrderAction>(null);
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
 
   useEffect(() => {
@@ -3722,6 +3962,8 @@ export function OrderWorkspace({
               key={order.id}
               order={order}
               canViewPayments={canViewPayments}
+              canUpdateOrders={canUpdateOrders}
+              canDeleteOrders={canDeleteOrders}
               canCreatePayments={canCreatePayments}
               canViewDeliveries={canViewDeliveries}
               canCreateDeliveries={canCreateDeliveries}
@@ -3731,6 +3973,8 @@ export function OrderWorkspace({
               onHideDetails={() => setSelectedOrderId(null)}
               onRecordPayment={() => openAction(order.id, "payment")}
               onScheduleDelivery={() => openDetails(order.id)}
+              onCancelOrder={() => setPendingOrderAction({ type: "cancel", order })}
+              onDeleteOrder={() => setPendingOrderAction({ type: "delete", order })}
             />
           ))}
           {orders.length === 0 ? (
@@ -3765,12 +4009,19 @@ export function OrderWorkspace({
           }
         />
       ) : null}
+
+      <OrderActionDialog
+        pendingAction={pendingOrderAction}
+        onClose={() => setPendingOrderAction(null)}
+      />
     </>
   );
 }
 
 function OrderCard({
   order,
+  canUpdateOrders,
+  canDeleteOrders,
   canViewPayments,
   canCreatePayments,
   canViewDeliveries,
@@ -3780,9 +4031,13 @@ function OrderCard({
   onDetails,
   onHideDetails,
   onRecordPayment,
-  onScheduleDelivery
+  onScheduleDelivery,
+  onCancelOrder,
+  onDeleteOrder
 }: {
   order: OrderRow;
+  canUpdateOrders: boolean;
+  canDeleteOrders: boolean;
   canViewPayments: boolean;
   canCreatePayments: boolean;
   canViewDeliveries: boolean;
@@ -3793,6 +4048,8 @@ function OrderCard({
   onHideDetails: () => void;
   onRecordPayment: () => void;
   onScheduleDelivery: () => void;
+  onCancelOrder: () => void;
+  onDeleteOrder: () => void;
 }) {
   const showPaymentAction = canViewPayments && canCreatePayments && !isTerminalOrder(order) && hasBalanceDue(order);
   const showDeliveryAction = canScheduleDelivery(order, canViewDeliveries, canCreateDeliveries);
@@ -3895,6 +4152,8 @@ function OrderCard({
             <OrderCardMoreActions
               order={order}
               primaryActionKind={primaryAction.kind}
+              canUpdateOrders={canUpdateOrders}
+              canDeleteOrders={canDeleteOrders}
               canExportDocuments={canExportDocuments}
               isDetailsOpen={isDetailsOpen}
               showPaymentAction={showPaymentAction}
@@ -3903,6 +4162,8 @@ function OrderCard({
               onHideDetails={onHideDetails}
               onRecordPayment={onRecordPayment}
               onScheduleDelivery={onScheduleDelivery}
+              onCancelOrder={onCancelOrder}
+              onDeleteOrder={onDeleteOrder}
             />
           </div>
         </div>
@@ -3914,6 +4175,8 @@ function OrderCard({
 function OrderCardMoreActions({
   order,
   primaryActionKind,
+  canUpdateOrders,
+  canDeleteOrders,
   canExportDocuments,
   isDetailsOpen,
   showPaymentAction,
@@ -3921,10 +4184,14 @@ function OrderCardMoreActions({
   onDetails,
   onHideDetails,
   onRecordPayment,
-  onScheduleDelivery
+  onScheduleDelivery,
+  onCancelOrder,
+  onDeleteOrder
 }: {
   order: OrderRow;
   primaryActionKind: OrderCardPrimaryActionKind;
+  canUpdateOrders: boolean;
+  canDeleteOrders: boolean;
   canExportDocuments: boolean;
   isDetailsOpen: boolean;
   showPaymentAction: boolean;
@@ -3933,6 +4200,8 @@ function OrderCardMoreActions({
   onHideDetails: () => void;
   onRecordPayment: () => void;
   onScheduleDelivery: () => void;
+  onCancelOrder: () => void;
+  onDeleteOrder: () => void;
 }) {
   const [menuPosition, setMenuPosition] = useState<{
     left: number;
@@ -3945,7 +4214,14 @@ function OrderCardMoreActions({
   const showDetailsAction = primaryActionKind !== "details";
   const showPaymentMenuAction = showPaymentAction && primaryActionKind !== "recordPayment";
   const showDeliveryMenuAction = showDeliveryAction && primaryActionKind !== "scheduleDelivery";
-  const canShowMenu = showDetailsAction || showPaymentMenuAction || showDeliveryMenuAction || canExportDocuments;
+  const showCancelAction = canUpdateOrders && !["COMPLETED", "CANCELLED"].includes(order.status);
+  const canShowMenu =
+    showDetailsAction ||
+    showPaymentMenuAction ||
+    showDeliveryMenuAction ||
+    showCancelAction ||
+    canDeleteOrders ||
+    canExportDocuments;
 
   useEffect(() => {
     if (!isOpen) {
@@ -4111,10 +4387,194 @@ function OrderCardMoreActions({
               </a>
             </>
           ) : null}
+          {showCancelAction ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3 text-danger hover:text-danger"
+              onClick={() => {
+                closeMenu();
+                onCancelOrder();
+              }}
+            >
+              <X className="h-4 w-4" />
+              Cancel order
+            </Button>
+          ) : null}
+          {canDeleteOrders ? (
+            <Button
+              type="button"
+              variant="ghost"
+              role="menuitem"
+              className="min-h-9 justify-start rounded-md px-3 text-danger hover:text-danger"
+              onClick={() => {
+                closeMenu();
+                onDeleteOrder();
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete order
+            </Button>
+          ) : null}
           {/* Add Edit order here once a real edit route/server action exists, gated by canUpdateOrders. */}
         </div>
       ) : null}
     </>
+  );
+}
+
+function OrderActionDialog({
+  pendingAction,
+  onClose
+}: {
+  pendingAction: PendingOrderAction;
+  onClose: () => void;
+}) {
+  if (!pendingAction) {
+    return null;
+  }
+
+  return pendingAction.type === "cancel" ? (
+    <CancelOrderDialog order={pendingAction.order} onClose={onClose} />
+  ) : (
+    <DeleteOrderDialog order={pendingAction.order} onClose={onClose} />
+  );
+}
+
+function OrderDialogShell({
+  title,
+  children,
+  onClose
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-action-dialog-title"
+        className="w-full max-w-lg rounded-lg border border-border bg-panel p-5 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <h2 id="order-action-dialog-title" className="text-lg font-semibold">
+            {title}
+          </h2>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function CancelOrderDialog({ order, onClose }: { order: OrderRow; onClose: () => void }) {
+  const router = useRouter();
+  const [state, action, pending] = useActionState(cancelOrderAction, initialState);
+  const activeDeliveries = order.deliveries.filter((delivery) =>
+    !["DELIVERED", "CANCELLED", "FAILED"].includes(delivery.status)
+  );
+
+  useEffect(() => {
+    if (state.ok) {
+      onClose();
+      router.refresh();
+    }
+  }, [onClose, router, state.ok]);
+
+  return (
+    <OrderDialogShell title="Cancel order" onClose={onClose}>
+      <form action={action} className="mt-4 space-y-4">
+        <input type="hidden" name="orderId" value={order.id} />
+        <p className="text-sm leading-6 text-muted-foreground">
+          Cancel order {order.displayId}? This will stop active delivery workflow for this order but keep order history.
+        </p>
+        {order.payments.length > 0 ? (
+          <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
+            This order has recorded payment history. Cancelling will not remove or refund payments.
+          </p>
+        ) : null}
+        {activeDeliveries.length > 0 ? (
+          <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
+            Active delivery schedules will be cancelled.
+          </p>
+        ) : null}
+        <label className="block space-y-2 text-sm font-medium">
+          Cancellation reason optional
+          <Textarea name="cancellationReason" maxLength={1000} />
+        </label>
+        {state.message ? (
+          <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
+        ) : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="secondary" disabled={pending} onClick={onClose}>
+            Keep order
+          </Button>
+          <Button type="submit" variant="danger" disabled={pending}>
+            Cancel order
+          </Button>
+        </div>
+      </form>
+    </OrderDialogShell>
+  );
+}
+
+function DeleteOrderDialog({ order, onClose }: { order: OrderRow; onClose: () => void }) {
+  const router = useRouter();
+  const [state, action, pending] = useActionState(deleteOrderAction, initialState);
+  const hasProtectedHistory = order.payments.length > 0 || order.deliveries.length > 0 || order.documents.length > 0;
+
+  useEffect(() => {
+    if (state.ok) {
+      onClose();
+      router.refresh();
+    }
+  }, [onClose, router, state.ok]);
+
+  return (
+    <OrderDialogShell title="Delete order" onClose={onClose}>
+      <form action={action} className="mt-4 space-y-4">
+        <input type="hidden" name="orderId" value={order.id} />
+        <p className="text-sm leading-6 text-muted-foreground">
+          Delete order {order.displayId}? This permanently removes the order if it has no protected payment,
+          delivery, or document history.
+        </p>
+        {hasProtectedHistory ? (
+          <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
+            Orders with payments, delivered deliveries, or documents should be cancelled instead of deleted.
+          </p>
+        ) : null}
+        {state.message ? (
+          <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
+        ) : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="secondary" disabled={pending} onClick={onClose}>
+            Keep order
+          </Button>
+          <Button type="submit" variant="danger" disabled={pending}>
+            Delete order
+          </Button>
+        </div>
+      </form>
+    </OrderDialogShell>
   );
 }
 
@@ -4514,11 +4974,15 @@ function OrderInlineActionForm({
     : null;
 
   if (action === "payment") {
-    return canViewPayments && canCreatePayments ? <PaymentForm order={order} /> : <RestrictedPanel title="payment actions" />;
+    return canViewPayments && canCreatePayments && !isTerminalOrder(order) ? (
+      <PaymentForm order={order} />
+    ) : (
+      <RestrictedPanel title="payment actions" />
+    );
   }
 
   if (action === "paymentDue") {
-    return canUpdateOrders && canViewPayments ? (
+    return canUpdateOrders && canViewPayments && !isTerminalOrder(order) ? (
       <PaymentDueTimingForm order={order} />
     ) : (
       <RestrictedPanel title="payment due timing" />
@@ -4818,6 +5282,7 @@ function PaymentSection({
 
   const isPaymentFormOpen = activeAction === "payment";
   const isPaymentDueFormOpen = activeAction === "paymentDue";
+  const canEditPayments = !isTerminalOrder(order);
 
   return (
     <OrderPanelSection
@@ -4849,7 +5314,7 @@ function PaymentSection({
         </div>
       </div>
 
-      {canCreatePayments || (canUpdateOrders && order.balanceAmountValue > 0) ? (
+      {canEditPayments && (canCreatePayments || (canUpdateOrders && order.balanceAmountValue > 0)) ? (
         <div className="flex flex-wrap gap-2">
           {canCreatePayments ? (
             <Button
@@ -4874,13 +5339,13 @@ function PaymentSection({
         </div>
       ) : null}
 
-      {isPaymentFormOpen ? (
+      {isPaymentFormOpen && canEditPayments ? (
         <div className="border-t border-border pt-4">
           <PaymentForm order={order} />
         </div>
       ) : null}
 
-      {isPaymentDueFormOpen ? (
+      {isPaymentDueFormOpen && canEditPayments ? (
         <div className="border-t border-border pt-4">
           <PaymentDueTimingForm order={order} />
         </div>

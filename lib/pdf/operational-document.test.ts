@@ -7,7 +7,7 @@ import { formatMoney, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import { renderOperationalPdf, renderQuotationPdf } from "@/lib/pdf/render";
 import { defaultAppSettings, defaultPaymentSettings } from "@/lib/settings/get-settings";
 import { paymentSettingsSchema } from "@/lib/validation/settings";
-import type { OperationalPdfData } from "@/lib/pdf/types";
+import type { OperationalPdfData, PdfItemRow } from "@/lib/pdf/types";
 
 test("default PDF logo resolves to a local tracked image asset", () => {
   const logoPath = defaultPdfLogoPath();
@@ -275,6 +275,70 @@ test("typical final order summary keeps the signature on a single A4 page", asyn
   assert.equal(countPdfPages(buffer), 1);
 });
 
+test("multi-page delivery receipt renders with intact pagination controls", async () => {
+  const buffer = await renderOperationalPdf({
+    ...sampleQuotationData(),
+    kind: "delivery-receipt",
+    title: "Delivery Receipt",
+    filename: "sample-delivery-receipt.pdf",
+    summary: [
+      { label: "Order", value: "ORD-SAMPLE" },
+      { label: "Delivery receipt number", value: "DR-SAMPLE" },
+      { label: "Scheduled date", value: "May 25, 2026" },
+      { label: "Time window", value: "10:00 AM" }
+    ],
+    items: manyPdfItems(42).map((item, index) => ({
+      ...item,
+      quantityDelivered: index % 2 === 0 ? item.quantity : "0",
+      notes: index % 3 === 0 ? "Inspect on arrival" : null
+    })),
+    notes: "Call the receiving team before unloading.",
+    totals: [],
+    documentTermsBlock: {
+      title: "TERMS & CONDITION:",
+      lines: [
+        "Items delivered/pickup will be considered good condition if no claim has been made within 24 hours.",
+        "Warranty covers factory defects only; change of mind is not accepted."
+      ]
+    },
+    signatureRequired: true
+  });
+
+  assert.ok(countPdfPages(buffer) > 1);
+  assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
+});
+
+test("operational PDFs render many item rows without pagination errors", async () => {
+  const base = sampleQuotationData();
+  const kinds: OperationalPdfData["kind"][] = ["invoice", "payment-receipt", "final-order-summary"];
+
+  for (const kind of kinds) {
+    const buffer = await renderOperationalPdf({
+      ...base,
+      kind,
+      title: kind,
+      filename: `${kind}.pdf`,
+      items: manyPdfItems(36),
+      payments: kind === "final-order-summary" ? [{ label: "May 22, 2026", value: "Payment - PHP 1,000.00" }] : [],
+      deliveries: kind === "final-order-summary" ? [{ label: "May 25, 2026", value: "Scheduled" }] : [],
+      paymentTermsBlock: {
+        policyTitle: "Payment Policy and Delivery Options",
+        policyBullets: ["Down payment required before scheduling.", "Balance due before release."],
+        highlightNote: "Payment details must be confirmed before dispatch.",
+        bankDetailsTitle: "Bank details",
+        bankDetailsLines: ["Sample Bank", "Account 0000 0000"]
+      },
+      documentTermsBlock: {
+        title: "Note:",
+        lines: ["This receipt acknowledges the payment recorded for the order shown above."]
+      }
+    });
+
+    assert.ok(countPdfPages(buffer) > 1, `${kind} should render multiple pages for this fixture`);
+    assert.equal(buffer.subarray(0, 5).toString(), "%PDF-");
+  }
+});
+
 function sampleQuotationData(): OperationalPdfData {
   return {
     kind: "quotation",
@@ -307,6 +371,18 @@ function sampleQuotationData(): OperationalPdfData {
     totals: [{ label: "Total", value: "PHP 10,000.00" }],
     footerNote: "Generated for Furniture Odyssey sales operations."
   };
+}
+
+function manyPdfItems(count: number): PdfItemRow[] {
+  return Array.from({ length: count }, (_, index) => ({
+    code: `FO-${String(index + 1).padStart(3, "0")}`,
+    name: `Sample item ${index + 1}`,
+    description: "Walnut finish with upholstered panels and delivery handling notes.",
+    quantity: String((index % 4) + 1),
+    unitPrice: "PHP 2,500.00",
+    discount: "PHP 0.00",
+    total: "PHP 10,000.00"
+  }));
 }
 
 function finalOrderSummaryData(): OperationalPdfData {

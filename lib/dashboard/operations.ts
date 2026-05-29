@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { canViewModule, isAdmin, type UserWithPermissions } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
+import { manilaDayRange, type ReportRangePreset } from "@/lib/reporting/date-range";
 
 const closedOrderStatuses = ["COMPLETED", "CANCELLED"] as const;
 const pendingPaymentStatuses = [
@@ -46,29 +47,6 @@ type DashboardPermissions = {
 };
 
 type RecentCandidate = Omit<DashboardRecentActivity, "timestamp">;
-
-function manilaDayRange(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  })
-    .formatToParts(date)
-    .reduce<Record<string, string>>((current, part) => {
-      if (part.type !== "literal") {
-        current[part.type] = part.value;
-      }
-
-      return current;
-    }, {});
-
-  const start = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00.000+08:00`);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-
-  return { start, end };
-}
 
 function daysAgo(date: Date, days: number) {
   const next = new Date(date);
@@ -176,11 +154,9 @@ function outstandingBalanceWhere(): Prisma.OrderWhereInput {
   };
 }
 
-function dueDeliveryWhere(tomorrowStart: Date): Prisma.DeliveryWhereInput {
+function dueDeliveryWhere(dateRange: { gte?: Date; lte?: Date }): Prisma.DeliveryWhereInput {
   return {
-    scheduledDate: {
-      lt: tomorrowStart
-    },
+    scheduledDate: dateRange,
     status: {
       in: [...activeDeliveryStatuses]
     }
@@ -188,12 +164,12 @@ function dueDeliveryWhere(tomorrowStart: Date): Prisma.DeliveryWhereInput {
 }
 
 export function assignedDueDeliveryWhere(
-  tomorrowStart: Date,
+  dateRange: { gte?: Date; lte?: Date },
   userId: string,
   showAllDeliveries: boolean
 ): Prisma.DeliveryWhereInput {
   return {
-    ...dueDeliveryWhere(tomorrowStart),
+    ...dueDeliveryWhere(dateRange),
     ...(showAllDeliveries ? {} : { assignedStaffId: userId })
   };
 }
@@ -222,13 +198,15 @@ function pLimit(concurrency: number) {
 }
 
 function buildKpiCards({
-  paymentsToday,
+  paymentsInRange,
+  profitInRange,
   openOrderCount,
   awaitingFulfillmentCount,
   outstandingBalance,
   deliveryDueCount
 }: {
-  paymentsToday: Prisma.GetPaymentAggregateType<{ _count: true; _sum: { amount: true } }> | null;
+  paymentsInRange: Prisma.GetPaymentAggregateType<{ _count: true; _sum: { amount: true } }> | null;
+  profitInRange: Prisma.GetOrderAggregateType<{ _sum: { grossProfitAmount: true } }> | null;
   openOrderCount: number | null;
   awaitingFulfillmentCount: number | null;
   outstandingBalance: Prisma.GetOrderAggregateType<{ _count: true; _sum: { balanceAmount: true } }> | null;
@@ -239,12 +217,12 @@ function buildKpiCards({
 
   const cards: DashboardKpiCard[] = [];
 
-  if (paymentsToday) {
+  if (paymentsInRange) {
     cards.push({
-      key: "today-sales",
-      label: "Sales Today",
-      value: formatMoney(paymentsToday._sum.amount),
-      detail: "Recorded payments today"
+      key: "sales",
+      label: "Sales",
+      value: formatMoney(paymentsInRange._sum.amount),
+      detail: "Recorded payments in selected period"
     });
   }
 
@@ -253,9 +231,18 @@ function buildKpiCards({
       key: "outstanding-balance",
       label: "Outstanding Balance",
       value: formatMoney(unpaidOrderBalance),
-      detail: `${formatNumber(unpaidOrderCount)} unpaid ${
+      detail: `Unpaid order balance in selected period - ${formatNumber(unpaidOrderCount)} ${
         unpaidOrderCount === 1 ? "order" : "orders"
       }`
+    });
+  }
+
+  if (profitInRange) {
+    cards.push({
+      key: "profit",
+      label: "Profit",
+      value: formatMoney(profitInRange._sum.grossProfitAmount),
+      detail: "Gross profit in selected period"
     });
   }
 
@@ -266,8 +253,8 @@ function buildKpiCards({
       value: formatNumber(openOrderCount),
       detail:
         awaitingFulfillmentCount !== null
-          ? `${formatNumber(awaitingFulfillmentCount)} awaiting fulfillment`
-          : "Not completed or cancelled"
+          ? `${formatNumber(awaitingFulfillmentCount)} awaiting fulfillment in selected period`
+          : "Open orders created in selected period"
     });
   }
 
@@ -276,58 +263,58 @@ function buildKpiCards({
       key: "deliveries-due",
       label: "Deliveries Due",
       value: formatNumber(deliveryDueCount),
-      detail: "Due today or overdue"
+      detail: "Due in selected period"
     });
   }
 
-  return cards.slice(0, 4);
+  return cards;
 }
 
-function buildTodayMetrics({
+function buildPeriodMetrics({
   permissions,
-  paymentsToday,
-  ordersCreatedToday,
-  quotationsCreatedToday,
-  deliveriesScheduledToday
+  paymentsInRange,
+  ordersCreatedInRange,
+  quotationsCreatedInRange,
+  deliveriesScheduledInRange
 }: {
   permissions: DashboardPermissions;
-  paymentsToday: Prisma.GetPaymentAggregateType<{ _count: true; _sum: { amount: true } }> | null;
-  ordersCreatedToday: number | null;
-  quotationsCreatedToday: number | null;
-  deliveriesScheduledToday: number | null;
+  paymentsInRange: Prisma.GetPaymentAggregateType<{ _count: true; _sum: { amount: true } }> | null;
+  ordersCreatedInRange: number | null;
+  quotationsCreatedInRange: number | null;
+  deliveriesScheduledInRange: number | null;
 }) {
   const today: DashboardMetric[] = [];
 
-  if (permissions.canViewPayments && paymentsToday) {
+  if (permissions.canViewPayments && paymentsInRange) {
     today.push({
-      key: "payments-today",
+      key: "payments-in-range",
       label: "Payments recorded",
-      value: formatNumber(paymentsToday._count),
-      detail: formatMoney(paymentsToday._sum.amount)
+      value: formatNumber(paymentsInRange._count),
+      detail: formatMoney(paymentsInRange._sum.amount)
     });
   }
 
-  if (permissions.canViewOrders && ordersCreatedToday !== null) {
+  if (permissions.canViewOrders && ordersCreatedInRange !== null) {
     today.push({
-      key: "orders-created-today",
+      key: "orders-created-in-range",
       label: "Orders created",
-      value: formatNumber(ordersCreatedToday)
+      value: formatNumber(ordersCreatedInRange)
     });
   }
 
-  if (permissions.canViewQuotations && quotationsCreatedToday !== null) {
+  if (permissions.canViewQuotations && quotationsCreatedInRange !== null) {
     today.push({
-      key: "quotations-created-today",
+      key: "quotations-created-in-range",
       label: "Quotations created",
-      value: formatNumber(quotationsCreatedToday)
+      value: formatNumber(quotationsCreatedInRange)
     });
   }
 
-  if (permissions.canViewDeliveries && deliveriesScheduledToday !== null) {
+  if (permissions.canViewDeliveries && deliveriesScheduledInRange !== null) {
     today.push({
-      key: "deliveries-scheduled-today",
+      key: "deliveries-scheduled-in-range",
       label: "Deliveries scheduled",
-      value: formatNumber(deliveriesScheduledToday)
+      value: formatNumber(deliveriesScheduledInRange)
     });
   }
 
@@ -490,8 +477,18 @@ function buildRecentActivity(candidates: RecentCandidate[]) {
     }));
 }
 
-export async function getDashboardOperations(user: UserWithPermissions) {
-  const { start: todayStart, end: tomorrowStart } = manilaDayRange();
+export async function getDashboardOperations(
+  user: UserWithPermissions,
+  options: {
+    dateRange?: { gte?: Date; lte?: Date };
+    range?: ReportRangePreset;
+    rangeLabel?: string;
+    fromInput?: string;
+    toInput?: string;
+  } = {}
+) {
+  const todayRange = manilaDayRange();
+  const selectedDateRange = options.dateRange ?? todayRange.dateRange;
   const now = new Date();
   const quotationAgingDate = daysAgo(now, 3);
   const adminDashboard = isAdmin(user);
@@ -510,10 +507,11 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     awaitingFulfillmentCount,
     outstandingBalance,
     deliveryDueCount,
-    paymentsToday,
-    ordersCreatedToday,
-    quotationsCreatedToday,
-    deliveriesScheduledToday,
+    paymentsInRange,
+    profitInRange,
+    ordersCreatedInRange,
+    quotationsCreatedInRange,
+    deliveriesScheduledInRange,
     missingDeliveryOrders,
     paymentRiskOrders,
     dueDeliveries,
@@ -527,7 +525,10 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewOrders
         ? prisma.order.count({
-            where: openOrderWhere()
+            where: {
+              ...openOrderWhere(),
+              createdAt: selectedDateRange
+            }
           })
         : Promise.resolve(null)
     ),
@@ -536,6 +537,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
         ? prisma.order.count({
             where: {
               ...openOrderWhere(),
+              createdAt: selectedDateRange,
               deliveryStatus: {
                 notIn: ["DELIVERED", "CANCELLED"]
               }
@@ -546,7 +548,10 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewPayments
         ? prisma.order.aggregate({
-            where: outstandingBalanceWhere(),
+            where: {
+              ...outstandingBalanceWhere(),
+              createdAt: selectedDateRange
+            },
             _count: true,
             _sum: {
               balanceAmount: true
@@ -557,7 +562,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewDeliveries
         ? prisma.delivery.count({
-            where: assignedDueDeliveryWhere(tomorrowStart, user.id, adminDashboard)
+            where: assignedDueDeliveryWhere(selectedDateRange, user.id, adminDashboard)
           })
         : Promise.resolve(null)
     ),
@@ -566,10 +571,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
         ? prisma.payment.aggregate({
             where: {
               status: "RECORDED",
-              paymentDate: {
-                gte: todayStart,
-                lt: tomorrowStart
-              }
+              paymentDate: selectedDateRange
             },
             _count: true,
             _sum: {
@@ -579,13 +581,25 @@ export async function getDashboardOperations(user: UserWithPermissions) {
         : Promise.resolve(null)
     ),
     limit(() =>
+      permissions.canViewOrders && permissions.canViewPayments
+        ? prisma.order.aggregate({
+            where: {
+              status: {
+                not: "CANCELLED"
+              },
+              createdAt: selectedDateRange
+            },
+            _sum: {
+              grossProfitAmount: true
+            }
+          })
+        : Promise.resolve(null)
+    ),
+    limit(() =>
       permissions.canViewOrders
         ? prisma.order.count({
             where: {
-              createdAt: {
-                gte: todayStart,
-                lt: tomorrowStart
-              }
+              createdAt: selectedDateRange
             }
           })
         : Promise.resolve(null)
@@ -594,10 +608,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
       permissions.canViewQuotations
         ? prisma.quotation.count({
             where: {
-              createdAt: {
-                gte: todayStart,
-                lt: tomorrowStart
-              }
+              createdAt: selectedDateRange
             }
           })
         : Promise.resolve(null)
@@ -606,10 +617,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
       permissions.canViewDeliveries
         ? prisma.delivery.count({
             where: {
-              scheduledDate: {
-                gte: todayStart,
-                lt: tomorrowStart
-              },
+              scheduledDate: selectedDateRange,
               status: {
                 notIn: ["DELIVERED", "CANCELLED", "FAILED"]
               }
@@ -622,6 +630,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
         ? prisma.order.findMany({
             where: {
               ...openOrderWhere(),
+              createdAt: selectedDateRange,
               deliveryStatus: "NOT_SCHEDULED"
             },
             orderBy: [
@@ -650,16 +659,19 @@ export async function getDashboardOperations(user: UserWithPermissions) {
               OR: [
                 {
                   paymentDueDate: {
+                    ...selectedDateRange,
                     lt: now
                   }
                 },
                 {
-                  paymentStatus: "UNPAID"
+                  paymentStatus: "UNPAID",
+                  createdAt: selectedDateRange
                 },
                 {
                   balanceAmount: {
                     gt: 0
-                  }
+                  },
+                  createdAt: selectedDateRange
                 }
               ]
             },
@@ -685,7 +697,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewDeliveries
         ? prisma.delivery.findMany({
-            where: assignedDueDeliveryWhere(tomorrowStart, user.id, adminDashboard),
+            where: assignedDueDeliveryWhere(selectedDateRange, user.id, adminDashboard),
             orderBy: [
               {
                 scheduledDate: "asc"
@@ -719,6 +731,7 @@ export async function getDashboardOperations(user: UserWithPermissions) {
         ? prisma.order.findMany({
             where: {
               ...openOrderWhere(),
+              OR: [{ updatedAt: selectedDateRange }, { createdAt: selectedDateRange }],
               deliveryStatus: {
                 in: ["SCHEDULED", "PARTIALLY_DELIVERED"]
               }
@@ -744,11 +757,13 @@ export async function getDashboardOperations(user: UserWithPermissions) {
                 {
                   status: "SENT",
                   updatedAt: {
+                    ...selectedDateRange,
                     lt: quotationAgingDate
                   }
                 },
                 {
                   status: "ACCEPTED",
+                  createdAt: selectedDateRange,
                   order: null
                 }
               ]
@@ -775,7 +790,8 @@ export async function getDashboardOperations(user: UserWithPermissions) {
       permissions.canViewPayments
         ? prisma.payment.findMany({
             where: {
-              status: "RECORDED"
+              status: "RECORDED",
+              paymentDate: selectedDateRange
             },
             orderBy: [
               {
@@ -805,6 +821,9 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewOrders
         ? prisma.order.findMany({
+            where: {
+              createdAt: selectedDateRange
+            },
             orderBy: {
               createdAt: "desc"
             },
@@ -822,6 +841,9 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewQuotations
         ? prisma.quotation.findMany({
+            where: {
+              createdAt: selectedDateRange
+            },
             orderBy: {
               createdAt: "desc"
             },
@@ -843,6 +865,9 @@ export async function getDashboardOperations(user: UserWithPermissions) {
     limit(() =>
       permissions.canViewDeliveries
         ? prisma.delivery.findMany({
+            where: {
+              updatedAt: selectedDateRange
+            },
             orderBy: {
               updatedAt: "desc"
             },
@@ -914,18 +939,19 @@ export async function getDashboardOperations(user: UserWithPermissions) {
       quotationActions
     }),
     kpiCards: buildKpiCards({
-      paymentsToday,
+      paymentsInRange,
+      profitInRange,
       openOrderCount,
       awaitingFulfillmentCount,
       outstandingBalance,
       deliveryDueCount
     }),
-    todayMetrics: buildTodayMetrics({
+    todayMetrics: buildPeriodMetrics({
       permissions,
-      paymentsToday,
-      ordersCreatedToday,
-      quotationsCreatedToday,
-      deliveriesScheduledToday
+      paymentsInRange,
+      ordersCreatedInRange,
+      quotationsCreatedInRange,
+      deliveriesScheduledInRange
     }),
     recentActivity: buildRecentActivity(recentCandidates)
   };

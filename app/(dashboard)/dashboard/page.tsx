@@ -1,23 +1,45 @@
 import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { ReportDateRangeFilter } from "@/components/dashboard/report-date-range-filter";
 import { requireActiveUser } from "@/lib/auth/server";
 import type { UserWithPermissions } from "@/lib/auth/permissions";
 import { getDashboardOperations } from "@/lib/dashboard/operations";
+import { getReportDateRange } from "@/lib/reporting/date-range";
 
 export default async function DashboardPage({
   searchParams
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; range?: string; from?: string; to?: string }>;
 }) {
   const user = (await requireActiveUser()) as UserWithPermissions;
   const params = await searchParams;
+  const reportRange = getReportDateRange({
+    range: params.range,
+    from: params.from,
+    to: params.to,
+    fallback: "today"
+  });
   const { attentionItems, kpiCards, todayMetrics, recentActivity } =
-    await getDashboardOperations(user);
+    await getDashboardOperations(user, {
+      dateRange: reportRange.dateRange,
+      range: reportRange.range,
+      rangeLabel: reportRange.label,
+      fromInput: reportRange.fromInput,
+      toInput: reportRange.toInput
+    });
 
   return (
     <>
-      <PageHeader title="Dashboard" description="Today's workspace" />
+      <PageHeader title="Dashboard" description="Sales operations workspace" />
+      <ReportDateRangeFilter
+        pathname="/dashboard"
+        currentRange={reportRange.range}
+        from={reportRange.fromInput}
+        to={reportRange.toInput}
+        preserveParams={{ error: params.error }}
+        summary={reportRange.label}
+      />
       {params.error === "forbidden" ? (
         <div className="mb-5 flex items-center gap-3 rounded-md border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
           <ShieldAlert className="h-4 w-4" />
@@ -25,7 +47,7 @@ export default async function DashboardPage({
         </div>
       ) : null}
       {kpiCards.length > 0 ? (
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {kpiCards.map((card) => (
             <div key={card.key} className="studio-card p-4">
               <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
@@ -62,7 +84,9 @@ export default async function DashboardPage({
         <div className="space-y-5">
           <section className="studio-card">
             <div className="flex items-center justify-between gap-3 px-5 py-4">
-              <h2 className="text-sm font-semibold">Today</h2>
+              <h2 className="text-sm font-semibold">
+                {reportRange.range === "today" ? "Today" : "Selected Period"}
+              </h2>
             </div>
             {todayMetrics.length > 0 ? (
               <div className="space-y-3 border-t border-border px-5 py-4">
