@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import type {
   DeliveryProviderType,
   DeliveryStatus,
   DiscountType,
   DocumentType,
   OrderDeliveryStatus,
-  Prisma,
   QuotationItemType
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -2207,23 +2207,24 @@ export async function deleteOrderAction(
           companyNameSnapshot: true,
           contactPersonNameSnapshot: true,
           totalAmount: true,
+          paymentStatus: true,
+          deliveryStatus: true,
           _count: { select: { payments: true, deliveries: true, documents: true, items: true } }
         }
       });
 
       if (!order) {
-        throw new ActionError("Order was not found.");
+        throw new ActionError("Order was already deleted or no longer exists.");
       }
 
       orderNumber = order.orderNumber;
-
-      if (order.status === "COMPLETED") {
-        throw new ActionError("Completed orders cannot be deleted. Cancel or keep the order history instead.");
-      }
-
-      if (order._count.payments > 0 || order._count.deliveries > 0 || order._count.documents > 0) {
-        throw new ActionError("This order has payments, deliveries, or documents. Cancel it instead to keep history intact.");
-      }
+      const deliveryItemCount = await tx.deliveryItem.count({
+        where: {
+          delivery: {
+            orderId: order.id
+          }
+        }
+      });
 
       await tx.activityLog.create({
         data: {
@@ -2236,6 +2237,8 @@ export async function deleteOrderAction(
             orderId: order.id,
             orderNumber: order.orderNumber,
             status: order.status,
+            paymentStatus: order.paymentStatus,
+            deliveryStatus: order.deliveryStatus,
             customerSnapshot: {
               displayName: order.customerDisplayNameSnapshot,
               companyName: order.companyNameSnapshot,
@@ -2243,6 +2246,10 @@ export async function deleteOrderAction(
             },
             totalAmount: Number(order.totalAmount),
             itemCount: order._count.items,
+            paymentCount: order._count.payments,
+            deliveryCount: order._count.deliveries,
+            deliveryItemCount,
+            documentCount: order._count.documents,
             sourceAction: "order_deletion"
           }
         }
@@ -2255,7 +2262,25 @@ export async function deleteOrderAction(
       return { ok: false, message: error.message };
     }
 
-    throw error;
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") {
+        return { ok: false, message: "Order was already deleted or no longer exists." };
+      }
+
+      if (error.code === "P2003" || error.code === "P2014") {
+        console.error("Order delete failed because a related record is not configured for cascade delete.", error);
+        return {
+          ok: false,
+          message: "Order could not be deleted because one or more related records are not configured for cascade delete."
+        };
+      }
+    }
+
+    console.error("Order delete failed.", error);
+    return {
+      ok: false,
+      message: "Order could not be deleted. Please try again."
+    };
   }
 
   revalidatePath("/orders");
@@ -2263,6 +2288,7 @@ export async function deleteOrderAction(
   revalidatePath("/payments");
   revalidatePath("/documents");
   revalidatePath("/sales-history");
+  revalidatePath("/dashboard");
 
   return {
     ok: true,

@@ -4586,7 +4586,6 @@ function CancelOrderDialog({ order, onClose }: { order: OrderRow; onClose: () =>
 function DeleteOrderDialog({ order, onClose }: { order: OrderRow; onClose: () => void }) {
   const router = useRouter();
   const [state, action, pending] = useActionState(deleteOrderAction, initialState);
-  const hasProtectedHistory = order.payments.length > 0 || order.deliveries.length > 0 || order.documents.length > 0;
 
   useEffect(() => {
     if (state.ok) {
@@ -4600,14 +4599,30 @@ function DeleteOrderDialog({ order, onClose }: { order: OrderRow; onClose: () =>
       <form action={action} className="mt-4 space-y-4">
         <input type="hidden" name="orderId" value={order.id} />
         <p className="text-sm leading-6 text-muted-foreground">
-          Delete order {order.displayId}? This permanently removes the order if it has no protected payment,
-          delivery, or document history.
+          Delete {order.displayId}? This will permanently remove the order and its related records, including items,
+          payments, receipts, delivery records, delivery receipts, documents, and notes. This cannot be undone.
         </p>
-        {hasProtectedHistory ? (
-          <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
-            Orders with payments, delivered deliveries, or documents should be cancelled instead of deleted.
-          </p>
-        ) : null}
+        <dl className="grid grid-cols-2 gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm">
+          <div>
+            <dt className="text-muted-foreground">Items</dt>
+            <dd className="font-semibold">{order.items.length}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Payments</dt>
+            <dd className="font-semibold">{order.payments.length}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Deliveries</dt>
+            <dd className="font-semibold">{order.deliveries.length}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Documents/receipts</dt>
+            <dd className="font-semibold">{order.documents.length}</dd>
+          </div>
+        </dl>
+        <p className="rounded-md border border-danger/30 bg-danger/10 p-3 text-sm font-medium text-foreground">
+          This is a hard delete. Use Cancel order instead if you only want to stop the workflow but keep history.
+        </p>
         {state.message ? (
           <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
         ) : null}
@@ -4616,7 +4631,7 @@ function DeleteOrderDialog({ order, onClose }: { order: OrderRow; onClose: () =>
             Keep order
           </Button>
           <Button type="submit" variant="danger" disabled={pending}>
-            Delete order
+            Delete permanently
           </Button>
         </div>
       </form>
