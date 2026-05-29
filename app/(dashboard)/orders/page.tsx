@@ -649,6 +649,8 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
 
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
   const canDeleteOrders = hasPermission(user, "ORDERS", "DELETE");
+  const canCreateCustomers = hasPermission(user, "CUSTOMERS", "CREATE");
+  const canViewProducts = hasPermission(user, "PRODUCTS", "VIEW");
   const canViewPayments = hasPermission(user, "PAYMENTS", "VIEW");
   const canCreatePayments = hasPermission(user, "PAYMENTS", "CREATE");
   const canViewDeliveries = hasPermission(user, "DELIVERIES", "VIEW");
@@ -714,7 +716,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         ].filter(Boolean) as Prisma.OrderWhereInput[]
       };
 
-  const [staff, orderCount, orders] = await Promise.all([
+  const [staff, customerOptions, productOptions, orderCount, orders] = await Promise.all([
     timeQuery("orders:staff-options", prisma.userProfile.findMany({
       where: {
         status: "ACTIVE",
@@ -744,6 +746,37 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         displayName: true
       }
     })),
+    timeQuery("orders:customer-options", prisma.customer.findMany({
+      where: { archivedAt: null },
+      orderBy: { displayName: "asc" },
+      include: {
+        contacts: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          take: 1
+        }
+      }
+    })),
+    timeQuery("orders:product-options", canViewProducts ? prisma.product.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: { name: "asc" },
+      include: {
+        images: {
+          where: { colorVariantId: null },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+          take: 1
+        },
+        colorVariants: {
+          where: { isActive: true },
+          orderBy: { sortOrder: "asc" },
+          include: {
+            images: {
+              orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+              take: 1
+            }
+          }
+        }
+      }
+    }) : Promise.resolve([])),
     timeQuery("orders:count", prisma.order.count({
       where: orderWhere
     })),
@@ -757,10 +790,13 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       select: {
         id: true,
         orderNumber: true,
+        customerId: true,
         customerDisplayNameSnapshot: true,
+        customerTypeSnapshot: true,
         companyNameSnapshot: true,
         contactPersonNameSnapshot: true,
         primaryContactSnapshot: true,
+        billingAddressSnapshot: true,
         deliveryAddressSnapshot: true,
         sourceType: true,
         status: true,
@@ -780,6 +816,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         subtotalAmount: true,
         itemDiscountTotal: true,
         orderDiscountAmount: true,
+        orderDiscountValue: true,
+        assemblyFeeTotal: true,
+        salesInvoiceFeeTotal: true,
         totalCostAmount: true,
         grossProfitAmount: true,
         customerNotes: true,
@@ -838,16 +877,43 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           },
           select: {
             id: true,
+            productId: true,
+            itemType: true,
+            sortOrder: true,
+            snapshotProductCode: true,
             itemName: true,
+            description: true,
+            specifications: true,
             quantity: true,
             unitPrice: true,
             unitCostSnapshot: true,
+            discountType: true,
+            discountValue: true,
             lineCostTotal: true,
             lineProfit: true,
             lineTotal: true,
             discountAmount: true,
+            requiresAssembly: true,
             customerNotes: true,
             internalNotes: true,
+            images: {
+              orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }],
+              select: {
+                id: true,
+                sourceQuotationItemImageId: true,
+                sourceProductImageId: true,
+                cloudinaryPublicId: true,
+                secureUrl: true,
+                resourceType: true,
+                format: true,
+                width: true,
+                height: true,
+                bytes: true,
+                altText: true,
+                sortOrder: true,
+                isPrimary: true
+              }
+            },
             deliveryItems: {
               where: {
                 delivery: {
@@ -1131,8 +1197,67 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         canCreateDeliveries={canCreateDeliveries}
         canUpdateDeliveries={canUpdateDeliveries}
         canExportDocuments={canExportDocuments}
+        canCreateCustomers={canCreateCustomers}
+        canViewProducts={canViewProducts}
         initialSelectedOrderId={selectedOrderId}
         persistenceUserKey={user.id}
+        customers={customerOptions.map((customer) => ({
+          id: customer.id,
+          displayName: customer.displayName,
+          companyName: customer.companyName,
+          primaryContact: customer.contacts[0]
+            ? `${customer.contacts[0].type.replaceAll("_", " ").toLowerCase()}: ${customer.contacts[0].value}`
+            : null
+        }))}
+        products={productOptions.map((product) => {
+          const primaryImage = product.images[0] ?? null;
+
+          return {
+            id: product.id,
+            code: product.code,
+            name: product.name,
+            category: product.category,
+            description: product.description,
+            specifications: product.specifications,
+            referencePrice: product.referencePrice !== null ? Number(product.referencePrice) : null,
+            referenceCost: product.referenceCost !== null ? Number(product.referenceCost) : null,
+            primaryImage: primaryImage
+              ? {
+                  id: primaryImage.id,
+                  cloudinaryPublicId: primaryImage.cloudinaryPublicId,
+                  secureUrl: primaryImage.secureUrl,
+                  resourceType: primaryImage.resourceType,
+                  format: primaryImage.format,
+                  width: primaryImage.width,
+                  height: primaryImage.height,
+                  bytes: primaryImage.bytes,
+                  altText: primaryImage.altText
+                }
+              : null,
+            colorVariants: product.colorVariants.map((variant) => {
+              const variantImage = variant.images[0] ?? null;
+
+              return {
+                id: variant.id,
+                name: variant.name,
+                hex: variant.hex,
+                image: variantImage
+                  ? {
+                      id: variantImage.id,
+                      cloudinaryPublicId: variantImage.cloudinaryPublicId,
+                      secureUrl: variantImage.secureUrl,
+                      resourceType: variantImage.resourceType,
+                      format: variantImage.format,
+                      width: variantImage.width,
+                      height: variantImage.height,
+                      bytes: variantImage.bytes,
+                      altText: variantImage.altText
+                    }
+                  : null
+              };
+            })
+          };
+        })}
         staffOptions={staff.map((member) => ({
           id: member.id,
           displayName: member.displayName
@@ -1178,10 +1303,13 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           return {
             id: order.id,
             displayId: order.orderNumber ?? "Not assigned",
+            customerId: order.customerId,
             customerName: order.customerDisplayNameSnapshot,
+            customerType: order.customerTypeSnapshot,
             companyName: order.companyNameSnapshot,
             contactPersonName: order.contactPersonNameSnapshot,
             contactSnapshot: contactLine(order.primaryContactSnapshot) ?? contactLine(order.customer.contacts[0] ?? null),
+            billingAddressSnapshot: addressLine(order.billingAddressSnapshot),
             deliveryAddressSnapshot: canViewDeliveries ? addressLine(order.deliveryAddressSnapshot) : null,
             assignedStaff,
             sourceType: order.sourceType,
@@ -1208,6 +1336,9 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
             subtotalAmount: canViewPayments ? formatMoney(order.subtotalAmount) : "Restricted",
             itemDiscountTotal: canViewPayments ? formatMoney(order.itemDiscountTotal) : "Restricted",
             orderDiscountAmount: canViewPayments ? formatMoney(order.orderDiscountAmount) : "Restricted",
+            orderDiscountValue: Number(order.orderDiscountValue ?? 0),
+            assemblyFeeTotalValue: Number(order.assemblyFeeTotal ?? 0),
+            salesInvoiceFeeTotalValue: Number(order.salesInvoiceFeeTotal ?? 0),
             totalCostAmount: canViewPayments ? formatMoney(order.totalCostAmount) : "Restricted",
             grossProfitAmount: canViewPayments ? formatMoney(order.grossProfitAmount) : "Restricted",
             customerNotes: order.customerNotes,
@@ -1242,8 +1373,23 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
 
               return {
                 id: item.id,
+                orderItemId: item.id,
+                productId: item.productId,
+                itemType: item.itemType,
+                sortOrder: item.sortOrder,
+                snapshotProductCode: item.snapshotProductCode,
+                selectedVariantId: null,
+                selectedVariantName: null,
+                selectedVariantHex: null,
                 itemName: item.itemName,
+                description: item.description ?? "",
+                specifications: item.specifications ?? "",
                 quantity,
+                unitPriceValue: Number(item.unitPrice),
+                unitCostSnapshotValue: Number(item.unitCostSnapshot),
+                discountType: item.discountType,
+                discountValue: Number(item.discountValue ?? item.discountAmount ?? 0),
+                requiresAssembly: item.requiresAssembly,
                 plannedQuantity: openScheduledQuantity,
                 remainingQuantity: canViewDeliveries
                   ? Math.max(quantity - plannedQuantity, 0)
@@ -1256,7 +1402,21 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                 deliveredQuantity: canViewDeliveries ? deliveredQuantity : 0,
                 discountAmount: canViewPayments ? formatMoney(item.discountAmount) : "Restricted",
                 customerNotes: item.customerNotes,
-                internalNotes: item.internalNotes
+                internalNotes: item.internalNotes,
+                images: item.images.map((image, imageIndex) => ({
+                  sourceQuotationItemImageId: image.sourceQuotationItemImageId ?? undefined,
+                  sourceProductImageId: image.sourceProductImageId ?? undefined,
+                  cloudinaryPublicId: image.cloudinaryPublicId,
+                  secureUrl: image.secureUrl,
+                  resourceType: image.resourceType,
+                  format: image.format ?? undefined,
+                  width: image.width ?? undefined,
+                  height: image.height ?? undefined,
+                  bytes: image.bytes ?? undefined,
+                  altText: image.altText ?? undefined,
+                  sortOrder: image.sortOrder ?? imageIndex,
+                  isPrimary: image.isPrimary || imageIndex === 0
+                }))
               };
             }),
             payments: canViewPayments ? payments.map((payment) => ({

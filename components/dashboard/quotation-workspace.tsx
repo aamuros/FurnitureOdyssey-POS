@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { FormEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { FormEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { QuotationStatus } from "@prisma/client";
@@ -41,14 +41,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 import { cn } from "@/lib/utils";
 
-type CustomerOption = {
+export type CustomerOption = {
   id: string;
   displayName: string;
   companyName: string | null;
   primaryContact: string | null;
 };
 
-type ProductImageOption = {
+export type ProductImageOption = {
   id: string;
   cloudinaryPublicId: string;
   secureUrl: string;
@@ -60,14 +60,14 @@ type ProductImageOption = {
   altText: string | null;
 };
 
-type ProductColorVariantOption = {
+export type ProductColorVariantOption = {
   id: string;
   name: string;
   hex: string | null;
   image: ProductImageOption | null;
 };
 
-type ProductOption = {
+export type ProductOption = {
   id: string;
   code: string | null;
   name: string;
@@ -123,7 +123,7 @@ type QuotationBuilderProps = {
   };
 };
 
-type SelectedCustomer = {
+export type SelectedCustomer = {
   id: string;
   displayName: string;
   detail: string | null;
@@ -161,7 +161,7 @@ type QuotationDetailActionsProps = {
   } | null;
 };
 
-type ItemImageDraft = {
+export type ItemImageDraft = {
   sourceProductImageId?: string;
   cloudinaryPublicId: string;
   secureUrl: string;
@@ -175,7 +175,9 @@ type ItemImageDraft = {
   isPrimary: boolean;
 };
 
-type ItemDraft = {
+export type ItemDraft = {
+  id?: string;
+  orderItemId?: string;
   productId?: string;
   itemType: "CATALOG_PRODUCT" | "CUSTOM_ITEM";
   sortOrder: number;
@@ -258,14 +260,14 @@ function normalizeQuotationView(value: string | undefined) {
   return quotationViewOptions.find((option) => option === value) ?? "active";
 }
 
-function money(value: number) {
+export function money(value: number) {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency: "PHP"
   }).format(value);
 }
 
-function roundMoney(value: number) {
+export function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
@@ -306,7 +308,7 @@ function signedMoney(value: number, sign: "+" | "-") {
   return `${sign}${money(value)}`;
 }
 
-function createCustomItem(sortOrder: number, requiresAssembly = false): ItemDraft {
+export function createCustomItem(sortOrder: number, requiresAssembly = false): ItemDraft {
   return {
     itemType: "CUSTOM_ITEM",
     sortOrder,
@@ -472,7 +474,7 @@ function friendlyActionMessage(message: string) {
   return message;
 }
 
-function toActionItems(items: ItemDraft[], needsAssembly: boolean) {
+export function toActionItems(items: ItemDraft[], needsAssembly: boolean) {
   return items.map((item, index) => ({
     ...item,
     sortOrder: index,
@@ -945,13 +947,14 @@ function InlineCustomerCreate({
   );
 }
 
-function CustomerSelector({
+export function CustomerResolverPanel({
   customers,
   selectedCustomer,
   setSelectedCustomer,
   canCreateCustomers,
   persistenceScope,
-  persistenceUserKey
+  persistenceUserKey,
+  context = "quotation"
 }: {
   customers: CustomerOption[];
   selectedCustomer: SelectedCustomer | null;
@@ -959,6 +962,7 @@ function CustomerSelector({
   canCreateCustomers: boolean;
   persistenceScope: string;
   persistenceUserKey?: string | null;
+  context?: "quotation" | "order";
 }) {
   const initialSelectorDraft: CustomerSelectorDraft = {
     query: "",
@@ -1012,7 +1016,9 @@ function CustomerSelector({
     <section className="studio-card">
       <div className="studio-card-header">
         <p className="studio-kicker">Customer / Lead</p>
-        <h2 className="text-sm font-semibold">Resolve the buyer record</h2>
+        <h2 className="text-sm font-semibold">
+          Resolve the {context === "order" ? "order buyer record" : "buyer record"}
+        </h2>
       </div>
       <div className="p-5">
         {selectedCustomer ? (
@@ -1133,6 +1139,8 @@ function CustomerSelector({
     </section>
   );
 }
+
+const CustomerSelector = CustomerResolverPanel;
 
 function ProductPicker({
   products,
@@ -1789,6 +1797,339 @@ function ItemThumb({ item, compact = false }: { item: ItemDraft; compact?: boole
     >
       {!item.images[0]?.secureUrl ? <ImagePlus className="h-4 w-4" /> : null}
     </div>
+  );
+}
+
+export function calculateSalesTotals({
+  items,
+  additionalDiscount,
+  additionalFees,
+  needsAssembly,
+  assemblyFeeRate,
+  salesInvoiceRequested,
+  salesInvoiceFeePercentage
+}: {
+  items: ItemDraft[];
+  additionalDiscount: number;
+  additionalFees: number;
+  needsAssembly: boolean;
+  assemblyFeeRate: number;
+  salesInvoiceRequested: boolean;
+  salesInvoiceFeePercentage: number;
+}) {
+  const subtotalAmount = roundMoney(items.reduce((sum, item) => sum + itemSubtotal(item), 0));
+  const itemDiscountTotal = roundMoney(items.reduce((sum, item) => sum + itemDiscount(item), 0));
+  const postItemDiscountTotal = roundMoney(items.reduce((sum, item) => sum + lineTotal(item), 0));
+  const quotationDiscountAmount = roundMoney(Math.max(additionalDiscount || 0, 0));
+  const totalDiscount = roundMoney(itemDiscountTotal + quotationDiscountAmount);
+  const assemblyFee = assemblyFeeTotal(items, needsAssembly, assemblyFeeRate);
+  const additionalFeeAmount = roundMoney(Math.max(additionalFees || 0, 0));
+  const finalSubtotal = roundMoney(
+    postItemDiscountTotal + assemblyFee + additionalFeeAmount - quotationDiscountAmount
+  );
+  const salesInvoiceFee = salesInvoiceRequested
+    ? roundMoney(Math.max(finalSubtotal, 0) * (salesInvoiceFeePercentage / 100))
+    : 0;
+  const totalAdditionalFees = roundMoney(assemblyFee + salesInvoiceFee + additionalFeeAmount);
+
+  return {
+    subtotalAmount,
+    itemDiscountTotal,
+    postItemDiscountTotal,
+    quotationDiscountAmount,
+    assemblyFee,
+    salesInvoiceFee,
+    additionalFeeAmount,
+    finalSubtotal,
+    totalAdditionalFees,
+    totalDiscount,
+    totalAmount: roundMoney(finalSubtotal + salesInvoiceFee)
+  };
+}
+
+export function SalesItemsEditor({
+  products,
+  items,
+  setItems,
+  needsAssembly,
+  setNeedsAssembly,
+  assemblyFeeRate,
+  setAssemblyFeeRate,
+  salesInvoiceRequested,
+  setSalesInvoiceRequested,
+  salesInvoiceFeePercentage,
+  setSalesInvoiceFeePercentage,
+  subtotalAmount,
+  emptyLabel = "Add a product or custom item to start."
+}: {
+  products: ProductOption[];
+  items: ItemDraft[];
+  setItems: (updater: ItemDraft[] | ((current: ItemDraft[]) => ItemDraft[])) => void;
+  needsAssembly: boolean;
+  setNeedsAssembly: (value: boolean) => void;
+  assemblyFeeRate: number;
+  setAssemblyFeeRate: (value: number) => void;
+  salesInvoiceRequested: boolean;
+  setSalesInvoiceRequested: (value: boolean) => void;
+  salesInvoiceFeePercentage: number;
+  setSalesInvoiceFeePercentage: (value: number) => void;
+  subtotalAmount: number;
+  emptyLabel?: string;
+}) {
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+
+  function addCustomItem() {
+    setItems((current) => [...current, createCustomItem(current.length, needsAssembly)]);
+  }
+
+  function addProduct(product: ProductOption) {
+    const selectedVariant = product.colorVariants[0] ?? null;
+    setItems((current) => {
+      const existingIndex = current.findIndex((item) => {
+        if (item.itemType !== "CATALOG_PRODUCT") {
+          return false;
+        }
+
+        if (item.productId && product.id) {
+          return item.productId === product.id && (item.selectedVariantId ?? "") === (selectedVariant?.id ?? "");
+        }
+
+        return Boolean(
+          item.snapshotProductCode &&
+            product.code &&
+            item.snapshotProductCode === product.code &&
+            (item.selectedVariantId ?? "") === (selectedVariant?.id ?? "")
+        );
+      });
+
+      if (existingIndex >= 0) {
+        return current.map((item, index) =>
+          index === existingIndex
+            ? { ...item, quantity: normalizeQuantity(item.quantity + 1) }
+            : item
+        );
+      }
+
+      return [...current, createCatalogItem(product, current.length, needsAssembly, selectedVariant)];
+    });
+  }
+
+  function handleNeedsAssemblyChange(checked: boolean) {
+    setNeedsAssembly(checked);
+    setItems((current) =>
+      current.map((item) => ({
+        ...item,
+        requiresAssembly: checked
+      }))
+    );
+  }
+
+  function updateItem(index: number, patch: Partial<ItemDraft>) {
+    setItems((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index
+          ? {
+              ...item,
+              ...patch,
+              quantity:
+                patch.quantity === undefined ? item.quantity : normalizeQuantity(patch.quantity)
+            }
+          : item
+      )
+    );
+  }
+
+  function removeItem(index: number) {
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  return (
+    <>
+      <ProductPicker
+        products={products}
+        open={productPickerOpen}
+        onClose={() => setProductPickerOpen(false)}
+        onAdd={addProduct}
+      />
+      <section className="studio-card min-w-0">
+        <div className="studio-card-header flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="studio-kicker">Items</p>
+            <h2 className="text-sm font-semibold">Build the sales cart</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" onClick={() => setProductPickerOpen(true)}>
+              <PackageSearch className="h-4 w-4" />
+              Add product
+            </Button>
+            <Button type="button" variant="secondary" onClick={addCustomItem}>
+              <Plus className="h-4 w-4" />
+              Add custom item
+            </Button>
+          </div>
+        </div>
+        <div className="min-w-0 max-w-full overflow-x-auto p-5">
+          {items.length ? (
+            <QuotationItemTable
+              items={items}
+              showAssemblyColumn={needsAssembly}
+              needsAssembly={needsAssembly}
+              onNeedsAssemblyChange={handleNeedsAssemblyChange}
+              assemblyFeeRate={assemblyFeeRate}
+              onAssemblyFeeRateChange={setAssemblyFeeRate}
+              salesInvoiceRequested={salesInvoiceRequested}
+              onSalesInvoiceRequestedChange={setSalesInvoiceRequested}
+              salesInvoiceFeePercentage={salesInvoiceFeePercentage}
+              onSalesInvoiceFeePercentageChange={setSalesInvoiceFeePercentage}
+              updateItem={updateItem}
+              removeItem={removeItem}
+              subtotalAmount={subtotalAmount}
+            />
+          ) : (
+            <div className="studio-empty flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+              <ShoppingCart className="h-7 w-7 text-accent" />
+              <p className="text-sm">{emptyLabel}</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="secondary" onClick={() => setProductPickerOpen(true)}>
+                  <PackageSearch className="h-4 w-4" />
+                  Add product
+                </Button>
+                <Button type="button" variant="secondary" onClick={addCustomItem}>
+                  <Plus className="h-4 w-4" />
+                  Add custom item
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+export function SalesSummaryPanel({
+  title = "Summary",
+  subtitle = "Sales summary",
+  customerName,
+  customerDetail,
+  items,
+  additionalFees,
+  setAdditionalFees,
+  additionalDiscount,
+  setAdditionalDiscount,
+  totals,
+  children
+}: {
+  title?: string;
+  subtitle?: string;
+  customerName?: string | null;
+  customerDetail?: string | null;
+  items: ItemDraft[];
+  additionalFees: number;
+  setAdditionalFees: (value: number) => void;
+  additionalDiscount: number;
+  setAdditionalDiscount: (value: number) => void;
+  totals: ReturnType<typeof calculateSalesTotals>;
+  children?: ReactNode;
+}) {
+  return (
+    <section className="studio-card">
+      <div className="studio-card-header">
+        <p className="studio-kicker">{title}</p>
+        <h2 className="text-sm font-semibold">{subtitle}</h2>
+      </div>
+      <div className="p-5 text-sm">
+        <div className="border-b border-border pb-4">
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Customer</span>
+            <span className="text-right font-semibold">{customerName ?? "Not selected"}</span>
+          </div>
+          {customerDetail ? <p className="mt-1 text-right text-xs text-muted-foreground">{customerDetail}</p> : null}
+        </div>
+        <div className="max-h-64 overflow-y-auto border-b border-border py-2">
+          {items.map((item, index) => (
+            <div key={item.id ?? item.orderItemId ?? index} className="py-2">
+              <div className="flex justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="whitespace-normal break-words font-medium leading-5">
+                    {item.quantity} x {item.itemName || `Item ${index + 1}`}
+                  </p>
+                  {item.description ? (
+                    <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-muted-foreground">
+                      {item.description}
+                    </p>
+                  ) : null}
+                  {variantLabel(item) ? (
+                    <p className="mt-1 whitespace-normal break-words text-xs leading-5 text-accent">
+                      Variant: {variantLabel(item)}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="shrink-0 font-semibold">{money(lineTotal(item))}</span>
+              </div>
+              {itemDiscount(item) > 0 ? (
+                <div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground">
+                  <span>Discount</span>
+                  <span>-{money(itemDiscount(item))}</span>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {!items.length ? <div className="py-4 text-muted-foreground">No items added yet.</div> : null}
+        </div>
+        <div className="space-y-3 border-b border-border py-4">
+          <label className="grid gap-2 font-medium sm:grid-cols-[1fr_9.5rem] sm:items-center">
+            <span className="text-emerald-800">Additional Fees</span>
+            <MoneyInput
+              value={additionalFees}
+              onValueChange={setAdditionalFees}
+              aria-label="Additional Fees"
+              className="font-semibold text-emerald-800"
+            />
+          </label>
+          <label className="grid gap-2 font-medium sm:grid-cols-[1fr_9.5rem] sm:items-center">
+            <span className="text-danger">Additional Discount</span>
+            <MoneyInput
+              max={roundMoney(totals.postItemDiscountTotal + totals.assemblyFee + totals.additionalFeeAmount)}
+              value={additionalDiscount}
+              onValueChange={setAdditionalDiscount}
+              aria-label="Additional discount"
+            />
+          </label>
+        </div>
+        <div className="space-y-3 py-4">
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Subtotal for Items</span>
+            <span className="font-medium">{money(totals.postItemDiscountTotal)}</span>
+          </div>
+          <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+            <span className="font-medium">Assemble Fee</span>
+            <span className="font-medium">{signedMoney(totals.assemblyFee, "+")}</span>
+          </div>
+          <div className="flex justify-between gap-4 rounded-md bg-success/10 px-3 py-2 text-emerald-800">
+            <span className="font-medium">Additional Fees</span>
+            <span className="font-medium">{signedMoney(totals.additionalFeeAmount, "+")}</span>
+          </div>
+          <div className="flex justify-between gap-4 rounded-md bg-danger/10 px-3 py-2 text-danger">
+            <span className="font-medium">Additional Discount</span>
+            <span className="font-medium">{signedMoney(totals.quotationDiscountAmount, "-")}</span>
+          </div>
+          <div className="flex justify-between gap-4 border-t border-border pt-3">
+            <span className="font-semibold">Final Subtotal</span>
+            <span className="font-semibold">{money(totals.finalSubtotal)}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-muted-foreground">Sales Invoice Fee</span>
+            <span className="font-medium">{signedMoney(totals.salesInvoiceFee, "+")}</span>
+          </div>
+          <div className="flex justify-between gap-4 rounded-lg border border-border bg-soft-accent/55 px-3 py-3 text-base">
+            <span className="font-semibold">Final Total</span>
+            <span className="text-lg font-semibold">{money(totals.totalAmount)}</span>
+          </div>
+        </div>
+        {children}
+      </div>
+    </section>
   );
 }
 

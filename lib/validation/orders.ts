@@ -55,12 +55,21 @@ const quantity = z.coerce
   .int("Quantity must be a whole number.")
   .gt(0, "Quantity must be greater than zero.");
 
+const percentage = z.coerce
+  .number({
+    invalid_type_error: "Enter a valid percentage."
+  })
+  .min(0, "Percentage cannot be negative.")
+  .max(100, "Percentage cannot exceed 100.");
+
 export const orderImageSchema = quotationImageSchema.extend({
   sourceQuotationItemImageId: optionalText
 });
 
 export const orderItemSchema = z
   .object({
+    id: optionalText,
+    orderItemId: optionalText,
     quotationItemId: optionalText,
     productId: optionalText,
     itemType: z.enum(["CATALOG_PRODUCT", "CUSTOM_ITEM"]),
@@ -73,6 +82,7 @@ export const orderItemSchema = z
     unitPrice: money,
     unitCostSnapshot: money.optional(),
     unitCost: money.optional(),
+    requiresAssembly: formBoolean.optional(),
     discountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
     discountValue: money.optional(),
     customerNotes: optionalText,
@@ -169,6 +179,39 @@ export const deliveryItemSchema = z
         code: z.ZodIssueCode.custom,
         message: "Delivered quantity cannot exceed planned quantity.",
         path: ["quantityDelivered"]
+      });
+    }
+  });
+
+export const updateOrderCustomerSchema = z.object({
+  orderId: z.string().uuid("Choose an order."),
+  customerId: z.string().uuid("Choose a customer.")
+});
+
+export const updateOrderItemsSchema = z
+  .object({
+    orderId: z.string().uuid("Choose an order."),
+    orderDiscountType: z.enum(["FIXED_AMOUNT", "PERCENTAGE"]).optional(),
+    orderDiscountValue: money.optional(),
+    needsAssembly: formBoolean.default(false),
+    assemblyFeeRate: money.default(100),
+    salesInvoiceRequested: formBoolean.default(false),
+    salesInvoiceFeePercentage: percentage.default(8),
+    additionalFees: money.default(0),
+    items: z.array(orderItemSchema).min(1, "Add at least one order item.")
+  })
+  .superRefine((value, context) => {
+    if (!value.needsAssembly) {
+      value.items.forEach((item) => {
+        item.requiresAssembly = false;
+      });
+    }
+
+    if (value.orderDiscountType === "PERCENTAGE" && (value.orderDiscountValue ?? 0) > 100) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Order percentage discounts cannot exceed 100.",
+        path: ["orderDiscountValue"]
       });
     }
   });
@@ -331,3 +374,4 @@ export const createOrderDocumentSchema = z
 
 export type CreateManualOrderInput = z.infer<typeof createManualOrderSchema>;
 export type OrderItemInput = z.infer<typeof orderItemSchema>;
+export type UpdateOrderItemsInput = z.infer<typeof updateOrderItemsSchema>;

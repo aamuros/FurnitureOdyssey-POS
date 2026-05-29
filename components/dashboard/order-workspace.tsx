@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,9 +30,22 @@ import {
   createManualOrderAction,
   createPaymentAction,
   deleteOrderAction,
+  updateOrderCustomerAction,
   updateDeliveryProgressAction,
+  updateOrderItemsAction,
   updatePaymentDueTimingAction
 } from "@/app/actions/orders";
+import {
+  CustomerResolverPanel,
+  SalesItemsEditor,
+  SalesSummaryPanel,
+  calculateSalesTotals,
+  toActionItems as toSalesActionItems,
+  type CustomerOption as ResolverCustomerOption,
+  type ItemDraft as SalesItemDraft,
+  type ProductOption as SalesProductOption,
+  type SelectedCustomer
+} from "@/components/dashboard/quotation-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -56,17 +69,12 @@ type CustomerOption = {
   id: string;
   displayName: string;
   companyName: string | null;
+  primaryContact: string | null;
 };
 
-type ProductOption = {
-  id: string;
-  code: string | null;
-  name: string;
-  category: string | null;
-  description: string | null;
-  specifications: string | null;
-  referencePrice: number | null;
-  referenceCost: number | null;
+type ProductOption = Omit<SalesProductOption, "primaryImage" | "colorVariants"> & {
+  primaryImage?: SalesProductOption["primaryImage"];
+  colorVariants?: SalesProductOption["colorVariants"];
 };
 
 type StaffOption = {
@@ -84,8 +92,23 @@ type ApprovedQuotationOption = {
 
 type OrderItemRow = {
   id: string;
+  orderItemId: string;
+  productId: string | null;
+  itemType: "CATALOG_PRODUCT" | "CUSTOM_ITEM";
+  sortOrder: number;
+  snapshotProductCode: string | null;
+  selectedVariantId: string | null;
+  selectedVariantName: string | null;
+  selectedVariantHex: string | null;
   itemName: string;
+  description: string;
+  specifications: string;
   quantity: number;
+  unitPriceValue: number;
+  unitCostSnapshotValue: number;
+  discountType: "FIXED_AMOUNT" | "PERCENTAGE" | null;
+  discountValue: number;
+  requiresAssembly: boolean;
   plannedQuantity: number;
   remainingQuantity: number;
   unitPrice: string;
@@ -97,6 +120,7 @@ type OrderItemRow = {
   discountAmount: string;
   customerNotes: string | null;
   internalNotes: string | null;
+  images: SalesItemDraft["images"];
 };
 
 type OrderRow = {
@@ -106,6 +130,9 @@ type OrderRow = {
   companyName: string | null;
   contactPersonName: string | null;
   contactSnapshot: string | null;
+  customerId: string;
+  customerType: string;
+  billingAddressSnapshot: string | null;
   deliveryAddressSnapshot: string | null;
   assignedStaff: string | null;
   sourceType: string;
@@ -132,6 +159,9 @@ type OrderRow = {
   subtotalAmount: string;
   itemDiscountTotal: string;
   orderDiscountAmount: string;
+  orderDiscountValue: number;
+  assemblyFeeTotalValue: number;
+  salesInvoiceFeeTotalValue: number;
   totalCostAmount: string;
   grossProfitAmount: string;
   customerNotes: string | null;
@@ -215,8 +245,12 @@ type OrderWorkspaceProps = {
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
+  canCreateCustomers: boolean;
+  canViewProducts: boolean;
   initialSelectedOrderId?: string | null;
   orders: OrderRow[];
+  customers: CustomerOption[];
+  products: ProductOption[];
   staffOptions: StaffOption[];
   persistenceUserKey?: string | null;
 };
@@ -273,7 +307,7 @@ type OrderNextStep = {
   blocked?: boolean;
   tone: StatusTone;
 };
-type OrderDetailTab = "overview" | "items" | "payments" | "deliveries" | "documents" | "notes";
+type OrderDetailTab = "overview" | "customer" | "items" | "payments" | "deliveries" | "documents" | "notes";
 type PendingOrderAction =
   | { type: "cancel"; order: OrderRow }
   | { type: "delete"; order: OrderRow }
@@ -294,8 +328,12 @@ type OrderListProps = Pick<
   | "canCreateDeliveries"
   | "canUpdateDeliveries"
   | "canExportDocuments"
+  | "canCreateCustomers"
+  | "canViewProducts"
   | "initialSelectedOrderId"
   | "orders"
+  | "customers"
+  | "products"
   | "staffOptions"
   | "persistenceUserKey"
 >;
@@ -3854,8 +3892,12 @@ export function OrderWorkspace({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
+  canCreateCustomers,
+  canViewProducts,
   initialSelectedOrderId,
   orders,
+  customers,
+  products,
   staffOptions,
   persistenceUserKey
 }: OrderListProps) {
@@ -3996,9 +4038,13 @@ export function OrderWorkspace({
           canCreatePayments={canCreatePayments}
           canViewDeliveries={canViewDeliveries}
           canCreateDeliveries={canCreateDeliveries}
-          canUpdateDeliveries={canUpdateDeliveries}
-          canExportDocuments={canExportDocuments}
-          staffOptions={staffOptions}
+              canUpdateDeliveries={canUpdateDeliveries}
+              canExportDocuments={canExportDocuments}
+              canCreateCustomers={canCreateCustomers}
+              canViewProducts={canViewProducts}
+              customers={customers}
+              products={products}
+              staffOptions={staffOptions}
           persistenceUserKey={persistenceUserKey}
           onClose={() => {
             setSelectedOrderId(null);
@@ -4589,6 +4635,10 @@ function OrderDetailPanel({
   canCreateDeliveries,
   canUpdateDeliveries,
   canExportDocuments,
+  canCreateCustomers,
+  canViewProducts,
+  customers,
+  products,
   staffOptions,
   persistenceUserKey,
   onClose,
@@ -4604,6 +4654,10 @@ function OrderDetailPanel({
   canCreateDeliveries: boolean;
   canUpdateDeliveries: boolean;
   canExportDocuments: boolean;
+  canCreateCustomers: boolean;
+  canViewProducts: boolean;
+  customers: CustomerOption[];
+  products: ProductOption[];
   staffOptions: StaffOption[];
   persistenceUserKey?: string | null;
   onClose: () => void;
@@ -4621,6 +4675,8 @@ function OrderDetailPanel({
     });
   const hasAppliedDetailDraft = useRef(false);
   const [activeDetailTab, setActiveDetailTab] = useState<OrderDetailTab>("overview");
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
+  const [isEditingItems, setIsEditingItems] = useState(false);
   const nextStep = getOrderNextStep({
     order,
     canUpdateOrders,
@@ -4631,6 +4687,13 @@ function OrderDetailPanel({
     canUpdateDeliveries
   });
   useBodyScrollLock(true);
+  const closePanel = useCallback(() => {
+    if ((isEditingCustomer || isEditingItems) && !window.confirm("Discard unsaved changes and close order details?")) {
+      return;
+    }
+
+    onClose();
+  }, [isEditingCustomer, isEditingItems, onClose]);
 
   useEffect(() => {
     if (!detailPersistence.restored || hasAppliedDetailDraft.current) {
@@ -4658,7 +4721,7 @@ function OrderDetailPanel({
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        closePanel();
       }
     }
 
@@ -4667,7 +4730,7 @@ function OrderDetailPanel({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, order.id]);
+  }, [closePanel, order.id]);
 
   function handleDeliverySuccess() {
     if (canViewPayments && canCreatePayments && order.balanceAmountValue > 0) {
@@ -4686,7 +4749,7 @@ function OrderDetailPanel({
         type="button"
         aria-label="Close order details"
         className="absolute inset-0 bg-foreground/25"
-        onClick={onClose}
+        onClick={closePanel}
       />
       <aside
         ref={panelRef}
@@ -4695,13 +4758,18 @@ function OrderDetailPanel({
         aria-labelledby="order-detail-title"
         aria-describedby="order-detail-description"
         tabIndex={-1}
-        className="relative ml-auto flex h-full w-full max-w-[780px] flex-col overflow-hidden border-l border-border bg-background shadow-xl focus-visible:outline-none"
+        className={cn(
+          "relative ml-auto flex h-full w-full flex-col overflow-hidden border-l border-border bg-background shadow-xl focus-visible:outline-none",
+          activeDetailTab === "items" && isEditingItems
+            ? "max-w-full lg:w-[66vw] lg:max-w-[1200px]"
+            : "max-w-[780px]"
+        )}
       >
         <OrderPanelHeader
           order={order}
           canViewPayments={canViewPayments}
           canViewDeliveries={canViewDeliveries}
-          onClose={onClose}
+          onClose={closePanel}
         />
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
@@ -4732,11 +4800,27 @@ function OrderDetailPanel({
                   canViewDeliveries={canViewDeliveries}
                 />
               ) : null}
+              {activeDetailTab === "customer" ? (
+                <CustomerSection
+                  order={order}
+                  customers={customers}
+                  canUpdateOrders={canUpdateOrders}
+                  canCreateCustomers={canCreateCustomers}
+                  persistenceUserKey={persistenceUserKey}
+                  isEditing={isEditingCustomer}
+                  setIsEditing={setIsEditingCustomer}
+                />
+              ) : null}
               {activeDetailTab === "items" ? (
                 <ItemsSection
                   order={order}
                   canViewPayments={canViewPayments}
                   canViewDeliveries={canViewDeliveries}
+                  canUpdateOrders={canUpdateOrders}
+                  canViewProducts={canViewProducts}
+                  products={products}
+                  isEditing={isEditingItems}
+                  setIsEditing={setIsEditingItems}
                 />
               ) : null}
               {activeDetailTab === "payments" ? (
@@ -5010,6 +5094,7 @@ function OrderInlineActionForm({
 
 const orderDetailTabs: Array<{ key: OrderDetailTab; label: string }> = [
   { key: "overview", label: "Overview" },
+  { key: "customer", label: "Customer" },
   { key: "items", label: "Items" },
   { key: "payments", label: "Payments" },
   { key: "deliveries", label: "Deliveries" },
@@ -5146,19 +5231,24 @@ function OrderPanelSection({
   title,
   description,
   children,
-  className
+  className,
+  action
 }: {
   id?: string;
   title: string;
   description?: string;
   children: ReactNode;
   className?: string;
+  action?: ReactNode;
 }) {
   return (
     <section id={id} className={cn("space-y-4", className)}>
-      <div>
-        <h3 className="text-[17px] font-semibold">{title}</h3>
-        {description ? <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[17px] font-semibold">{title}</h3>
+          {description ? <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
@@ -5182,17 +5272,351 @@ function DetailField({
   );
 }
 
+function CustomerSection({
+  order,
+  customers,
+  canUpdateOrders,
+  canCreateCustomers,
+  persistenceUserKey,
+  isEditing,
+  setIsEditing
+}: {
+  order: OrderRow;
+  customers: CustomerOption[];
+  canUpdateOrders: boolean;
+  canCreateCustomers: boolean;
+  persistenceUserKey?: string | null;
+  isEditing: boolean;
+  setIsEditing: (value: boolean) => void;
+}) {
+  const router = useRouter();
+  const [state, setState] = useState(initialState);
+  const [pending, startCustomerSave] = useTransition();
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(() => ({
+    id: order.customerId,
+    displayName: order.customerName,
+    detail: [order.companyName, order.contactSnapshot].filter(Boolean).join(" - ") || null
+  }));
+
+  function discard() {
+    setSelectedCustomer({
+      id: order.customerId,
+      displayName: order.customerName,
+      detail: [order.companyName, order.contactSnapshot].filter(Boolean).join(" - ") || null
+    });
+    setState(initialState);
+    setIsEditing(false);
+  }
+
+  function startEditing() {
+    setSelectedCustomer({
+      id: order.customerId,
+      displayName: order.customerName,
+      detail: [order.companyName, order.contactSnapshot].filter(Boolean).join(" - ") || null
+    });
+    setState(initialState);
+    setIsEditing(true);
+  }
+
+  function saveCustomer() {
+    if (!selectedCustomer?.id) {
+      setState({ ok: false, message: "Choose a customer." });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("orderId", order.id);
+    formData.set("customerId", selectedCustomer.id);
+
+    startCustomerSave(async () => {
+      const result = await updateOrderCustomerAction(initialState, formData);
+      setState(result);
+
+      if (result.ok) {
+        setIsEditing(false);
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <OrderPanelSection
+      title="Customer"
+      description={order.status === "COMPLETED" || order.status === "CANCELLED" ? "Completed or cancelled orders cannot be edited." : undefined}
+      action={
+        canUpdateOrders && !isEditing && order.status !== "COMPLETED" && order.status !== "CANCELLED" ? (
+          <Button type="button" variant="ghost" className="h-9 min-h-9 px-2" onClick={startEditing}>
+            <Pencil className="h-4 w-4" />
+            <span className="sr-only">Edit customer</span>
+          </Button>
+        ) : isEditing ? (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" disabled={pending} onClick={discard}>
+              Discard
+            </Button>
+            <Button type="button" disabled={pending || !selectedCustomer?.id} onClick={saveCustomer}>
+              <Save className="h-4 w-4" />
+              Save
+            </Button>
+          </div>
+        ) : null
+      }
+    >
+      {isEditing ? (
+        <div id="order-customer-edit-panel" className="space-y-3">
+          <CustomerResolverPanel
+            customers={customers as ResolverCustomerOption[]}
+            selectedCustomer={selectedCustomer}
+            setSelectedCustomer={setSelectedCustomer}
+            canCreateCustomers={canCreateCustomers}
+            persistenceScope={`orders:${order.id}:customer`}
+            persistenceUserKey={persistenceUserKey}
+            context="order"
+          />
+          {state.message ? (
+            <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="grid gap-4 rounded-md border border-border bg-panel p-5 text-sm sm:grid-cols-2">
+          <DetailField label="Display name" value={order.customerName} />
+          <DetailField label="Customer type" value={readableLabel(order.customerType)} />
+          <DetailField label="Company" value={order.companyName ?? "Not set"} muted={!order.companyName} />
+          <DetailField label="Contact person" value={order.contactPersonName ?? "Not set"} muted={!order.contactPersonName} />
+          <DetailField label="Primary contact" value={order.contactSnapshot ?? "Not set"} muted={!order.contactSnapshot} />
+          <DetailField label="Assigned staff" value={order.assignedStaff ?? "Not assigned"} muted={!order.assignedStaff} />
+          <DetailField label="Source" value={readableLabel(order.sourceType)} />
+          <DetailField label="Billing address" value={order.billingAddressSnapshot ?? "Not set"} muted={!order.billingAddressSnapshot} />
+          <DetailField label="Delivery address" value={order.deliveryAddressSnapshot ?? "Not set"} muted={!order.deliveryAddressSnapshot} />
+        </div>
+      )}
+    </OrderPanelSection>
+  );
+}
+
+function orderItemsToSalesDraft(order: OrderRow): SalesItemDraft[] {
+  return order.items.map((item, index) => ({
+    id: item.id,
+    orderItemId: item.orderItemId,
+    productId: item.productId ?? undefined,
+    itemType: item.itemType,
+    sortOrder: item.sortOrder ?? index,
+    snapshotProductCode: item.snapshotProductCode ?? undefined,
+    selectedVariantId: item.selectedVariantId ?? undefined,
+    selectedVariantName: item.selectedVariantName ?? undefined,
+    selectedVariantHex: item.selectedVariantHex ?? undefined,
+    itemName: item.itemName,
+    description: item.description,
+    specifications: item.specifications,
+    quantity: item.quantity,
+    unitPrice: item.unitPriceValue,
+    unitCostSnapshot: item.unitCostSnapshotValue,
+    requiresAssembly: item.requiresAssembly,
+    discountValue: item.discountValue,
+    customerNotes: item.customerNotes ?? "",
+    internalNotes: item.internalNotes ?? "",
+    images: item.images
+  }));
+}
+
 function ItemsSection({
   order,
   canViewPayments,
-  canViewDeliveries
+  canViewDeliveries,
+  canUpdateOrders,
+  canViewProducts,
+  products,
+  isEditing,
+  setIsEditing
 }: {
   order: OrderRow;
   canViewPayments: boolean;
   canViewDeliveries: boolean;
+  canUpdateOrders: boolean;
+  canViewProducts: boolean;
+  products: ProductOption[];
+  isEditing: boolean;
+  setIsEditing: (value: boolean) => void;
 }) {
+  const router = useRouter();
+  const [state, setState] = useState(initialState);
+  const [pending, startItemsSave] = useTransition();
+  const [items, setItems] = useState<SalesItemDraft[]>(() => orderItemsToSalesDraft(order));
+  const [additionalDiscount, setAdditionalDiscount] = useState(order.orderDiscountValue);
+  const [additionalFees, setAdditionalFees] = useState(0);
+  const [needsAssembly, setNeedsAssembly] = useState(order.needsAssembly);
+  const [assemblyFeeRate, setAssemblyFeeRate] = useState(100);
+  const [salesInvoiceRequested, setSalesInvoiceRequested] = useState(order.salesInvoiceRequested);
+  const [salesInvoiceFeePercentage, setSalesInvoiceFeePercentage] = useState(8);
+  const hasDeliveredItems = order.items.some((item) => item.deliveredQuantity > 0);
+  const cannotEdit = !canUpdateOrders || order.status === "COMPLETED" || order.status === "CANCELLED" || hasDeliveredItems;
+  const warnings = [
+    order.payments.length > 0
+      ? "This order has payment records. Updating items will recalculate the balance but will not remove payments."
+      : null,
+    order.documents.length > 0
+      ? "This order has generated documents. Existing PDFs may no longer match the updated order."
+      : null,
+    order.deliveries.length > 0
+      ? "This order has scheduled deliveries. Item changes may be restricted."
+      : null,
+    !canViewProducts ? "Product picker access requires product view permission. Custom items can still be edited." : null,
+    order.status === "COMPLETED" || order.status === "CANCELLED"
+      ? "Completed or cancelled orders cannot be edited."
+      : null,
+    hasDeliveredItems ? "Orders with delivered items cannot be edited." : null
+  ].filter(Boolean);
+  const totals = useMemo(
+    () =>
+      calculateSalesTotals({
+        items,
+        additionalDiscount,
+        additionalFees,
+        needsAssembly,
+        assemblyFeeRate,
+        salesInvoiceRequested,
+        salesInvoiceFeePercentage
+      }),
+    [additionalDiscount, additionalFees, assemblyFeeRate, items, needsAssembly, salesInvoiceFeePercentage, salesInvoiceRequested]
+  );
+
+  function discard() {
+    if (!window.confirm("Discard item changes?")) {
+      return;
+    }
+
+    setItems(orderItemsToSalesDraft(order));
+    setAdditionalDiscount(order.orderDiscountValue);
+    setAdditionalFees(0);
+    setNeedsAssembly(order.needsAssembly);
+    setAssemblyFeeRate(100);
+    setSalesInvoiceRequested(order.salesInvoiceRequested);
+    setSalesInvoiceFeePercentage(8);
+    setState(initialState);
+    setIsEditing(false);
+  }
+
+  function startEditing() {
+    setItems(orderItemsToSalesDraft(order));
+    setAdditionalDiscount(order.orderDiscountValue);
+    setAdditionalFees(0);
+    setNeedsAssembly(order.needsAssembly);
+    setAssemblyFeeRate(100);
+    setSalesInvoiceRequested(order.salesInvoiceRequested);
+    setSalesInvoiceFeePercentage(8);
+    setState(initialState);
+    setIsEditing(true);
+  }
+
+  function saveItems() {
+    const formData = new FormData();
+    formData.set("orderId", order.id);
+    formData.set("items", JSON.stringify(toSalesActionItems(items, needsAssembly)));
+    formData.set("orderDiscountType", additionalDiscount > 0 ? "FIXED_AMOUNT" : "");
+    formData.set("orderDiscountValue", String(additionalDiscount));
+    formData.set("additionalFees", String(additionalFees));
+    formData.set("needsAssembly", needsAssembly ? "true" : "false");
+    formData.set("assemblyFeeRate", String(assemblyFeeRate));
+    formData.set("salesInvoiceRequested", salesInvoiceRequested ? "true" : "false");
+    formData.set("salesInvoiceFeePercentage", String(salesInvoiceFeePercentage));
+
+    startItemsSave(async () => {
+      const result = await updateOrderItemsAction(initialState, formData);
+      setState(result);
+
+      if (result.ok) {
+        setIsEditing(false);
+        router.refresh();
+      }
+    });
+  }
+
+  if (isEditing) {
+    return (
+      <OrderPanelSection
+        title="Items"
+        description="Edit order-only items and totals. Existing payments, deliveries, and documents are preserved."
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" disabled={pending} onClick={discard}>
+              Discard
+            </Button>
+            <Button type="button" disabled={pending || cannotEdit || items.length === 0} onClick={saveItems}>
+              <Save className="h-4 w-4" />
+              Save
+            </Button>
+          </div>
+        }
+      >
+        {warnings.length ? (
+          <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
+            {warnings.map((warning) => <p key={warning}>{warning}</p>)}
+          </div>
+        ) : null}
+        <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <SalesItemsEditor
+            products={(canViewProducts ? products : []).map((product) => ({
+              ...product,
+              primaryImage: product.primaryImage ?? null,
+              colorVariants: product.colorVariants ?? []
+            }))}
+            items={items}
+            setItems={setItems}
+            needsAssembly={needsAssembly}
+            setNeedsAssembly={setNeedsAssembly}
+            assemblyFeeRate={assemblyFeeRate}
+            setAssemblyFeeRate={setAssemblyFeeRate}
+            salesInvoiceRequested={salesInvoiceRequested}
+            setSalesInvoiceRequested={setSalesInvoiceRequested}
+            salesInvoiceFeePercentage={salesInvoiceFeePercentage}
+            setSalesInvoiceFeePercentage={setSalesInvoiceFeePercentage}
+            subtotalAmount={totals.subtotalAmount}
+            emptyLabel="Add a product or custom item to rebuild this order."
+          />
+          <SalesSummaryPanel
+            title="Summary"
+            subtitle="Order summary"
+            customerName={order.customerName}
+            customerDetail={[order.companyName, order.contactSnapshot].filter(Boolean).join(" - ") || null}
+            items={items}
+            additionalFees={additionalFees}
+            setAdditionalFees={setAdditionalFees}
+            additionalDiscount={additionalDiscount}
+            setAdditionalDiscount={setAdditionalDiscount}
+            totals={totals}
+          >
+            {state.message ? (
+              <p className={state.ok ? "text-sm text-success" : "text-sm text-danger"}>{state.message}</p>
+            ) : null}
+          </SalesSummaryPanel>
+        </div>
+      </OrderPanelSection>
+    );
+  }
+
   return (
-    <OrderPanelSection title="Items">
+    <OrderPanelSection
+      title="Items"
+      action={
+        canUpdateOrders ? (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={cannotEdit}
+            className="h-9 min-h-9 px-2"
+            onClick={startEditing}
+          >
+            <Pencil className="h-4 w-4" />
+            <span className="sr-only">Edit items</span>
+          </Button>
+        ) : null
+      }
+    >
+      {warnings.length ? (
+        <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-foreground">
+          {warnings.map((warning) => <p key={warning}>{warning}</p>)}
+        </div>
+      ) : null}
       <div className="overflow-x-auto rounded-md border border-border bg-panel shadow-sm">
         <table className="w-full min-w-[680px] text-left text-sm">
           <thead className="border-b border-border text-xs uppercase text-muted-foreground">

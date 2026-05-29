@@ -52,6 +52,8 @@ import {
   createOrderDocumentSchema,
   createPaymentSchema,
   deleteOrderSchema,
+  updateOrderCustomerSchema,
+  updateOrderItemsSchema,
   updateDeliveryProgressSchema,
   updatePaymentDueTimingSchema,
   type OrderItemInput
@@ -500,6 +502,7 @@ async function createOrderFromQuotationTx(
       unitCostSnapshot: quotationUnitCostSnapshotForOrderItem(item),
       discountType: item.discountType ?? undefined,
       discountValue: item.discountValue ? Number(item.discountValue) : undefined,
+      requiresAssembly: item.requiresAssembly,
       customerNotes: item.customerNotes ?? undefined,
       internalNotes: item.internalNotes ?? undefined,
       images: []
@@ -919,6 +922,7 @@ export async function createManualOrderAction(
               unitCostSnapshot: calculatedItem.unitCostSnapshot,
               lineCostTotal: calculatedItem.lineCostTotal,
               lineProfit: calculatedItem.lineProfit,
+              requiresAssembly: item.requiresAssembly ?? false,
               customerNotes: item.customerNotes,
               internalNotes: item.internalNotes,
               images: item.images.length
@@ -976,6 +980,425 @@ export async function createManualOrderAction(
   return {
     ok: true,
     message: `Manual order saved for ${customer.displayName}: ${order.orderNumber ?? order.id}.`
+  };
+}
+
+function calculateEditableOrderTotals(input: {
+  items: OrderItemInput[];
+  orderDiscountType?: "FIXED_AMOUNT" | "PERCENTAGE";
+  orderDiscountValue?: number;
+  needsAssembly: boolean;
+  assemblyFeeRate: number;
+  salesInvoiceRequested: boolean;
+  salesInvoiceFeePercentage: number;
+  additionalFees: number;
+}) {
+  const calculatedItems = input.items.map((item) => calculateOrderItem(item));
+  const subtotalAmount = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineSubtotal, 0));
+  const itemDiscountTotal = roundMoney(calculatedItems.reduce((sum, item) => sum + item.discountAmount, 0));
+  const postItemDiscountTotal = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineTotal, 0));
+  const assemblyFeeTotal = input.needsAssembly
+    ? roundMoney(
+        input.items.reduce(
+          (sum, item) => (item.requiresAssembly ? sum + item.quantity * input.assemblyFeeRate : sum),
+          0
+        )
+      )
+    : 0;
+  const additionalFees = roundMoney(Math.max(input.additionalFees, 0));
+  const discountBase = roundMoney(postItemDiscountTotal + assemblyFeeTotal + additionalFees);
+  const orderDiscountAmount =
+    input.orderDiscountType === "PERCENTAGE"
+      ? roundMoney(discountBase * ((input.orderDiscountValue ?? 0) / 100))
+      : roundMoney(input.orderDiscountValue ?? 0);
+
+  if (orderDiscountAmount > discountBase) {
+    throw new Error("Order discount exceeds subtotal plus fees.");
+  }
+
+  const finalSubtotal = roundMoney(Math.max(discountBase - orderDiscountAmount, 0));
+  const salesInvoiceFeeTotal = input.salesInvoiceRequested
+    ? roundMoney(finalSubtotal * (input.salesInvoiceFeePercentage / 100))
+    : 0;
+  const totalAmount = roundMoney(finalSubtotal + salesInvoiceFeeTotal);
+  const totalCostAmount = roundMoney(calculatedItems.reduce((sum, item) => sum + item.lineCostTotal, 0));
+
+  return {
+    items: calculatedItems,
+    subtotalAmount,
+    itemDiscountTotal,
+    orderDiscountAmount,
+    assemblyFeeTotal: roundMoney(assemblyFeeTotal + additionalFees),
+    salesInvoiceFeeTotal,
+    totalAmount,
+    totalCostAmount,
+    grossProfitAmount: roundMoney(totalAmount - totalCostAmount)
+  };
+}
+
+export async function updateOrderCustomerAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "UPDATE");
+  const parsed = updateOrderCustomerSchema.safeParse({
+    orderId: formData.get("orderId"),
+    customerId: formData.get("customerId")
+  });
+
+  if (!parsed.success) {
+    return { ok: false, message: firstIssue(parsed.error, "Invalid customer update.") };
+  }
+
+  let orderNumber: string | null = null;
+  let customerName = "";
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const [order, customer] = await Promise.all([
+        tx.order.findUnique({
+          where: { id: parsed.data.orderId },
+          select: { id: true, orderNumber: true, customerId: true, status: true }
+        }),
+        tx.customer.findFirst({
+          where: { id: parsed.data.customerId, archivedAt: null },
+          include: {
+            contacts: {
+              orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+              take: 1
+            },
+            addresses: {
+              orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+              take: 1
+            }
+          }
+        })
+      ]);
+
+      if (!order) {
+        throw new ActionError("Order was not found.");
+      }
+
+      if (order.status === "CANCELLED" || order.status === "COMPLETED") {
+        throw new ActionError("Completed or cancelled orders cannot be edited.");
+      }
+
+      if (!customer) {
+        throw new ActionError("Customer was not found.");
+      }
+
+      orderNumber = order.orderNumber;
+      customerName = customer.displayName;
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          customerId: customer.id,
+          customerDisplayNameSnapshot: customer.displayName,
+          customerTypeSnapshot: customer.customerType,
+          companyNameSnapshot: customer.companyName,
+          contactPersonNameSnapshot: customer.contactPersonName,
+          primaryContactSnapshot: primaryContactSnapshot(customer.contacts),
+          billingAddressSnapshot: addressSnapshot(customer.addresses),
+          deliveryAddressSnapshot: addressSnapshot(customer.addresses),
+          updatedById: actor.id
+        }
+      });
+
+      await tx.activityLog.create({
+        data: {
+          action: "ORDER_UPDATED",
+          actorId: actor.id,
+          summary: `Customer changed for order ${order.orderNumber ?? order.id}.`,
+          metadata: {
+            entityType: "order",
+            entityId: order.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            oldCustomerId: order.customerId,
+            newCustomerId: customer.id,
+            sourceAction: "order_customer_update"
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return { ok: false, message: error.message };
+    }
+
+    throw error;
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/customer-directory");
+  revalidatePath("/sales-history");
+
+  return {
+    ok: true,
+    message: `Order customer updated to ${customerName}: ${orderNumber ?? parsed.data.orderId}.`
+  };
+}
+
+export async function updateOrderItemsAction(
+  _previousState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requirePermission("ORDERS", "UPDATE");
+  const parsed = updateOrderItemsSchema.safeParse({
+    orderId: formData.get("orderId"),
+    orderDiscountType: formData.get("orderDiscountType") || undefined,
+    orderDiscountValue: formData.get("orderDiscountValue") || undefined,
+    needsAssembly: formData.get("needsAssembly"),
+    assemblyFeeRate: formData.get("assemblyFeeRate") || undefined,
+    salesInvoiceRequested: formData.get("salesInvoiceRequested"),
+    salesInvoiceFeePercentage: formData.get("salesInvoiceFeePercentage") || undefined,
+    additionalFees: formData.get("additionalFees") || undefined,
+    items: parseJsonArray(formData.get("items"))
+  });
+
+  if (!parsed.success) {
+    return { ok: false, message: firstIssue(parsed.error, "Invalid order items.") };
+  }
+
+  const catalogProductIds = parsed.data.items
+    .filter((item) => item.itemType === "CATALOG_PRODUCT" && item.productId)
+    .map((item) => item.productId as string);
+
+  if (catalogProductIds.length > 0 && !hasPermission(actor, "PRODUCTS", "VIEW")) {
+    return {
+      ok: false,
+      message: "Product access is required to save catalog items."
+    };
+  }
+
+  const productCosts = catalogProductIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: catalogProductIds } },
+        select: { id: true, referenceCost: true }
+      })
+    : [];
+  const productCostById = new Map(productCosts.map((product) => [product.id, Number(product.referenceCost ?? 0)]));
+  const canSetCosts = hasPermission(actor, "PAYMENTS", "VIEW");
+  const itemsWithCosts = parsed.data.items.map((item) => ({
+    ...item,
+    unitCostSnapshot:
+      (canSetCosts ? (item.unitCostSnapshot ?? item.unitCost) : undefined) ??
+      (item.productId ? productCostById.get(item.productId) : undefined) ??
+      0
+  }));
+
+  let totals: ReturnType<typeof calculateEditableOrderTotals>;
+
+  try {
+    totals = calculateEditableOrderTotals({
+      ...parsed.data,
+      items: itemsWithCosts
+    });
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : "Order totals are invalid." };
+  }
+
+  let orderNumber: string | null = null;
+  let oldTotal = 0;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: parsed.data.orderId },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          totalAmount: true,
+          paidAmount: true,
+          paymentDueTiming: true,
+          paymentStatus: true,
+          deliveryStatus: true,
+          items: {
+            select: {
+              id: true,
+              deliveryItems: {
+                where: { delivery: { status: { notIn: ["CANCELLED", "FAILED"] } } },
+                select: { quantityPlanned: true, quantityDelivered: true }
+              }
+            }
+          },
+          _count: { select: { payments: true, documents: true } }
+        }
+      });
+
+      if (!order) {
+        throw new ActionError("Order was not found.");
+      }
+
+      if (order.status === "CANCELLED" || order.status === "COMPLETED") {
+        throw new ActionError("Completed or cancelled orders cannot be edited.");
+      }
+
+      const deliveryByItemId = new Map(
+        order.items.map((item) => [
+          item.id,
+          {
+            planned: item.deliveryItems.reduce((sum, deliveryItem) => sum + Number(deliveryItem.quantityPlanned), 0),
+            delivered: item.deliveryItems.reduce((sum, deliveryItem) => sum + Number(deliveryItem.quantityDelivered), 0)
+          }
+        ])
+      );
+
+      if ([...deliveryByItemId.values()].some((delivery) => delivery.delivered > 0)) {
+        throw new ActionError("Orders with delivered items cannot have item edits.");
+      }
+
+      const submittedIds = new Set(itemsWithCosts.map((item) => item.orderItemId ?? item.id).filter(Boolean));
+      for (const existingItem of order.items) {
+        const delivery = deliveryByItemId.get(existingItem.id);
+        if (delivery && delivery.planned > 0 && !submittedIds.has(existingItem.id)) {
+          throw new ActionError("Scheduled delivery items cannot be removed.");
+        }
+      }
+
+      itemsWithCosts.forEach((item) => {
+        const existingId = item.orderItemId ?? item.id;
+        const delivery = existingId ? deliveryByItemId.get(existingId) : null;
+        if (delivery && item.quantity < delivery.planned) {
+          throw new ActionError("Item quantity cannot be lower than scheduled delivery quantity.");
+        }
+      });
+
+      orderNumber = order.orderNumber;
+      oldTotal = Number(order.totalAmount);
+      const balanceAmount = roundMoney(Math.max(totals.totalAmount - Number(order.paidAmount), 0));
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          subtotalAmount: totals.subtotalAmount,
+          itemDiscountTotal: totals.itemDiscountTotal,
+          orderDiscountType: parsed.data.orderDiscountType as DiscountType | undefined,
+          orderDiscountValue: parsed.data.orderDiscountValue,
+          orderDiscountAmount: totals.orderDiscountAmount,
+          assemblyFeeTotal: totals.assemblyFeeTotal,
+          salesInvoiceFeeTotal: totals.salesInvoiceFeeTotal,
+          totalAmount: totals.totalAmount,
+          totalCostAmount: totals.totalCostAmount,
+          grossProfitAmount: totals.grossProfitAmount,
+          balanceAmount,
+          needsAssembly: parsed.data.needsAssembly,
+          salesInvoiceRequested: parsed.data.salesInvoiceRequested,
+          updatedById: actor.id
+        }
+      });
+
+      const existingIds = new Set(order.items.map((item) => item.id));
+      const keepIds = itemsWithCosts.map((item) => item.orderItemId ?? item.id).filter(Boolean) as string[];
+      const removableIds = order.items
+        .map((item) => item.id)
+        .filter((id) => !keepIds.includes(id));
+
+      if (removableIds.length) {
+        await tx.orderItem.deleteMany({ where: { id: { in: removableIds }, orderId: order.id } });
+      }
+
+      for (const [index, item] of itemsWithCosts.entries()) {
+        const calculatedItem = totals.items[index];
+        const itemId = item.orderItemId ?? item.id;
+        const data = {
+          quotationItemId: item.quotationItemId,
+          productId: item.productId,
+          itemType: item.itemType as QuotationItemType,
+          sortOrder: index,
+          snapshotProductCode: item.snapshotProductCode,
+          itemName: item.itemName,
+          description: item.description,
+          specifications: item.specifications,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountType: item.discountType as DiscountType | undefined,
+          discountValue: item.discountValue,
+          discountAmount: calculatedItem.discountAmount,
+          lineSubtotal: calculatedItem.lineSubtotal,
+          lineTotal: calculatedItem.lineTotal,
+          unitCostSnapshot: calculatedItem.unitCostSnapshot,
+          lineCostTotal: calculatedItem.lineCostTotal,
+          lineProfit: calculatedItem.lineProfit,
+          requiresAssembly: item.requiresAssembly,
+          customerNotes: item.customerNotes,
+          internalNotes: item.internalNotes
+        };
+
+        const savedItem =
+          itemId && existingIds.has(itemId)
+            ? await tx.orderItem.update({ where: { id: itemId }, data })
+            : await tx.orderItem.create({ data: { ...data, orderId: order.id } });
+
+        await tx.orderItemImage.deleteMany({ where: { orderItemId: savedItem.id } });
+        if (item.images.length) {
+          await tx.orderItemImage.createMany({
+            data: item.images.map((image, imageIndex) => ({
+              orderItemId: savedItem.id,
+              sourceQuotationItemImageId: image.sourceQuotationItemImageId,
+              sourceProductImageId: image.sourceProductImageId,
+              cloudinaryPublicId: image.cloudinaryPublicId,
+              secureUrl: image.secureUrl,
+              resourceType: image.resourceType,
+              format: image.format,
+              width: image.width,
+              height: image.height,
+              bytes: image.bytes,
+              altText: image.altText,
+              sortOrder: image.sortOrder ?? imageIndex,
+              isPrimary: image.isPrimary || imageIndex === 0
+            }))
+          });
+        }
+      }
+
+      await updateOrderPaymentSummaryTx(tx, order.id, actor.id);
+      await updateOrderDeliverySummaryTx(tx, order.id, actor.id);
+
+      await tx.activityLog.create({
+        data: {
+          action: "ORDER_UPDATED",
+          actorId: actor.id,
+          summary: `Order items updated for ${order.orderNumber ?? order.id}.`,
+          metadata: {
+            entityType: "order",
+            entityId: order.id,
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            oldTotal,
+            newTotal: totals.totalAmount,
+            changedItemCount: itemsWithCosts.length,
+            paymentCount: order._count.payments,
+            documentCount: order._count.documents,
+            sourceAction: "order_items_update"
+          }
+        }
+      });
+    });
+  } catch (error) {
+    if (error instanceof ActionError) {
+      return { ok: false, message: error.message };
+    }
+
+    if (error instanceof Error) {
+      return { ok: false, message: error.message };
+    }
+
+    throw error;
+  }
+
+  revalidatePath("/orders");
+  revalidatePath("/payments");
+  revalidatePath("/deliveries");
+  revalidatePath("/documents");
+  revalidatePath("/sales-history");
+  revalidatePath("/dashboard");
+
+  return {
+    ok: true,
+    message: `Order items updated: ${orderNumber ?? parsed.data.orderId}.`
   };
 }
 
