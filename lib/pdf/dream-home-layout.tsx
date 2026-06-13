@@ -7,7 +7,7 @@ import type { OperationalPdfKind } from "@/lib/pdf/types";
 export const dreamHomeBrand = {
   companyName: "DREAM HOME MNL",
   tagline: "D H M  F U R N I T U R E S  O N L I N E  S T O R E",
-  address: "129 CALIRAYA DRIVE SMDP MARIAN LAKEVIEW PARANAQUE CITY",
+  address: "4774 SAMPAGUITA ST. PARAÑAQUE CITY",
   contact: "CONTACT NUMBER: 09603123335",
   email: "EMAIL ADDRESS: DREAMHOMEMNL01@GMAIL.COM",
   preparedBy: "Arriane Escobia",
