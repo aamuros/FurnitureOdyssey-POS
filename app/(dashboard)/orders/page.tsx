@@ -711,17 +711,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     params.hasScheduledDelivery === "yes" || params.hasScheduledDelivery === "no"
       ? params.hasScheduledDelivery
       : undefined;
-  const legacyView =
-    params.needsAction === "true"
-      ? "needsAction"
-      : params.unfinished === "true"
-        ? "unfinished"
-        : hasBalance === "yes"
-          ? "hasBalance"
-          : hasScheduledDelivery === "yes"
-            ? "scheduledDelivery"
-            : undefined;
-  const requestedView = enumValue(orderViews, params.view) ?? legacyView ?? "all";
+  const requestedView = enumValue(orderViews, params.view) ?? "all";
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
 
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
@@ -1110,7 +1100,6 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
       (canViewPayments && params.hasBalance) ||
       (canViewDeliveries && params.hasScheduledDelivery)
   );
-  const hasActiveFilters = selectedOrderId ? true : Object.values(pageParams).some(Boolean);
   const queueViews = [
     { value: "all", label: "All", visible: true },
     { value: "needsAction", label: "Needs Action", visible: true },
@@ -1144,7 +1133,6 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         hasScheduledDelivery={hasScheduledDelivery ?? ""}
         canViewPayments={canViewPayments}
         canViewDeliveries={canViewDeliveries}
-        hasActiveFilters={hasActiveFilters}
         moreFiltersOpen={moreFiltersOpen}
         orderStatuses={[...orderStatuses]}
         paymentStatuses={[...paymentStatuses]}
