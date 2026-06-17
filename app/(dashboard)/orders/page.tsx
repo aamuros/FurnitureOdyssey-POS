@@ -1,21 +1,16 @@
 import Link from "next/link";
-import { Prisma } from "@prisma/client";
+import { OrderDeliveryStatus, OrderPaymentStatus, OrderStatus, Prisma } from "@prisma/client";
+import { OrderFilters } from "@/components/dashboard/order-filters";
 import { OrderWorkspace } from "@/components/dashboard/order-workspace";
-import { DynamicSearchInput } from "@/components/dashboard/dynamic-search-input";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { hasPermission } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/server";
 import { prisma } from "@/lib/prisma";
-import { readableLabel } from "@/lib/orders/status-labels";
 import {
   canCompleteOrder as canCompleteOrderWorkflow,
   canScheduleOrderDelivery
 } from "@/lib/orders/status";
 import { timeQuery } from "@/lib/query-timing";
-import { cn } from "@/lib/utils";
 
 type OrdersPageProps = {
   searchParams?: Promise<{
@@ -122,7 +117,7 @@ const deliveryStatuses = [
   "CANCELLED"
 ] as const;
 
-const orderViews = ["needsAction", "unfinished", "hasBalance", "scheduledDelivery", "all"] as const;
+const orderViews = ["all", "needsAction", "unfinished", "hasBalance", "scheduledDelivery"] as const;
 
 function formatDate(value: Date | null) {
   if (!value) {
@@ -618,6 +613,88 @@ function orderViewWhere(
   return undefined;
 }
 
+function buildOrderWhere({
+  selectedOrderId,
+  orderStatus,
+  paymentStatus,
+  deliveryStatus,
+  from,
+  to,
+  visibleBalanceFilter,
+  assignedStaffId,
+  query,
+  canViewPayments,
+  canViewDeliveries,
+  visibleScheduledDeliveryFilter,
+  selectedView,
+  canExportDocuments
+}: {
+  selectedOrderId?: string;
+  orderStatus?: OrderStatus;
+  paymentStatus?: OrderPaymentStatus;
+  deliveryStatus?: OrderDeliveryStatus;
+  from?: Date;
+  to?: Date;
+  visibleBalanceFilter?: "yes" | "no";
+  assignedStaffId?: string;
+  query?: string;
+  canViewPayments: boolean;
+  canViewDeliveries: boolean;
+  visibleScheduledDeliveryFilter?: "yes" | "no";
+  selectedView: (typeof orderViews)[number];
+  canExportDocuments: boolean;
+}): Prisma.OrderWhereInput {
+  if (selectedOrderId) {
+    return {
+      id: selectedOrderId
+    };
+  }
+
+  return {
+    status: orderStatus,
+    paymentStatus,
+    deliveryStatus,
+    createdAt: dateRangeWhere(from, to),
+    ...(visibleBalanceFilter === "yes"
+      ? {
+          balanceAmount: {
+            gt: 0
+          }
+        }
+      : {}),
+    ...(visibleBalanceFilter === "no"
+      ? {
+          balanceAmount: 0
+        }
+      : {}),
+    ...(assignedStaffId
+      ? {
+          OR: [
+            { createdById: assignedStaffId },
+            { updatedById: assignedStaffId },
+            {
+              customer: {
+                assignedStaffId
+              }
+            },
+            {
+              deliveries: {
+                some: {
+                  assignedStaffId
+                }
+              }
+            }
+          ]
+        }
+      : {}),
+    AND: [
+      { OR: searchWhere(query, canViewPayments, canViewDeliveries) },
+      scheduledDeliveryWhere(visibleScheduledDeliveryFilter),
+      orderViewWhere(selectedView, canViewPayments, canViewDeliveries, canExportDocuments)
+    ].filter(Boolean) as Prisma.OrderWhereInput[]
+  };
+}
+
 export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const user = await requirePermission("ORDERS", "VIEW");
   const params = (await searchParams) ?? {};
@@ -644,7 +721,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
           : hasScheduledDelivery === "yes"
             ? "scheduledDelivery"
             : undefined;
-  const requestedView = enumValue(orderViews, params.view) ?? legacyView ?? "needsAction";
+  const requestedView = enumValue(orderViews, params.view) ?? legacyView ?? "all";
   const page = Math.max(Number(params.page ?? 1) || 1, 1);
 
   const canUpdateOrders = hasPermission(user, "ORDERS", "UPDATE");
@@ -665,58 +742,27 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     ? "all"
     : (requestedView === "hasBalance" && !canViewPayments) ||
         (requestedView === "scheduledDelivery" && !canViewDeliveries)
-      ? "needsAction"
+      ? "all"
       : requestedView;
 
-  const orderWhere: Prisma.OrderWhereInput = selectedOrderId
-    ? {
-        id: selectedOrderId
-      }
-    : {
-        status: orderStatus,
-        paymentStatus,
-        deliveryStatus,
-        createdAt: dateRangeWhere(from, to),
-        ...(visibleBalanceFilter === "yes"
-          ? {
-              balanceAmount: {
-                gt: 0
-              }
-            }
-          : {}),
-        ...(visibleBalanceFilter === "no"
-          ? {
-              balanceAmount: 0
-            }
-          : {}),
-        ...(assignedStaffId
-          ? {
-              OR: [
-                { createdById: assignedStaffId },
-                { updatedById: assignedStaffId },
-                {
-                  customer: {
-                    assignedStaffId
-                  }
-                },
-                {
-                  deliveries: {
-                    some: {
-                      assignedStaffId
-                    }
-                  }
-                }
-              ]
-            }
-          : {}),
-        AND: [
-          { OR: searchWhere(query, canViewPayments, canViewDeliveries) },
-          scheduledDeliveryWhere(visibleScheduledDeliveryFilter),
-          orderViewWhere(selectedView, canViewPayments, canViewDeliveries, canExportDocuments)
-        ].filter(Boolean) as Prisma.OrderWhereInput[]
-      };
+  const orderWhere = buildOrderWhere({
+    selectedOrderId,
+    orderStatus,
+    paymentStatus,
+    deliveryStatus,
+    from,
+    to,
+    visibleBalanceFilter,
+    assignedStaffId,
+    query,
+    canViewPayments,
+    canViewDeliveries,
+    visibleScheduledDeliveryFilter,
+    selectedView,
+    canExportDocuments
+  });
 
-  const [staff, customerOptions, productOptions, orderCount, orders] = await Promise.all([
+  const [staff, customerOptions, productOptions, orderCount, orderMetrics, orders] = await Promise.all([
     timeQuery("orders:staff-options", prisma.userProfile.findMany({
       where: {
         status: "ACTIVE",
@@ -780,6 +826,13 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
     timeQuery("orders:count", prisma.order.count({
       where: orderWhere
     })),
+    timeQuery("orders:metrics", canViewPayments ? prisma.order.aggregate({
+      where: orderWhere,
+      _sum: {
+        totalAmount: true,
+        grossProfitAmount: true
+      }
+    }) : Promise.resolve(null)),
     timeQuery("orders:list", prisma.order.findMany({
       where: orderWhere,
       orderBy: {
@@ -1037,7 +1090,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const totalPages = Math.max(Math.ceil(orderCount / pageSize), 1);
   const pageParams = {
     q: params.q,
-    view: selectedView === "needsAction" ? undefined : selectedView,
+    view: selectedView === "all" ? undefined : selectedView,
     orderStatus,
     paymentStatus,
     deliveryStatus,
@@ -1059,16 +1112,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   );
   const hasActiveFilters = selectedOrderId ? true : Object.values(pageParams).some(Boolean);
   const queueViews = [
-    { value: "needsAction", label: "Needs action", visible: true },
+    { value: "all", label: "All", visible: true },
+    { value: "needsAction", label: "Needs Action", visible: true },
     { value: "unfinished", label: "Unfinished", visible: true },
-    { value: "hasBalance", label: "Has balance", visible: canViewPayments },
-    { value: "scheduledDelivery", label: "Scheduled delivery", visible: canViewDeliveries },
-    { value: "all", label: "All", visible: true }
+    { value: "hasBalance", label: "Has Balance", visible: canViewPayments },
+    { value: "scheduledDelivery", label: "Scheduled delivery", visible: canViewDeliveries }
   ].filter((view) => view.visible) as Array<{
     value: (typeof orderViews)[number];
     label: string;
     visible: boolean;
   }>;
+  const profitValue = canViewPayments ? formatMoney(orderMetrics?._sum.grossProfitAmount ?? 0) : "Restricted";
+  const salesTotalValue = canViewPayments ? formatMoney(orderMetrics?._sum.totalAmount ?? 0) : "Restricted";
 
   return (
     <>
@@ -1076,118 +1131,29 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         title="Orders"
         description="Scan open orders, balances, delivery schedules, documents, and the next staff action."
       />
-      <form className="mb-5 space-y-3 rounded-lg border border-border bg-panel p-3 sm:p-4">
-        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_auto_auto]">
-          <DynamicSearchInput
-            name="q"
-            defaultValue={params.q ?? ""}
-            placeholder="Search orders, customers, phone, item..."
-            aria-label="Search orders"
-          />
-          <Select name="view" defaultValue={selectedView} aria-label="View orders" className="lg:hidden">
-            <option value="needsAction">Needs action</option>
-            <option value="unfinished">Unfinished</option>
-            {canViewPayments ? <option value="hasBalance">Has balance</option> : null}
-            {canViewDeliveries ? <option value="scheduledDelivery">Scheduled delivery</option> : null}
-            <option value="all">All</option>
-          </Select>
-          <Button type="submit" variant="secondary">
-            Apply
-          </Button>
-          {hasActiveFilters ? (
-            <Link
-              href="/orders"
-              className="inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-sm font-semibold text-muted-foreground transition hover:bg-muted/60"
-            >
-              Clear
-            </Link>
-          ) : null}
-        </div>
-
-        <nav className="hidden items-center gap-2 overflow-x-auto lg:flex" aria-label="Order queue views">
-          {queueViews.map((view) => {
-            const active = selectedView === view.value;
-
-            return (
-              <Link
-                key={view.value}
-                href={ordersHref(pageParams, {
-                  view: view.value === "needsAction" ? undefined : view.value,
-                  hasBalance: undefined,
-                  hasScheduledDelivery: undefined
-                })}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "inline-flex min-h-8 shrink-0 items-center rounded-full border px-2.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                  active
-                    ? "border-border bg-soft-accent/70 text-foreground"
-                    : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-muted/35 hover:text-foreground"
-                )}
-              >
-                {view.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <details open={moreFiltersOpen} className="border-t border-border pt-3">
-          <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">More filters</summary>
-          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Select name="orderStatus" defaultValue={orderStatus ?? ""} aria-label="Order status">
-              <option value="">Any order status</option>
-              {orderStatuses.map((status) => (
-                <option key={status} value={status}>
-                  {readableLabel(status)}
-                </option>
-              ))}
-            </Select>
-            {canViewPayments ? (
-              <Select name="paymentStatus" defaultValue={paymentStatus ?? ""} aria-label="Payment status">
-                <option value="">Any payment status</option>
-                {paymentStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {readableLabel(status)}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
-            {canViewDeliveries ? (
-              <Select name="deliveryStatus" defaultValue={deliveryStatus ?? ""} aria-label="Delivery status">
-                <option value="">Any delivery status</option>
-                {deliveryStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {readableLabel(status)}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
-            <Select name="assignedStaffId" defaultValue={assignedStaffId ?? ""}>
-              <option value="">All staff</option>
-              {staff.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.displayName}
-                </option>
-              ))}
-            </Select>
-            <Input name="from" type="date" defaultValue={params.from ?? ""} aria-label="Created from" />
-            <Input name="to" type="date" defaultValue={params.to ?? ""} aria-label="Created to" />
-            {canViewPayments ? (
-              <Select name="hasBalance" defaultValue={hasBalance ?? ""}>
-                <option value="">Any balance</option>
-                <option value="yes">Has balance</option>
-                <option value="no">No balance</option>
-              </Select>
-            ) : null}
-            {canViewDeliveries ? (
-              <Select name="hasScheduledDelivery" defaultValue={hasScheduledDelivery ?? ""}>
-                <option value="">Any schedule</option>
-                <option value="yes">Scheduled delivery</option>
-                <option value="no">Not scheduled</option>
-              </Select>
-            ) : null}
-          </div>
-        </details>
-      </form>
+      <OrderFilters
+        query={params.q ?? ""}
+        selectedView={selectedView}
+        orderStatus={orderStatus ?? ""}
+        paymentStatus={paymentStatus ?? ""}
+        deliveryStatus={deliveryStatus ?? ""}
+        assignedStaffId={assignedStaffId ?? ""}
+        from={params.from ?? ""}
+        to={params.to ?? ""}
+        hasBalance={hasBalance ?? ""}
+        hasScheduledDelivery={hasScheduledDelivery ?? ""}
+        canViewPayments={canViewPayments}
+        canViewDeliveries={canViewDeliveries}
+        hasActiveFilters={hasActiveFilters}
+        moreFiltersOpen={moreFiltersOpen}
+        orderStatuses={[...orderStatuses]}
+        paymentStatuses={[...paymentStatuses]}
+        deliveryStatuses={[...deliveryStatuses]}
+        staff={staff}
+        views={queueViews}
+        profitValue={profitValue}
+        salesTotalValue={salesTotalValue}
+      />
       <OrderWorkspace
         canUpdateOrders={canUpdateOrders}
         canDeleteOrders={canDeleteOrders}
