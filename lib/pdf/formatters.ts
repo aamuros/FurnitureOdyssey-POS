@@ -23,6 +23,53 @@ export function formatMoney(value: number, currency = "PHP") {
   return `${currency} ${amount}`;
 }
 
+export function formatMoneyAmount(value: number) {
+  return new Intl.NumberFormat("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+export function hasText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function hasMoney(value: unknown) {
+  const amount = Number(value);
+
+  return Number.isFinite(amount) && Math.abs(amount) > 0;
+}
+
+export function hasQuantity(value: unknown) {
+  const quantity = Number(value);
+
+  return Number.isFinite(quantity) && quantity > 0;
+}
+
+export function isMeaningfulValue(value: unknown): boolean {
+  if (value == null) {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return hasText(value);
+  }
+
+  if (typeof value === "number" || typeof value === "bigint") {
+    return hasMoney(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(isMeaningfulValue);
+  }
+
+  if (typeof value === "object") {
+    return Object.values(value).some(isMeaningfulValue);
+  }
+
+  return Boolean(value);
+}
+
 export function formatDate(value: Date | string | null | undefined) {
   if (!value) {
     return "Not set";
@@ -113,7 +160,7 @@ export function shouldDisplayPdfAmountRow(
   row: { label: string; value: string | null | undefined },
   options: { alwaysShowLabels?: RegExp[]; hideZeroMoneyRows?: boolean } = {}
 ) {
-  if (isSalesInvoiceFeeLabel(row.label) || !isPresentPdfText(row.value)) {
+  if (!isPresentPdfText(row.value)) {
     return false;
   }
 
@@ -124,7 +171,7 @@ export function shouldDisplayPdfAmountRow(
   const moneyValue = moneyValueFromText(row.value);
 
   if (options.hideZeroMoneyRows && moneyValue !== null) {
-    return moneyValue > 0;
+    return Math.abs(moneyValue) > 0;
   }
 
   return true;

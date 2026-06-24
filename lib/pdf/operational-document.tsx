@@ -9,7 +9,7 @@ import {
   DreamHomePolicies,
   DreamHomePreparedBy
 } from "@/lib/pdf/dream-home-layout";
-import { formatDate, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
+import { formatDate, hasMoney, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import { PdfDocumentTermsBlockView, PdfPaymentTermsBlockView } from "@/lib/pdf/payment-terms-block";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
@@ -199,6 +199,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: "uppercase"
   },
+  tableCurrencyNote: {
+    marginBottom: 3,
+    color: muted,
+    fontSize: 7.2,
+    textAlign: "right"
+  },
   finalSummaryTableHeader: {
     paddingVertical: 3
   },
@@ -218,6 +224,9 @@ const styles = StyleSheet.create({
     width: "50%",
     paddingHorizontal: 6
   },
+  itemNameWithDiscount: {
+    width: "44%"
+  },
   itemImage: {
     width: 24,
     height: 24,
@@ -233,9 +242,26 @@ const styles = StyleSheet.create({
     width: "10%",
     textAlign: "center"
   },
+  qtyWithDiscount: {
+    width: "8%"
+  },
   money: {
     width: "20%",
     textAlign: "right"
+  },
+  moneyWithDiscount: {
+    width: "18%"
+  },
+  itemDiscountMoney: {
+    width: "14%",
+    textAlign: "right"
+  },
+  totalMoneyWithDiscount: {
+    width: "16%"
+  },
+  tableMoney: {
+    fontSize: 7.8,
+    lineHeight: 1
   },
   deliveryQty: {
     width: "15%",
@@ -353,6 +379,8 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
   const referenceRows = visibleRows(data.summary);
   const hasDeliveryReceiptDetailRows = referenceRows.some((row) => row.label.trim() || row.value.trim());
   const totalRows = visibleAmountRows(data.totals ?? []);
+  const hasAnyItemDiscount = !isDeliveryReceipt && hasDiscountedItems(data.items);
+  const tableCurrency = tableCurrencyLabel(data);
   const paymentInstructionLines = presentValues([
     data.paymentInstructions ?? data.company.paymentInstructions,
     data.company.bankDetails,
@@ -400,6 +428,9 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
 
           {data.items?.length ? (
             <View style={isFinalSummary ? [styles.section, styles.finalSummarySection] : styles.section}>
+              {!isDeliveryReceipt && tableCurrency ? (
+                <Text style={styles.tableCurrencyNote}>Amounts in {tableCurrency}</Text>
+              ) : null}
               <View style={isFinalSummary ? [styles.tableHeader, styles.finalSummaryTableHeader] : styles.tableHeader} fixed>
                 {isDeliveryReceipt ? (
                   <>
@@ -410,15 +441,28 @@ export function OperationalPdfDocument({ data }: { data: OperationalPdfData }) {
                   </>
                 ) : (
                   <>
-                    <Text style={styles.qty}>QTY</Text>
-                    <Text style={styles.itemName}>DESCRIPTION</Text>
-                    <Text style={styles.money}>UNIT PRICE</Text>
-                    <Text style={styles.money}>TOTAL</Text>
+                    <Text style={hasAnyItemDiscount ? [styles.qty, styles.qtyWithDiscount] : styles.qty}>QTY</Text>
+                    <Text style={hasAnyItemDiscount ? [styles.itemName, styles.itemNameWithDiscount] : styles.itemName}>
+                      DESCRIPTION
+                    </Text>
+                    <Text style={hasAnyItemDiscount ? [styles.money, styles.moneyWithDiscount] : styles.money}>
+                      UNIT PRICE
+                    </Text>
+                    {hasAnyItemDiscount ? <Text style={styles.itemDiscountMoney}>DISCOUNT</Text> : null}
+                    <Text style={hasAnyItemDiscount ? [styles.money, styles.totalMoneyWithDiscount] : styles.money}>
+                      TOTAL
+                    </Text>
                   </>
                 )}
               </View>
               {data.items.map((item, index) => (
-                <ItemRow key={`${item.name}-${index}`} item={item} compact={isFinalSummary} delivery={isDeliveryReceipt} />
+                <ItemRow
+                  key={`${item.name}-${index}`}
+                  item={item}
+                  compact={isFinalSummary}
+                  delivery={isDeliveryReceipt}
+                  showItemDiscount={hasAnyItemDiscount}
+                />
               ))}
             </View>
           ) : null}
@@ -622,8 +666,18 @@ function SignatureBlock({ compact = false, deliveryReceipt = false }: { compact?
   );
 }
 
-function ItemRow({ item, compact = false, delivery = false }: { item: PdfItemRow; compact?: boolean; delivery?: boolean }) {
-  const descriptionParts = presentValues([item.description, item.discountDetail, item.notes]);
+function ItemRow({
+  item,
+  compact = false,
+  delivery = false,
+  showItemDiscount = false
+}: {
+  item: PdfItemRow;
+  compact?: boolean;
+  delivery?: boolean;
+  showItemDiscount?: boolean;
+}) {
+  const descriptionParts = presentValues([item.description, item.notes]);
 
   if (delivery) {
     return (
@@ -640,16 +694,63 @@ function ItemRow({ item, compact = false, delivery = false }: { item: PdfItemRow
 
   return (
     <View style={compact ? [styles.tableRow, styles.finalSummaryTableRow] : styles.tableRow} wrap={false}>
-      <Text style={styles.qty}>
+      <Text style={showItemDiscount ? [styles.qty, styles.qtyWithDiscount] : styles.qty}>
         {item.quantity}
       </Text>
-      <View style={styles.itemName}>
+      <View style={showItemDiscount ? [styles.itemName, styles.itemNameWithDiscount] : styles.itemName}>
         <ItemDescription item={item} descriptionParts={descriptionParts} />
       </View>
-      <Text style={styles.money}>{isPresent(item.unitPrice) ? item.unitPrice : ""}</Text>
-      <Text style={styles.money}>{isPresent(item.total) ? item.total : ""}</Text>
+      <Text
+        style={showItemDiscount ? [styles.money, styles.moneyWithDiscount, styles.tableMoney] : [styles.money, styles.tableMoney]}
+        wrap={false}
+      >
+        {compactMoneyText(item.unitPriceCompact, item.unitPrice)}
+      </Text>
+      {showItemDiscount ? (
+        <Text style={[styles.itemDiscountMoney, styles.tableMoney]} wrap={false}>
+          {itemDiscountText(item)}
+        </Text>
+      ) : null}
+      <Text
+        style={
+          showItemDiscount
+            ? [styles.money, styles.totalMoneyWithDiscount, styles.tableMoney]
+            : [styles.money, styles.tableMoney]
+        }
+        wrap={false}
+      >
+        {compactMoneyText(item.totalCompact, item.total)}
+      </Text>
     </View>
   );
+}
+
+function hasDiscountedItems(items: PdfItemRow[] | undefined) {
+  return Boolean(items?.some((item) => hasMoney(item.discountAmount)));
+}
+
+function itemDiscountText(item: PdfItemRow) {
+  if (!hasMoney(item.discountAmount)) {
+    return "—";
+  }
+
+  return item.discountCompact ?? (item.discount ? `-${stripCurrencyPrefix(item.discount)}` : "—");
+}
+
+function compactMoneyText(compactValue: string | undefined, fullValue: string | null | undefined) {
+  return compactValue ?? stripCurrencyPrefix(fullValue);
+}
+
+function stripCurrencyPrefix(value: string | null | undefined) {
+  return value?.trim().replace(/^[A-Z]{3}\s+/, "") ?? "";
+}
+
+function tableCurrencyLabel(data: OperationalPdfData) {
+  return data.tableCurrency ?? data.items?.map((item) => item.unitPrice ?? item.total).find(currencyFromMoneyText)?.match(/^[A-Z]{3}/)?.[0] ?? null;
+}
+
+function currencyFromMoneyText(value: string | null | undefined) {
+  return /^[A-Z]{3}\s+/.test(value?.trim() ?? "");
 }
 
 function ItemDescription({ item, descriptionParts }: { item: PdfItemRow; descriptionParts: string[] }) {
@@ -690,7 +791,9 @@ function visibleRows(rows: PdfSummaryRow[]) {
 function visibleAmountRows(rows: PdfSummaryRow[]) {
   return rows.filter((row) =>
     shouldDisplayPdfAmountRow(row, {
-      alwaysShowLabels: [/^(final total|total|total paid|paid|balance|amount paid|payment amount|balance after)$/i],
+      alwaysShowLabels: [
+        /^(subtotal for items|final subtotal|final total|total|total paid|paid|balance|amount paid|payment amount|balance after)$/i
+      ],
       hideZeroMoneyRows: true
     })
   );

@@ -13,6 +13,8 @@ import {
   formatDeliveryStatus,
   formatDocumentNumber,
   formatMoney,
+  formatMoneyAmount,
+  hasMoney,
   formatPaymentStatus,
   formatQuantity,
   safeFilename,
@@ -250,21 +252,41 @@ function primaryImage(
     ?.secureUrl;
 }
 
+function safeNumber(value: unknown) {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+function signedMoney(value: unknown, currency: string, sign: "+" | "-") {
+  return `${sign}${formatMoney(Math.abs(safeNumber(value)), currency)}`;
+}
+
+function signedMoneyAmount(value: unknown, sign: "+" | "-") {
+  return `${sign}${formatMoneyAmount(Math.abs(safeNumber(value)))}`;
+}
+
 function discountDetail(
   discountType: string | null,
   discountValue: unknown,
+  discountAmount: unknown,
   currency: string,
-  label = "Fixed discount"
+  label = "Item discount"
 ) {
-  if (!discountType || discountValue == null || Number(discountValue) <= 0) {
+  const amount = safeNumber(discountAmount);
+  const value = safeNumber(discountValue);
+
+  if (!hasMoney(amount) && (!discountType || !hasMoney(value))) {
     return null;
   }
 
   if (discountType === "PERCENTAGE") {
-    return `${Number(discountValue)}% discount`;
+    return hasMoney(amount)
+      ? `${label}: -${formatMoney(amount, currency)} (${value}% discount)`
+      : `${label}: ${value}% discount`;
   }
 
-  return `${label}: ${formatMoney(Number(discountValue), currency)}`;
+  return `${label}: -${formatMoney(hasMoney(amount) ? amount : value, currency)}`;
 }
 
 function yesNo(value: boolean) {
@@ -299,31 +321,31 @@ function quotationTotals(quotation: {
   currency: string;
 }): PdfSummaryRow[] {
   const subtotalForItems = Math.max(
-    Number(quotation.subtotalAmount) - Number(quotation.itemDiscountTotal),
+    safeNumber(quotation.subtotalAmount) - safeNumber(quotation.itemDiscountTotal),
     0
   );
   const additionalFees = Math.max(
-    Number(quotation.totalAmount) -
-      (Number(quotation.subtotalAmount) -
-        Number(quotation.itemDiscountTotal) -
-        Number(quotation.quotationDiscountAmount) +
-        Number(quotation.assemblyFeeTotal) +
-        Number(quotation.salesInvoiceFeeTotal)),
+    safeNumber(quotation.totalAmount) -
+      (safeNumber(quotation.subtotalAmount) -
+        safeNumber(quotation.itemDiscountTotal) -
+        safeNumber(quotation.quotationDiscountAmount) +
+        safeNumber(quotation.assemblyFeeTotal) +
+        safeNumber(quotation.salesInvoiceFeeTotal)),
     0
   );
-  const finalSubtotal = Math.max(Number(quotation.totalAmount) - Number(quotation.salesInvoiceFeeTotal), 0);
+  const finalSubtotal = Math.max(safeNumber(quotation.totalAmount) - safeNumber(quotation.salesInvoiceFeeTotal), 0);
 
   return [
     { label: "Subtotal for Items", value: formatMoney(subtotalForItems, quotation.currency) },
-    { label: "Assemble Fee", value: formatMoney(Number(quotation.assemblyFeeTotal), quotation.currency) },
-    { label: "Additional Fees", value: formatMoney(additionalFees, quotation.currency) },
+    { label: "Assembly Fee", value: signedMoney(quotation.assemblyFeeTotal, quotation.currency, "+") },
+    { label: "Additional Fees", value: signedMoney(additionalFees, quotation.currency, "+") },
     {
       label: "Additional Discount",
-      value: `-${formatMoney(Number(quotation.quotationDiscountAmount), quotation.currency)}`
+      value: signedMoney(quotation.quotationDiscountAmount, quotation.currency, "-")
     },
     { label: "Final Subtotal", value: formatMoney(finalSubtotal, quotation.currency) },
-    { label: "Sales Invoice Fee", value: formatMoney(Number(quotation.salesInvoiceFeeTotal), quotation.currency) },
-    { label: "Final Total", value: formatMoney(Number(quotation.totalAmount), quotation.currency) }
+    { label: "Sales Invoice Fee", value: signedMoney(quotation.salesInvoiceFeeTotal, quotation.currency, "+") },
+    { label: "Final Total", value: formatMoney(safeNumber(quotation.totalAmount), quotation.currency) }
   ];
 }
 
@@ -434,6 +456,7 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
       { label: "Delivery location", value: fallbackText(quotation.inquiry?.deliveryLocation) },
       ...salesWorkflowRows(quotation)
     ],
+    tableCurrency: quotation.currency,
     totals: quotationTotals(quotation),
     items: quotation.items.map((item) => ({
       code: item.snapshotProductCode,
@@ -446,14 +469,25 @@ export async function getQuotationPdfData(quotationId: string): Promise<Operatio
         .filter(Boolean)
         .join("\n"),
       quantity: formatQuantity(Number(item.quantity)),
+      quantityValue: safeNumber(item.quantity),
       unitPrice: formatMoney(Number(item.unitPrice), quotation.currency),
+      unitPriceCompact: formatMoneyAmount(safeNumber(item.unitPrice)),
+      unitPriceValue: safeNumber(item.unitPrice),
       discount: formatMoney(Number(item.discountAmount), quotation.currency),
+      discountCompact: signedMoneyAmount(item.discountAmount, "-"),
       discountDetail: discountDetail(
         item.discountType,
         item.discountValue,
+        item.discountAmount,
         quotation.currency
       ),
+      discountType: item.discountType,
+      discountValue: item.discountValue == null ? null : safeNumber(item.discountValue),
+      discountAmount: safeNumber(item.discountAmount),
+      lineSubtotal: safeNumber(item.lineSubtotal),
+      lineTotal: safeNumber(item.lineTotal),
       total: formatMoney(Number(item.lineTotal), quotation.currency),
+      totalCompact: formatMoneyAmount(safeNumber(item.lineTotal)),
       notes: item.customerNotes,
       imageUrl: primaryImage(item.images)
     })),
@@ -528,16 +562,27 @@ export async function getInvoicePdfData(orderId: string): Promise<OperationalPdf
       },
       ...orderSummary(order, settings)
     ],
+    tableCurrency: order.currency,
     totals: orderTotals(order),
     items: order.items.map((item) => ({
       code: item.snapshotProductCode,
       name: item.itemName,
       description: item.description ?? item.specifications,
       quantity: formatQuantity(Number(item.quantity)),
+      quantityValue: safeNumber(item.quantity),
       unitPrice: formatMoney(Number(item.unitPrice), order.currency),
+      unitPriceCompact: formatMoneyAmount(safeNumber(item.unitPrice)),
+      unitPriceValue: safeNumber(item.unitPrice),
       discount: formatMoney(Number(item.discountAmount), order.currency),
-      discountDetail: discountDetail(item.discountType, item.discountValue, order.currency),
+      discountCompact: signedMoneyAmount(item.discountAmount, "-"),
+      discountDetail: discountDetail(item.discountType, item.discountValue, item.discountAmount, order.currency),
+      discountType: item.discountType,
+      discountValue: item.discountValue == null ? null : safeNumber(item.discountValue),
+      discountAmount: safeNumber(item.discountAmount),
+      lineSubtotal: safeNumber(item.lineSubtotal),
+      lineTotal: safeNumber(item.lineTotal),
       total: formatMoney(Number(item.lineTotal), order.currency),
+      totalCompact: formatMoneyAmount(safeNumber(item.lineTotal)),
       notes: item.customerNotes,
       imageUrl: primaryImage(item.images)
     })),
@@ -796,6 +841,7 @@ export async function getDeliveryReceiptPdfData(deliveryId: string): Promise<Ope
       name: item.orderItem.itemName,
       description: item.orderItem.description ?? item.orderItem.specifications,
       quantity: formatQuantity(Number(item.quantityPlanned)),
+      quantityValue: safeNumber(item.quantityPlanned),
       quantityDelivered: formatQuantity(Number(item.quantityDelivered)),
       notes: item.notes,
       imageUrl: primaryImage(item.orderItem.images)
@@ -889,16 +935,27 @@ export async function getFinalOrderSummaryPdfData(orderId: string): Promise<Oper
       },
       ...orderSummary(order, settings)
     ],
+    tableCurrency: order.currency,
     totals: orderTotals(order),
     items: order.items.map((item) => ({
       code: item.snapshotProductCode,
       name: item.itemName,
       description: item.description ?? item.specifications,
       quantity: formatQuantity(Number(item.quantity)),
+      quantityValue: safeNumber(item.quantity),
       unitPrice: formatMoney(Number(item.unitPrice), order.currency),
+      unitPriceCompact: formatMoneyAmount(safeNumber(item.unitPrice)),
+      unitPriceValue: safeNumber(item.unitPrice),
       discount: formatMoney(Number(item.discountAmount), order.currency),
-      discountDetail: discountDetail(item.discountType, item.discountValue, order.currency),
+      discountCompact: signedMoneyAmount(item.discountAmount, "-"),
+      discountDetail: discountDetail(item.discountType, item.discountValue, item.discountAmount, order.currency),
+      discountType: item.discountType,
+      discountValue: item.discountValue == null ? null : safeNumber(item.discountValue),
+      discountAmount: safeNumber(item.discountAmount),
+      lineSubtotal: safeNumber(item.lineSubtotal),
+      lineTotal: safeNumber(item.lineTotal),
       total: formatMoney(Number(item.lineTotal), order.currency),
+      totalCompact: formatMoneyAmount(safeNumber(item.lineTotal)),
       notes: item.customerNotes,
       imageUrl: primaryImage(item.images)
     })),
@@ -983,27 +1040,32 @@ function orderTotals(order: {
   paidAmount: unknown;
   balanceAmount: unknown;
 }): PdfSummaryRow[] {
+  const subtotalForItems = Math.max(safeNumber(order.subtotalAmount) - safeNumber(order.itemDiscountTotal), 0);
+  const additionalFees = Math.max(
+    safeNumber(order.totalAmount) -
+      (safeNumber(order.subtotalAmount) -
+        safeNumber(order.itemDiscountTotal) -
+        safeNumber(order.orderDiscountAmount) +
+        safeNumber(order.assemblyFeeTotal) +
+        safeNumber(order.salesInvoiceFeeTotal)),
+    0
+  );
+  const finalSubtotal = Math.max(safeNumber(order.totalAmount) - safeNumber(order.salesInvoiceFeeTotal), 0);
+
   return [
-    { label: "Subtotal for Items", value: formatMoney(Number(order.subtotalAmount), order.currency) },
-    { label: "Item discounts", value: formatMoney(Number(order.itemDiscountTotal), order.currency) },
+    { label: "Subtotal for Items", value: formatMoney(subtotalForItems, order.currency) },
+    { label: "Item Discount Total", value: signedMoney(order.itemDiscountTotal, order.currency, "-") },
+    { label: "Additional Fees", value: signedMoney(additionalFees, order.currency, "+") },
     {
-      label: "Order discount",
-      value: formatMoney(Number(order.orderDiscountAmount), order.currency)
+      label: "Additional Discount",
+      value: signedMoney(order.orderDiscountAmount, order.currency, "-")
     },
-    ...(Number(order.assemblyFeeTotal) > 0
-      ? [{ label: "Assemble fee", value: formatMoney(Number(order.assemblyFeeTotal), order.currency) }]
-      : []),
-    ...(Number(order.salesInvoiceFeeTotal) > 0
-      ? [
-          {
-            label: "Sales invoice fee",
-            value: formatMoney(Number(order.salesInvoiceFeeTotal), order.currency)
-          }
-        ]
-      : []),
-    { label: "Total", value: formatMoney(Number(order.totalAmount), order.currency) },
-    { label: "Paid", value: formatMoney(Number(order.paidAmount), order.currency) },
-    { label: "Balance", value: formatMoney(Number(order.balanceAmount), order.currency) }
+    { label: "Assembly Fee", value: signedMoney(order.assemblyFeeTotal, order.currency, "+") },
+    { label: "Final Subtotal", value: formatMoney(finalSubtotal, order.currency) },
+    { label: "Sales Invoice Fee", value: signedMoney(order.salesInvoiceFeeTotal, order.currency, "+") },
+    { label: "Final Total", value: formatMoney(safeNumber(order.totalAmount), order.currency) },
+    { label: "Paid", value: formatMoney(safeNumber(order.paidAmount), order.currency) },
+    { label: "Balance", value: formatMoney(safeNumber(order.balanceAmount), order.currency) }
   ];
 }
 

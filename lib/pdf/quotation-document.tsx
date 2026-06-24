@@ -9,7 +9,7 @@ import {
   DreamHomePolicies,
   DreamHomePreparedBy
 } from "@/lib/pdf/dream-home-layout";
-import { isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
+import { hasMoney, isPresentPdfText, shouldDisplayPdfAmountRow } from "@/lib/pdf/formatters";
 import { PdfPaymentTermsBlockView } from "@/lib/pdf/payment-terms-block";
 import type { OperationalPdfData, PdfItemRow, PdfSummaryRow } from "@/lib/pdf/types";
 
@@ -75,6 +75,12 @@ const styles = StyleSheet.create({
     fontFamily: dreamHomeFonts.body,
     fontWeight: 400
   },
+  tableCurrencyNote: {
+    marginBottom: 3,
+    color: muted,
+    fontSize: 7.6,
+    textAlign: "right"
+  },
   tableHeader: {
     display: "flex",
     flexDirection: "row",
@@ -99,9 +105,15 @@ const styles = StyleSheet.create({
     width: "10%",
     textAlign: "center"
   },
+  qtyColWithDiscount: {
+    width: "8%"
+  },
   descCol: {
     width: "50%",
     paddingHorizontal: 6
+  },
+  descColWithDiscount: {
+    width: "44%"
   },
   itemDescription: {
     display: "flex",
@@ -122,9 +134,23 @@ const styles = StyleSheet.create({
     width: "20%",
     textAlign: "right"
   },
+  priceColWithDiscount: {
+    width: "18%"
+  },
+  discountCol: {
+    width: "14%",
+    textAlign: "right"
+  },
   totalCol: {
     width: "20%",
     textAlign: "right"
+  },
+  totalColWithDiscount: {
+    width: "16%"
+  },
+  tableMoney: {
+    fontSize: 8.2,
+    lineHeight: 1
   },
   itemName: {
     fontWeight: 700
@@ -180,6 +206,8 @@ const styles = StyleSheet.create({
 export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
   const totalRows = visibleRows(data.totals ?? []);
   const customerAddress = data.customer.address?.trim();
+  const hasAnyItemDiscount = hasDiscountedItems(data.items);
+  const tableCurrency = tableCurrencyLabel(data);
 
   return (
     <Document title={data.title} author={dreamHomeBrand.companyName}>
@@ -205,14 +233,22 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
 
         {data.items?.length ? (
           <View style={styles.table}>
+            {tableCurrency ? <Text style={styles.tableCurrencyNote}>Amounts in {tableCurrency}</Text> : null}
             <View style={styles.tableHeader} fixed>
-              <Text style={styles.qtyCol}>QTY</Text>
-              <Text style={styles.descCol}>DESCRIPTION</Text>
-              <Text style={styles.priceCol}>UNIT PRICE</Text>
-              <Text style={styles.totalCol}>TOTAL</Text>
+              <Text style={hasAnyItemDiscount ? [styles.qtyCol, styles.qtyColWithDiscount] : styles.qtyCol}>QTY</Text>
+              <Text style={hasAnyItemDiscount ? [styles.descCol, styles.descColWithDiscount] : styles.descCol}>
+                DESCRIPTION
+              </Text>
+              <Text style={hasAnyItemDiscount ? [styles.priceCol, styles.priceColWithDiscount] : styles.priceCol}>
+                UNIT PRICE
+              </Text>
+              {hasAnyItemDiscount ? <Text style={styles.discountCol}>DISCOUNT</Text> : null}
+              <Text style={hasAnyItemDiscount ? [styles.totalCol, styles.totalColWithDiscount] : styles.totalCol}>
+                TOTAL
+              </Text>
             </View>
             {data.items.map((item, index) => (
-              <QuotationItemRow key={`${item.name}-${index}`} item={item} />
+              <QuotationItemRow key={`${item.name}-${index}`} item={item} showItemDiscount={hasAnyItemDiscount} />
             ))}
           </View>
         ) : null}
@@ -241,14 +277,14 @@ export function QuotationPdfDocument({ data }: { data: OperationalPdfData }) {
   );
 }
 
-function QuotationItemRow({ item }: { item: PdfItemRow }) {
+function QuotationItemRow({ item, showItemDiscount }: { item: PdfItemRow; showItemDiscount: boolean }) {
   const description = presentValues([item.code, item.name]).join(" - ");
   const detailLines = presentValues([item.description, item.notes]);
 
   return (
     <View style={styles.tableRow} wrap={false}>
-      <Text style={styles.qtyCol}>{item.quantity}</Text>
-      <View style={styles.descCol}>
+      <Text style={showItemDiscount ? [styles.qtyCol, styles.qtyColWithDiscount] : styles.qtyCol}>{item.quantity}</Text>
+      <View style={showItemDiscount ? [styles.descCol, styles.descColWithDiscount] : styles.descCol}>
         <View style={styles.itemDescription}>
           {item.imageUrl ? (
             // React-PDF Image does not expose an alt prop in its TypeScript API.
@@ -265,10 +301,61 @@ function QuotationItemRow({ item }: { item: PdfItemRow }) {
           </View>
         </View>
       </View>
-      <Text style={styles.priceCol}>{item.unitPrice ?? ""}</Text>
-      <Text style={styles.totalCol}>{item.total ?? ""}</Text>
+      <Text
+        style={
+          showItemDiscount
+            ? [styles.priceCol, styles.priceColWithDiscount, styles.tableMoney]
+            : [styles.priceCol, styles.tableMoney]
+        }
+        wrap={false}
+      >
+        {compactMoneyText(item.unitPriceCompact, item.unitPrice)}
+      </Text>
+      {showItemDiscount ? (
+        <Text style={[styles.discountCol, styles.tableMoney]} wrap={false}>
+          {itemDiscountText(item)}
+        </Text>
+      ) : null}
+      <Text
+        style={
+          showItemDiscount
+            ? [styles.totalCol, styles.totalColWithDiscount, styles.tableMoney]
+            : [styles.totalCol, styles.tableMoney]
+        }
+        wrap={false}
+      >
+        {compactMoneyText(item.totalCompact, item.total)}
+      </Text>
     </View>
   );
+}
+
+function hasDiscountedItems(items: PdfItemRow[] | undefined) {
+  return Boolean(items?.some((item) => hasMoney(item.discountAmount)));
+}
+
+function itemDiscountText(item: PdfItemRow) {
+  if (!hasMoney(item.discountAmount)) {
+    return "—";
+  }
+
+  return item.discountCompact ?? (item.discount ? `-${stripCurrencyPrefix(item.discount)}` : "—");
+}
+
+function compactMoneyText(compactValue: string | undefined, fullValue: string | null | undefined) {
+  return compactValue ?? stripCurrencyPrefix(fullValue);
+}
+
+function stripCurrencyPrefix(value: string | null | undefined) {
+  return value?.trim().replace(/^[A-Z]{3}\s+/, "") ?? "";
+}
+
+function tableCurrencyLabel(data: OperationalPdfData) {
+  return data.tableCurrency ?? data.items?.map((item) => item.unitPrice ?? item.total).find(currencyFromMoneyText)?.match(/^[A-Z]{3}/)?.[0] ?? null;
+}
+
+function currencyFromMoneyText(value: string | null | undefined) {
+  return /^[A-Z]{3}\s+/.test(value?.trim() ?? "");
 }
 
 function quotationDate(data: OperationalPdfData) {
@@ -286,7 +373,7 @@ function quotationTotalLabel(label: string) {
 function visibleRows(rows: PdfSummaryRow[]) {
   return rows.filter((row) =>
     shouldDisplayPdfAmountRow(row, {
-      alwaysShowLabels: [/^final total$/i],
+      alwaysShowLabels: [/^(subtotal for items|final subtotal|final total)$/i],
       hideZeroMoneyRows: true
     })
   );

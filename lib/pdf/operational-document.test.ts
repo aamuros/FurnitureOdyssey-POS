@@ -123,8 +123,8 @@ test("shared operational PDF template maps every downloadable document type to a
   assert.match(source, /return "Final Order Summary"/);
 });
 
-test("PDF amount rows hide sales invoice fees and zero money rows while keeping final totals", () => {
-  assert.equal(shouldDisplayPdfAmountRow({ label: "Sales Invoice Fee", value: "PHP 968.80" }), false);
+test("PDF amount rows hide zero money rows and show meaningful fees and discounts", () => {
+  assert.equal(shouldDisplayPdfAmountRow({ label: "Sales Invoice Fee", value: "PHP 968.80" }), true);
   assert.equal(
     shouldDisplayPdfAmountRow(
       { label: "Additional Fees", value: "PHP 0.00" },
@@ -141,6 +141,13 @@ test("PDF amount rows hide sales invoice fees and zero money rows while keeping 
   );
   assert.equal(
     shouldDisplayPdfAmountRow(
+      { label: "Additional Discount", value: "-PHP 500.00" },
+      { hideZeroMoneyRows: true }
+    ),
+    true
+  );
+  assert.equal(
+    shouldDisplayPdfAmountRow(
       { label: "Assembly Fee", value: "PHP 1,000.00" },
       { hideZeroMoneyRows: true }
     ),
@@ -153,6 +160,28 @@ test("PDF amount rows hide sales invoice fees and zero money rows while keeping 
     ),
     true
   );
+});
+
+test("priced item PDF tables render item discounts as a conditional column", () => {
+  const quotationSource = readFileSync("lib/pdf/quotation-document.tsx", "utf8");
+  const operationalSource = readFileSync("lib/pdf/operational-document.tsx", "utf8");
+  const dataSource = readFileSync("lib/pdf/data.ts", "utf8");
+
+  assert.doesNotMatch(quotationSource, /ITEM DISCOUNT/);
+  assert.doesNotMatch(operationalSource, /ITEM DISCOUNT/);
+  assert.match(quotationSource, /DISCOUNT/);
+  assert.match(operationalSource, /DISCOUNT/);
+  assert.match(quotationSource, /Amounts in/);
+  assert.match(operationalSource, /Amounts in/);
+  assert.match(quotationSource, /compactMoneyText/);
+  assert.match(operationalSource, /compactMoneyText/);
+  assert.match(dataSource, /unitPriceCompact/);
+  assert.match(dataSource, /discountCompact/);
+  assert.match(dataSource, /totalCompact/);
+  assert.match(quotationSource, /hasDiscountedItems\(data\.items\)/);
+  assert.match(operationalSource, /!isDeliveryReceipt && hasDiscountedItems\(data\.items\)/);
+  assert.match(quotationSource, /const detailLines = presentValues\(\[item\.description, item\.notes\]\)/);
+  assert.match(operationalSource, /const descriptionParts = presentValues\(\[item\.description, item\.notes\]\)/);
 });
 
 test("Dream Home quotation PDF uses the uploaded logo path and does not render a visible quotation number", async () => {
@@ -434,6 +463,7 @@ function finalOrderSummaryData(): OperationalPdfData {
         quantity: "1",
         unitPrice: "PHP 18,000.00",
         discount: "PHP 500.00",
+        discountDetail: "Item discount: -PHP 500.00",
         total: "PHP 17,500.00"
       },
       {
@@ -448,9 +478,9 @@ function finalOrderSummaryData(): OperationalPdfData {
     ],
     totals: [
       { label: "Subtotal for Items", value: "PHP 25,000.00" },
-      { label: "Item discounts", value: "PHP 500.00" },
-      { label: "Order discount", value: "PHP 0.00" },
-      { label: "Total", value: "PHP 24,500.00" },
+      { label: "Item Discount Total", value: "-PHP 500.00" },
+      { label: "Additional Discount", value: "-PHP 0.00" },
+      { label: "Final Total", value: "PHP 24,500.00" },
       { label: "Paid", value: "PHP 10,000.00" },
       { label: "Balance", value: "PHP 14,500.00" }
     ],
