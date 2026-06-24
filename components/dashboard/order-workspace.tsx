@@ -5149,9 +5149,9 @@ function OrderDetailTabs({
 
 function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="grid grid-cols-[128px_minmax(0,1fr)] items-start gap-3 text-[14px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right font-medium">{value}</span>
+    <div className="space-y-1 text-[14px]">
+      <p className="text-muted-foreground">{label}</p>
+      <p className="break-words font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -5174,15 +5174,15 @@ function CompactRemainingItems({
   return (
     <div className="divide-y divide-border rounded-md border border-border bg-panel text-[14px] shadow-sm">
       {items.slice(0, 4).map((item) => (
-        <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
+        <div key={item.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
           <div className="min-w-0">
-            <p className="truncate font-medium">{item.itemName}</p>
+            <p className="break-words font-medium">{item.itemName}</p>
             <p className="text-[13px] text-muted-foreground">
               {canViewDeliveries ? `${item.remainingQuantity} remaining` : `${item.quantity} ordered`}
             </p>
           </div>
           {canViewPayments ? (
-            <span className="shrink-0 text-sm font-semibold tabular-nums">{item.lineTotal}</span>
+            <span className="text-sm font-semibold tabular-nums sm:whitespace-nowrap">{item.lineTotal}</span>
           ) : null}
         </div>
       ))}
@@ -5206,11 +5206,11 @@ function OrderOverviewSummary({
 }) {
   return (
     <section id="order-summary" className="space-y-4">
-      <div className="grid gap-4 text-[14px] md:grid-cols-[1fr_.9fr]">
+      <div className="grid grid-cols-1 gap-4 text-[14px] xl:grid-cols-[minmax(280px,320px)_minmax(0,1fr)]">
         <div className="space-y-2">
           <h3 className="text-[16px] font-semibold">Overview</h3>
           <div className="rounded-md border border-border bg-panel p-5">
-            <div className="space-y-3">
+            <div className="space-y-4">
               <SummaryRow label="Customer" value={order.customerName} />
               <SummaryRow label="Total" value={order.totalAmount} />
               {canViewPayments ? (
