@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Textarea } from "@/components/ui/textarea";
+import { compressImageIfNeeded } from "@/lib/uploads/client-compression";
 import { usePersistentPageState } from "@/lib/use-persistent-page-state";
 
 type ProductRow = {
@@ -211,6 +212,8 @@ const blankProductDraft: ProductFormDraft = {
   description: "",
   specifications: ""
 };
+
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 function normalizeProductCategory(category?: string | null) {
   const normalized = String(category ?? "").trim().toLowerCase();
@@ -772,6 +775,7 @@ function ProductForm({
   const activeColorVariants = colorVariants.filter((variant) => !variant.remove);
   const [collapsedSections, setCollapsedSections] =
     useState<Record<ProductFormSectionKey, boolean>>(() => defaultProductFormCollapsedSections(product));
+  const [imageUploadError, setImageUploadError] = useState<{ fileName: string; fileSizeMB: string } | null>(null);
   const imageManifest = [
     ...productImages.map((image, index) => ({
       clientId: image.clientId,
@@ -1054,13 +1058,29 @@ function ProductForm({
     );
   }
 
-  function handleImageInputChange(
+  async function handleImageInputChange(
     event: ChangeEvent<HTMLInputElement>,
     imageClientId: string,
     scope: "product" | "variant"
   ) {
     const file = event.target.files?.[0] ?? null;
-    updateImageFile(imageClientId, file, scope);
+    event.target.value = "";
+
+    if (!file) {
+      updateImageFile(imageClientId, null, scope);
+      return;
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setImageUploadError({
+        fileName: file.name,
+        fileSizeMB: (file.size / 1024 / 1024).toFixed(1),
+      });
+      return;
+    }
+
+    const processedFile = await compressImageIfNeeded(file);
+    updateImageFile(imageClientId, processedFile, scope);
   }
 
   function renderImageHolder(image: ImageHolderDraft, scope: "product" | "variant") {
@@ -1116,7 +1136,9 @@ function ProductForm({
           ) : null}
         </div>
         <p className="min-h-5 truncate text-xs text-muted-foreground">
-          {image.fileName || image.altText || image.secureUrl || "No image selected"}
+          {image.file
+            ? `${image.fileName} (${(image.file.size / 1024 / 1024).toFixed(1)} MB)`
+            : image.fileName || image.altText || image.secureUrl || "No image selected"}
         </p>
         <input
           id={inputId}
@@ -1124,7 +1146,9 @@ function ProductForm({
           type="file"
           accept="image/jpeg,image/png,image/webp"
           className="sr-only"
-          onChange={(event) => handleImageInputChange(event, image.clientId, scope)}
+          onChange={(event) => {
+            void handleImageInputChange(event, image.clientId, scope);
+          }}
         />
       </div>
     );
@@ -1589,6 +1613,34 @@ function ProductForm({
           </Button>
         </div>
       </form>
+
+      {imageUploadError ? (
+        <AdminModal
+          onBackdropMouseDown={() => setImageUploadError(null)}
+          labelledBy="image-upload-error-title"
+          className="items-center justify-center px-4 py-6"
+          panelClassName="flex w-full max-w-md flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-xl"
+        >
+          <div className="p-5">
+            <h2 id="image-upload-error-title" className="text-base font-semibold">
+              Image Too Large
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              The selected image{" "}
+              <span className="font-medium text-foreground">{imageUploadError.fileName}</span> (
+              {imageUploadError.fileSizeMB} MB) exceeds the maximum upload size of 20 MB.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Please choose a smaller image and try again.
+            </p>
+          </div>
+          <div className="flex justify-end border-t border-border px-5 py-4">
+            <Button type="button" onClick={() => setImageUploadError(null)}>
+              OK
+            </Button>
+          </div>
+        </AdminModal>
+      ) : null}
     </section>
   );
 }

@@ -16,7 +16,7 @@ test("upload policy defines conservative image and PDF limits", () => {
     "image/png",
     "image/webp"
   ]);
-  assert.equal(getUploadPolicy("product-image").maxBytes, 5 * 1024 * 1024);
+  assert.equal(getUploadPolicy("product-image").maxBytes, 20 * 1024 * 1024);
   assert.deepEqual(getUploadPolicy("generated-document").allowedMimeTypes, ["application/pdf"]);
   assert.equal(getUploadPolicy("generated-document").maxBytes, 10 * 1024 * 1024);
 });
