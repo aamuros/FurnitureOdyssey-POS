@@ -1064,7 +1064,7 @@ function ProductForm({
     scope: "product" | "variant"
   ) {
     const file = event.target.files?.[0] ?? null;
-    event.target.value = "";
+    const inputElement = event.currentTarget;
 
     if (!file) {
       updateImageFile(imageClientId, null, scope);
@@ -1072,6 +1072,7 @@ function ProductForm({
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
+      inputElement.value = "";
       setImageUploadError({
         fileName: file.name,
         fileSizeMB: (file.size / 1024 / 1024).toFixed(1),
@@ -1080,6 +1081,13 @@ function ProductForm({
     }
 
     const processedFile = await compressImageIfNeeded(file);
+
+    if (processedFile !== file) {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(processedFile);
+      inputElement.files = dataTransfer.files;
+    }
+
     updateImageFile(imageClientId, processedFile, scope);
   }
 
