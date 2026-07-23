@@ -4965,10 +4965,41 @@ function OrderNextStepCard({
   onActionChange: (actionKey: ActiveOrderAction) => void;
   onDeliverySuccess: () => void;
 }) {
+  const [forceCompleteState, forceCompleteAction, forceCompletePending] = useActionState(completeOrderAction, initialState);
+  const [actionDropdownOpen, setActionDropdownOpen] = useState(false);
+  const actionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const forceCompleteFormRef = useRef<HTMLFormElement | null>(null);
   const formAction = nextStep.action && nextStep.action !== "complete" ? nextStep.action : null;
   const isExpanded = formAction !== null && activeAction === formAction;
   const expandedAction = activeAction;
   const showActionButton = !(order.status === "COMPLETED" && !nextStep.action);
+  const showDropdown = canUpdateOrders && nextStep.action && nextStep.action !== "complete" && !isTerminalOrder(order);
+
+  useEffect(() => {
+    if (!actionDropdownOpen) {
+      return;
+    }
+
+    function handleClickOutside(event: MouseEvent) {
+      if (actionDropdownRef.current && !actionDropdownRef.current.contains(event.target as Node)) {
+        setActionDropdownOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActionDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [actionDropdownOpen]);
 
   function handleReviewClick() {
     document.getElementById("order-summary")?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -4995,6 +5026,72 @@ function OrderNextStepCard({
           <div className="shrink-0">
             {nextStep.action === "complete" && canUpdateOrders ? (
               <CompleteOrderForm order={order} variant="primary" buttonClassName="w-full sm:w-auto" />
+            ) : showDropdown ? (
+              <>
+                <form ref={forceCompleteFormRef} action={forceCompleteAction} className="hidden">
+                  <input type="hidden" name="orderId" value={order.id} />
+                  <input type="hidden" name="force" value="true" />
+                </form>
+                <div ref={actionDropdownRef} className="relative flex">
+                  <Button
+                    type="button"
+                    variant={isExpanded || !formAction || nextStep.blocked ? "secondary" : "primary"}
+                    disabled={nextStep.blocked}
+                    className="rounded-r-none border-r-0"
+                    onClick={() => {
+                      if (formAction) {
+                        onActionChange(isExpanded ? null : formAction);
+                        return;
+                      }
+
+                      onActionChange(null);
+                      handleReviewClick();
+                    }}
+                  >
+                    {nextStep.action === "payment" ? <ReceiptText className="h-4 w-4" /> : null}
+                    {nextStep.action === "delivery" ? <Truck className="h-4 w-4" /> : null}
+                    {typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") ? (
+                      <Save className="h-4 w-4" />
+                    ) : null}
+                    {isExpanded ? "Close" : nextStep.ctaLabel}
+                  </Button>
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={actionDropdownOpen}
+                    aria-label="More actions"
+                    onClick={() => setActionDropdownOpen((prev) => !prev)}
+                    className={cn(
+                      "inline-flex h-10 min-h-10 w-8 shrink-0 items-center justify-center rounded-md rounded-l-none border transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                      isExpanded || !formAction || nextStep.blocked
+                        ? "border-border bg-panel text-foreground"
+                        : "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                    )}
+                  >
+                    <ChevronDown className={cn("h-4 w-4 transition-transform", actionDropdownOpen && "rotate-180")} />
+                  </button>
+                  {actionDropdownOpen ? (
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full z-[80] mt-1 min-w-48 rounded-lg border border-border bg-panel p-1 shadow-xl"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={forceCompletePending}
+                        className="flex w-full min-h-9 items-center gap-2 rounded-md px-3 text-left text-xs font-medium text-foreground transition hover:bg-muted/60 disabled:opacity-50"
+                        onClick={() => {
+                          setActionDropdownOpen(false);
+                          forceCompleteFormRef.current?.requestSubmit();
+                        }}
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Complete order
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </>
             ) : (
               <Button
                 type="button"
@@ -5019,6 +5116,11 @@ function OrderNextStepCard({
                 {isExpanded ? "Close" : nextStep.ctaLabel}
               </Button>
             )}
+            {forceCompleteState.message ? (
+              <p className={cn("mt-1 text-xs", forceCompleteState.ok ? "text-success" : "text-danger")}>
+                {forceCompleteState.message}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

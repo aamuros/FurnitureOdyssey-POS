@@ -2302,7 +2302,8 @@ export async function completeOrderAction(
 ): Promise<ActionState> {
   const actor = await requirePermission("ORDERS", "UPDATE");
   const parsed = completeOrderSchema.safeParse({
-    orderId: formData.get("orderId")
+    orderId: formData.get("orderId"),
+    force: formData.get("force")
   });
 
   if (!parsed.success) {
@@ -2311,6 +2312,8 @@ export async function completeOrderAction(
       message: firstIssue(parsed.error, "Invalid order.")
     };
   }
+
+  const isForce = parsed.data.force === true;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -2337,24 +2340,26 @@ export async function completeOrderAction(
         return;
       }
 
-      if (
-        !canCompleteOrder({
-          status: order.status,
-          paymentStatus: order.paymentStatus,
-          balanceAmount: order.balanceAmount,
-          paymentDueTiming: order.paymentDueTiming,
-          deliveryStatus: order.deliveryStatus
-        })
-      ) {
-        throw new ActionError("Only fully paid and fully delivered orders can be completed.");
-      }
+      if (!isForce) {
+        if (
+          !canCompleteOrder({
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            balanceAmount: order.balanceAmount,
+            paymentDueTiming: order.paymentDueTiming,
+            deliveryStatus: order.deliveryStatus
+          })
+        ) {
+          throw new ActionError("Only fully paid and fully delivered orders can be completed.");
+        }
 
-      try {
-        assertValidStatusTransition("order", order.status, "COMPLETED");
-      } catch (error) {
-        throw new ActionError(
-          error instanceof Error ? error.message : "Order cannot be completed from its current status."
-        );
+        try {
+          assertValidStatusTransition("order", order.status, "COMPLETED");
+        } catch (error) {
+          throw new ActionError(
+            error instanceof Error ? error.message : "Order cannot be completed from its current status."
+          );
+        }
       }
 
       await tx.order.update({
@@ -2372,7 +2377,9 @@ export async function completeOrderAction(
         data: {
           action: "ORDER_UPDATED",
           actorId: actor.id,
-          summary: `Completed order ${order.id}.`,
+          summary: isForce
+            ? `Force-completed order ${order.id}.`
+            : `Completed order ${order.id}.`,
           metadata: {
             entityType: "order",
             entityId: order.id,
@@ -2380,7 +2387,8 @@ export async function completeOrderAction(
             orderNumber: order.orderNumber,
             oldStatus: order.status,
             newStatus: "COMPLETED",
-            sourceAction: "order_completion"
+            sourceAction: isForce ? "force_order_completion" : "order_completion",
+            force: isForce
           }
         }
       });
@@ -2400,7 +2408,7 @@ export async function completeOrderAction(
 
   return {
     ok: true,
-    message: "Order marked completed."
+    message: isForce ? "Order force-completed." : "Order marked completed."
   };
 }
 
