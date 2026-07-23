@@ -97,10 +97,11 @@ export const dreamHomeSharedStyles = StyleSheet.create({
     marginBottom: 0
   },
   logo: {
-    width: 152,
-    height: 118,
+    width: 220,
+    height: 220,
     objectFit: "contain",
-    marginBottom: 5
+    marginBottom: -30, // Pulls the text up slightly closer to the arch
+    marginTop: -10
   },
   companyName: {
     fontFamily: dreamHomeFonts.aleo,
