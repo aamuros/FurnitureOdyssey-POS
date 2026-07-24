@@ -9,7 +9,7 @@ export const dreamHomeBrand = {
   tagline: "D H M  F U R N I T U R E S  O N L I N E  S T O R E",
   address: "4774 SAMPAGUITA ST. PARAÑAQUE CITY",
   contact: "CONTACT NUMBER: 09603123335",
-  email: "EMAIL ADDRESS: DREAMHOMEMNL01@GMAIL.COM",
+  email: "EMAIL ADDRESS: FURNITUREODYSSEY@GMAIL.COM",
   preparedBy: "Arriane Escobia",
   preparedBySubtitle: "DHM Online store"
 };
@@ -100,8 +100,8 @@ export const dreamHomeSharedStyles = StyleSheet.create({
     width: 220,
     height: 220,
     objectFit: "contain",
-    marginBottom: -30, // Pulls the text up slightly closer to the arch
-    marginTop: -10
+    marginBottom: -30,
+    marginTop: -20
   },
   companyName: {
     fontFamily: dreamHomeFonts.aleo,
@@ -224,8 +224,6 @@ export function DreamHomeHeader({
         // eslint-disable-next-line jsx-a11y/alt-text
         <Image src={dreamHomeLogoSource} style={dreamHomeSharedStyles.logo} />
       ) : null}
-      <Text style={dreamHomeSharedStyles.companyName}>{dreamHomeBrand.companyName}</Text>
-      <Text style={dreamHomeSharedStyles.tagline}>{dreamHomeBrand.tagline}</Text>
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.address}</Text>
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.contact}</Text>
       <Text style={dreamHomeSharedStyles.brandLine}>{dreamHomeBrand.email}</Text>
