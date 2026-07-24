@@ -4973,7 +4973,7 @@ function OrderNextStepCard({
   const isExpanded = formAction !== null && activeAction === formAction;
   const expandedAction = activeAction;
   const showActionButton = !(order.status === "COMPLETED" && !nextStep.action);
-  const showDropdown = canUpdateOrders && nextStep.action && nextStep.action !== "complete" && !isTerminalOrder(order);
+  const showDropdown = canUpdateOrders && typeof nextStep.action === "string" && nextStep.action.startsWith("deliveryProgress:") && !isTerminalOrder(order);
 
   useEffect(() => {
     if (!actionDropdownOpen) {
@@ -5073,19 +5073,19 @@ function OrderNextStepCard({
                   {actionDropdownOpen ? (
                     <div
                       role="menu"
-                      className="absolute right-0 top-full z-[80] mt-1 min-w-48 rounded-lg border border-border bg-panel p-1 shadow-xl"
+                      className="absolute right-0 top-full z-[80] mt-1.5 min-w-48 overflow-hidden rounded-lg border border-border bg-panel p-1 shadow-lg"
                     >
                       <button
                         type="button"
                         role="menuitem"
                         disabled={forceCompletePending}
-                        className="flex w-full min-h-9 items-center gap-2 rounded-md px-3 text-left text-xs font-medium text-foreground transition hover:bg-muted/60 disabled:opacity-50"
+                        className="inline-flex w-full min-h-10 items-center justify-start gap-2 rounded-lg px-4 text-sm font-semibold text-foreground transition duration-150 hover:bg-soft-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
                         onClick={() => {
                           setActionDropdownOpen(false);
                           forceCompleteFormRef.current?.requestSubmit();
                         }}
                       >
-                        <CheckCircle2 className="h-4 w-4" />
+                        <CheckCircle2 className="h-4 w-4 text-success" />
                         Complete order
                       </button>
                     </div>
