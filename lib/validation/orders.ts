@@ -292,7 +292,8 @@ export const createDeliverySchema = z
   });
 
 export const completeOrderSchema = z.object({
-  orderId: z.string().uuid("Choose an order.")
+  orderId: z.string().uuid("Choose an order."),
+  force: formBoolean.default(false)
 });
 
 export const cancelOrderSchema = z.object({

@@ -1,4 +1,5 @@
-import { Armchair, LogOut } from "lucide-react";
+import Image from "next/image";
+import { LogOut } from "lucide-react";
 import type { PermissionModule } from "@prisma/client";
 import { signOut } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -29,9 +30,13 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
     <div className="min-h-svh bg-background text-foreground lg:grid lg:grid-cols-[280px_1fr]">
       <aside className="border-b border-border bg-panel lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
         <div className="flex min-h-20 items-center gap-3 border-b border-border px-5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-soft-accent text-accent">
-            <Armchair className="h-5 w-5" />
-          </div>
+          <Image
+            src="/fo-logo.png"
+            alt="Furniture Odyssey logo"
+            width={44}
+            height={44}
+            className="h-11 w-11 rounded-xl border border-border object-cover"
+          />
           <div>
             <p className="text-base font-semibold leading-5">Furniture Odyssey</p>
             <p className="studio-kicker mt-1">Sales Studio</p>
